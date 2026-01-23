@@ -1,9 +1,23 @@
-import React from 'react'
+import Header from "@/components/home_screen/Header";
+import SearchBar from "@/components/home_screen/SearchBar";
+import OfferCard from "@/components/home_screen/OfferCard";
+import MenuOfferTabs from "@/components/home_screen/MenuOfferTabs";
+import ProductGrid from "@/components/home_screen/ProductGrid";
 
-const Home = () => {
+
+export default function Home() {
   return (
-    <div>Home</div>
-  )
-}
+    <div className="pb-24">
+      <Header />
+      <SearchBar />
+      <OfferCard />
+      <MenuOfferTabs />
 
-export default Home
+      <h2 className="px-4 mt-6 font-semibold">
+        Today’s Trending
+      </h2>
+
+      <ProductGrid />
+    </div>
+  );
+}
