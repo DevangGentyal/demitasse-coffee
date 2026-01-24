@@ -1,13 +1,11 @@
-import Home from "@/pages/home_screen/Home";
-import BottomNav from "@/components/BottomNav";
-import Menu from "./pages/menu_screen/Menu";
-
+import React from "react";
+import Cart from "./pages/cart_screen/Cart";
+import Offers from "./pages/offer_screen/Offers";
 
 export default function App() {
   return (
     <div className="min-h-screen bg-[#f4efe9] max-w-md mx-auto">
-     <Menu />
-      <BottomNav />
+      <Cart />
     </div>
   );
 }
