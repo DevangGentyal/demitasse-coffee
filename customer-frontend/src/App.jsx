@@ -1,12 +1,35 @@
-import React from "react";
-import Cart from "./pages/cart_screen/Cart";
-import Offers from "./pages/offer_screen/Offers";
-import ItemDetails from "./pages/itemDetails_screen/ItemDetails";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+
+import Home from "@/pages/home_screen/Home";
+import Menu from "@/pages/menu_screen/Menu";
+import Offers from "@/pages/offer_screen/Offers";
+import Cart from "@/pages/cart_screen/Cart";
+import ItemDetails from "@/pages/itemDetails_screen/ItemDetails";
+import BillDetails from "@/pages/cart_screen/BillDetails";
+
+import BottomNav from "@/components/BottomNav";
+import { CartProvider } from "@/context/CartContext";
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-[#f4efe9] max-w-md mx-auto">
-      <ItemDetails />
-    </div>
+    <BrowserRouter>
+      <CartProvider>
+        <div className="min-h-screen bg-[#f4efe9] max-w-md mx-auto pb-24">
+          
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/home" element={<Home />} />
+            <Route path="/menu" element={<Menu />} />
+            <Route path="/offers" element={<Offers />} />
+            <Route path="/item/:id" element={<ItemDetails />} />
+            <Route path="/cart" element={<Cart />} />
+            <Route path="/bill" element={<BillDetails />} />
+          </Routes>
+
+          {/* Persistent Bottom Nav */}
+          <BottomNav />
+        </div>
+      </CartProvider>
+    </BrowserRouter>
   );
 }
