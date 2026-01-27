@@ -1,10 +1,12 @@
-import React from "react";
+import { useNavigate } from "react-router-dom";
 
 const HeaderBar = () => {
+  const navigate = useNavigate();
+
   return (
     <div className="flex justify-between items-center px-4 py-3">
       <button
-        onClick={() => window.history.back()}
+        onClick={() => navigate(-1)}
         className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow"
       >
         ←
