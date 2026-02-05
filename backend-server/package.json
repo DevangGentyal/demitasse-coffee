@@ -1,7 +1,25 @@
 {
+  "name": "functions",
+  "description": "Firebase Cloud Functions",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint --ext .js,.ts src",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
   "dependencies": {
-    "firebase": "^12.8.0",
     "firebase-admin": "^13.6.0",
     "firebase-functions": "^7.0.5"
-  }
+  },
+  "devDependencies": {
+    "typescript": "^5.1.6",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0"
+  },
+  "private": true
 }
