@@ -43,10 +43,6 @@ interface AppContextType {
   updateOrderItem: (orderId: string, itemId: string, updates: Partial<OrderItem>) => void
   deleteOrder: (orderId: string) => void
   updateTable: (tableId: number, updates: Partial<Table>) => void
-  isLoggedIn: boolean
-  setIsLoggedIn: (loggedIn: boolean) => void
-  currentUser: string | null
-  setCurrentUser: (user: string | null) => void
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
@@ -54,21 +50,15 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tables, setTables] = useState<Table[]>([])
   const [orders, setOrders] = useState<Order[]>([])
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [currentUser, setCurrentUser] = useState<string | null>(null)
 
   useEffect(() => {
     const savedTables = localStorage.getItem('demitasse_tables')
     const savedOrders = localStorage.getItem('demitasse_orders')
-    const savedUser = localStorage.getItem('demitasse_user')
-    const savedLoginState = localStorage.getItem('demitasse_loggedIn')
 
     if (savedTables) setTables(JSON.parse(savedTables))
     else setTables(getDefaultTables())
 
     if (savedOrders) setOrders(JSON.parse(savedOrders))
-    if (savedUser) setCurrentUser(savedUser)
-    if (savedLoginState) setIsLoggedIn(JSON.parse(savedLoginState))
   }, [])
 
   useEffect(() => {
@@ -78,14 +68,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('demitasse_orders', JSON.stringify(orders))
   }, [orders])
-
-  useEffect(() => {
-    localStorage.setItem('demitasse_user', currentUser || '')
-  }, [currentUser])
-
-  useEffect(() => {
-    localStorage.setItem('demitasse_loggedIn', JSON.stringify(isLoggedIn))
-  }, [isLoggedIn])
 
   const addOrder = (order: Order) => {
     setOrders([...orders, order])
@@ -130,10 +112,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateOrderItem,
         deleteOrder,
         updateTable,
-        isLoggedIn,
-        setIsLoggedIn,
-        currentUser,
-        setCurrentUser,
       }}
     >
       {children}

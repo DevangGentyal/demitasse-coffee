@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useApp } from '@/app/context/AppContext'
+import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
@@ -31,7 +31,24 @@ const initialOffers: Offer[] = [
 
 export default function OfferPage() {
   const router = useRouter()
-  const { isLoggedIn } = useApp()
+  const { isLoggedIn, isLoading } = useAuth()
+
+  // Wait for auth to be checked before rendering
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isLoggedIn) {
+    router.push('/login')
+    return null
+  }
 
   // Original offers state (from "backend")
   const [originalOffers, setOriginalOffers] = useState<Offer[]>(initialOffers)

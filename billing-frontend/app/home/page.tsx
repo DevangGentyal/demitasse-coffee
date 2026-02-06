@@ -1,13 +1,27 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@/context/AuthContext'
 import { useApp } from '@/app/context/AppContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { FloorCanvas } from '@/app/components/FloorCanvas'
 
 export default function HomePage() {
   const router = useRouter()
-  const { isLoggedIn, tables } = useApp()
+  const { isLoggedIn, isLoading } = useAuth()
+  const { tables } = useApp()
+
+  // Wait for auth to be checked before rendering
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!isLoggedIn) {
     router.push('/login')

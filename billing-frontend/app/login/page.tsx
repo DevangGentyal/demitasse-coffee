@@ -4,35 +4,48 @@ import React from "react"
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useApp } from '@/app/context/AppContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
+import { logIn } from "@/lib/firebase/auth"
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
-  const { setIsLoggedIn, setCurrentUser } = useApp()
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setIsLoading(true)
 
     if (!email || !password) {
       setError('Please fill in all fields')
+      setIsLoading(false)
       return
     }
 
-    if (password.length < 4) {
-      setError('Password must be at least 4 characters')
-      return
+    try {
+      await logIn(email, password)
+      router.push('/home')
+    } catch (err: any) {
+      const errorMessage = err.message || 'Login failed'
+      if (errorMessage.includes('user-not-found')) {
+        setError('Email not found. Please check and try again.')
+      } else if (errorMessage.includes('invalid-credential')) {
+        setError('Incorrect Credentials. Please try again.')
+      } else if (errorMessage.includes('invalid-email')) {
+        setError('Invalid email format.')
+      } else if (errorMessage.includes('too-many-requests')) {
+        setError('Too many failed login attempts. Please try again later.')
+      } else {
+        setError(errorMessage)
+      }
+    } finally {
+      setIsLoading(false)
     }
-
-    setCurrentUser(email)
-    setIsLoggedIn(true)
-    router.push('/home')
   }
 
   return (
@@ -75,21 +88,12 @@ export default function LoginPage() {
 
             <Button
               type="submit"
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2"
+              disabled={isLoading}
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Login
+              {isLoading ? 'Logging in...' : 'Login'}
             </Button>
           </form>
-
-          <div className="mt-6 p-4 bg-muted/30 rounded-lg border border-border">
-            <p className="text-xs text-muted-foreground text-center">
-              <strong>Demo Credentials:</strong>
-              <br />
-              Email: staff@demitasse.com
-              <br />
-              Password: demo
-            </p>
-          </div>
         </div>
       </Card>
     </div>
