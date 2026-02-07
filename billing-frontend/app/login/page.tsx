@@ -93,6 +93,13 @@ export default function LoginPage() {
             >
               {isLoading ? 'Logging in...' : 'Login'}
             </Button>
+
+            <div className="flex items-center justify-center gap-3">
+              <span className="text-sm text-muted-foreground">or</span>
+              <Button asChild variant="outline" className="py-1 px-3">
+                <a href="/register">Register</a>
+              </Button>
+            </div>
           </form>
         </div>
       </Card>

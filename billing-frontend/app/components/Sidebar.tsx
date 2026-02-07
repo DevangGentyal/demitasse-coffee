@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
-import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag } from 'lucide-react'
+import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 
 export function Sidebar() {
@@ -57,6 +57,14 @@ export function Sidebar() {
           )
         })}
       </nav>
+
+      <button
+        onClick={() => router.push('/register')}
+        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent/20 transition-colors"
+      >
+        <UserPlus size={20} />
+        <span className="font-medium">Register</span>
+      </button>
 
       <button
         onClick={handleLogout}
