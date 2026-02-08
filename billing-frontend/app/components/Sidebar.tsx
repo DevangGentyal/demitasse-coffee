@@ -1,18 +1,25 @@
 'use client'
 
 import { useRouter, usePathname } from 'next/navigation'
-import { useApp } from '@/app/context/AppContext'
-import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag, UserPlus } from 'lucide-react'
+import { useState } from 'react'
 
 export function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
-  const { setIsLoggedIn, setCurrentUser } = useApp()
+  const { logout } = useAuth()
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
-  const handleLogout = () => {
-    setIsLoggedIn(false)
-    setCurrentUser(null)
-    router.push('/login')
+  const handleLogout = async () => {
+    setIsLoggingOut(true)
+    try {
+      await logout()
+      router.push('/login')
+    } catch (error) {
+      console.error('Logout failed:', error)
+      setIsLoggingOut(false)
+    }
   }
 
   const navItems = [
@@ -52,11 +59,20 @@ export function Sidebar() {
       </nav>
 
       <button
+        onClick={() => router.push('/register')}
+        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent/20 transition-colors"
+      >
+        <UserPlus size={20} />
+        <span className="font-medium">Register</span>
+      </button>
+
+      <button
         onClick={handleLogout}
-        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground hover:bg-red-500/20 hover:text-red-500 transition-colors"
+        disabled={isLoggingOut}
+        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground hover:bg-red-500/20 hover:text-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <LogOut size={20} />
-        <span className="font-medium">Logout</span>
+        <span className="font-medium">{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
       </button>
     </aside>
   )
