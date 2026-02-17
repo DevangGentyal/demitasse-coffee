@@ -58,7 +58,6 @@ export default function RegisterPage() {
         phone:phone,
         openingHours:openingHours,
         createdAt: new Date().toISOString(),
-        
       })
 
       // Save profile to Firestore under `users/{uid}`
