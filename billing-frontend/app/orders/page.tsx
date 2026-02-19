@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@/context/AuthContext'
 import { useApp } from '@/app/context/AppContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { OrderCard } from '@/app/components/OrderCard'
@@ -11,8 +12,21 @@ import { AddOrderModal } from '@/app/components/AddOrderModal'
 
 export default function OrdersPage() {
   const router = useRouter()
-  const { isLoggedIn, orders } = useApp()
+  const { isLoggedIn, isLoading } = useAuth()
+  const { orders } = useApp()
   const [showAddOrder, setShowAddOrder] = useState(false)
+
+  // Wait for auth to be checked before rendering
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!isLoggedIn) {
     router.push('/login')

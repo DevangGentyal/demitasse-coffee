@@ -2,17 +2,76 @@
 
 import { useRouter } from 'next/navigation'
 import { useApp } from '@/app/context/AppContext'
+import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { Card } from '@/components/ui/card'
 import { MapPin, Phone, Mail, Clock } from 'lucide-react'
+import { db } from "@/lib/firebase/app";
+import { auth } from "@/lib/firebase/auth";
+import { useEffect, useState } from "react";
+import { doc, getDoc, collection } from "firebase/firestore";
 
 export default function DetailsPage() {
-  const router = useRouter()
-  const { isLoggedIn } = useApp()
+  const router = useRouter();
+  const { isLoggedIn, isLoading } = useAuth();
+  const [outlet, setOutlet] = useState<any>(null);
+  const [dataLoading, setDataLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const fetchOutlet = async () => {
+      try {
+        var outletId = ""
+        const user = auth.currentUser;
+
+
+        if (user) {
+          const uid = user.uid;
+          const userRef = doc(db, "users", uid);
+          const userDoc = await getDoc(userRef);
+          outletId = userDoc.data()!.outletID
+        }
+
+        const ref = doc(db, "outlets", outletId);
+        const snap = await getDoc(ref);
+
+        if (snap.exists()) {
+          setOutlet(snap.data());
+        }
+      } catch (error) {
+        console.error("Failed to fetch outlet:", error);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+
+    fetchOutlet();
+  }, [isLoggedIn]);
+
+  // Wait for auth to be checked before rendering
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!isLoggedIn) {
     router.push('/login')
     return null
+  }
+
+  if (!outlet) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Outlet not found</p>
+      </div>
+    );
   }
 
   return (
@@ -34,7 +93,7 @@ export default function DetailsPage() {
                   <div>
                     <p className="font-medium text-foreground">Location</p>
                     <p className="text-sm text-muted-foreground">
-                      123 Coffee Street, Downtown
+                      {outlet.location}
                     </p>
                   </div>
                 </div>
@@ -42,14 +101,14 @@ export default function DetailsPage() {
                   <Phone className="text-accent mt-1 flex-shrink-0" size={20} />
                   <div>
                     <p className="font-medium text-foreground">Phone</p>
-                    <p className="text-sm text-muted-foreground">(555) 123-4567</p>
+                    <p className="text-sm text-muted-foreground"> {outlet.phone}</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <Mail className="text-accent mt-1 flex-shrink-0" size={20} />
                   <div>
                     <p className="font-medium text-foreground">Email</p>
-                    <p className="text-sm text-muted-foreground">info@demitasse.com</p>
+                    <p className="text-sm text-muted-foreground"> {outlet.email}</p>
                   </div>
                 </div>
               </div>

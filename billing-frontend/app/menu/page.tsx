@@ -1,11 +1,9 @@
 'use client'
 
-import React from "react"
-
+import React, { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { useApp } from '@/app/context/AppContext'
+import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
-import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -24,16 +22,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Edit2 } from 'lucide-react'
-
-interface MenuItem {
-  id: number
-  name: string
-  category: string
-  subCategory: string
-  available: boolean
-  price: number
-  image?: string
-}
+import {
+  getProductsByOutletId,
+  updateProduct,
+  createProduct,
+  deleteProduct,
+  updateProductAvailability,
+  Product,
+} from '@/lib/services/productService'
+import { auth } from '@/lib/firebase/auth'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from '@/lib/firebase/app'
 
 const CATEGORIES = ['Appetizers', 'Main Course', 'Desserts', 'Beverages', 'Sides']
 const SUB_CATEGORIES: Record<string, string[]> = {
@@ -44,93 +43,145 @@ const SUB_CATEGORIES: Record<string, string[]> = {
   'Sides': ['Fries', 'Bread', 'Sauces'],
 }
 
-// Simulated initial menu data (would come from backend in real app)
-const initialMenuItems: MenuItem[] = [
-  { id: 1, name: 'Pasta Carbonara', category: 'Main Course', subCategory: 'Pasta', available: true, price: 500 },
-  { id: 2, name: 'Margherita Pizza', category: 'Main Course', subCategory: 'Pizza', available: true, price: 600 },
-  { id: 3, name: 'Burger', category: 'Main Course', subCategory: 'Meat', available: false, price: 350 },
-  { id: 4, name: 'Caesar Salad', category: 'Appetizers', subCategory: 'Salads', available: true, price: 250 },
-  { id: 5, name: 'Espresso', category: 'Beverages', subCategory: 'Coffee', available: true, price: 150 },
-]
-
 export default function MenuPage() {
   const router = useRouter()
-  const { isLoggedIn } = useApp()
+  const { isLoggedIn, isLoading } = useAuth()
 
-  // Original menu state (from "backend")
-  const [originalMenu, setOriginalMenu] = useState<MenuItem[]>(initialMenuItems)
-  // Edited menu state (local changes)
-  const [editedMenu, setEditedMenu] = useState<MenuItem[]>(initialMenuItems)
-  
-  // Search state
+  // State management
+  const [products, setProducts] = useState<Product[]>([])
+  const [dataLoading, setDataLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  
-  // Add/Edit Item Modal state
+  const [isSaving, setIsSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [outletId, setOutletId] = useState<string | null>(null)
+
+  // Modal states
   const [isItemModalOpen, setIsItemModalOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
-  const [editingItemId, setEditingItemId] = useState<number | null>(null)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     category: '',
-    subCategory: '',
+    subcategory: '',
     price: '',
-    image: '',
+    taxPercent: '0',
     available: true,
+    imageUrl: '',
+    isVeg: true,
   })
-  
-  // Saving state
-  const [isSaving, setIsSaving] = useState(false)
 
-  // Variables for price and add item modals
-  const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
-  const [newPrice, setNewPrice] = useState('')
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [newItemName, setNewItemName] = useState('')
-  const [newItemPrice, setNewItemPrice] = useState('')
-  const [newItemAvailable, setNewItemAvailable] = useState(true)
+  // Fetch data on mount
+  useEffect(() => {
+    if (isLoading || !isLoggedIn) {
+      if (isLoading === false && !isLoggedIn) {
+        setDataLoading(false)
+      }
+      return
+    }
 
-  // Filter menu items based on search query
-  const filteredMenu = useMemo(() => {
-    if (!searchQuery.trim()) return editedMenu
+    const fetchData = async () => {
+      try {
+        setDataLoading(true)
+        
+        // Get current user - should be available since isLoading is false
+        const user = auth.currentUser
+        if (!user) {
+          throw new Error('User not authenticated')
+        }
+
+        // Fetch outlet ID from user document
+        const uid = user.uid
+        const userRef = doc(db, 'users', uid)
+        const userDoc = await getDoc(userRef)
+        
+        if (!userDoc.exists()) {
+          throw new Error('User document not found')
+        }
+
+        const fetchedOutletId = userDoc.data()?.outletID
+        if (!fetchedOutletId) {
+          throw new Error('Outlet ID not found in user document')
+        }
+
+        setOutletId(fetchedOutletId)
+        console.log("OUTLET ID: ",fetchedOutletId);
+
+        // Fetch products
+        const fetchedProducts = await getProductsByOutletId(fetchedOutletId)
+        setProducts(fetchedProducts)
+        setEditError(null)
+      } catch (error) {
+        console.error('Failed to fetch data:', error)
+        setEditError(error instanceof Error ? error.message : 'Failed to load data. Please try again.')
+      } finally {
+        setDataLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [isLoading, isLoggedIn])
+
+  // Filter products based on search
+  const filteredProducts = useMemo(() => {
+    if (!searchQuery.trim()) return products
     const query = searchQuery.toLowerCase()
-    return editedMenu.filter(
-      item =>
-        item.name.toLowerCase().includes(query) ||
-        item.id.toString().includes(query)
+    return products.filter(
+      product =>
+        product.name.toLowerCase().includes(query) ||
+        product.id.includes(query)
     )
-  }, [editedMenu, searchQuery])
+  }, [products, searchQuery])
+
+  // Auth checks
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!isLoggedIn) {
     router.push('/login')
     return null
   }
 
-  // Handle item name change
-  const handleNameChange = (itemId: number, newName: string) => {
-    setEditedMenu(prev =>
-      prev.map(item => (item.id === itemId ? { ...item, name: newName } : item))
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
     )
   }
 
-  // Handle availability change
-  const handleAvailabilityChange = (itemId: number, available: boolean) => {
-    setEditedMenu(prev =>
-      prev.map(item => (item.id === itemId ? { ...item, available } : item))
+  if (!outletId) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Outlet not found</p>
+      </div>
     )
   }
 
-  // Open edit modal
-  const openItemModal = (item?: MenuItem) => {
-    if (item) {
+  // Handler functions
+  const openItemModal = (product?: Product) => {
+    if (product) {
       setIsEditing(true)
-      setEditingItemId(item.id)
+      setEditingItemId(product.id)
       setFormData({
-        name: item.name,
-        category: item.category,
-        subCategory: item.subCategory,
-        price: item.price.toString(),
-        image: item.image || '',
-        available: item.available,
+        name: product.name,
+        category: product.category,
+        subcategory: product.subcategory || '',
+        price: product.price.toString(),
+        taxPercent: product.taxPercent.toString(),
+        available: product.available,
+        imageUrl: product.imageUrl || '',
+        isVeg: product.isVeg ?? true,
       })
     } else {
       setIsEditing(false)
@@ -138,72 +189,17 @@ export default function MenuPage() {
       setFormData({
         name: '',
         category: '',
-        subCategory: '',
+        subcategory: '',
         price: '',
-        image: '',
+        taxPercent: '0',
         available: true,
+        imageUrl: '',
+        isVeg: true,
       })
     }
     setIsItemModalOpen(true)
   }
 
-  // Handle form submission
-  const handleSubmit = () => {
-    if (!formData.name.trim() || !formData.category || !formData.subCategory || !formData.price) {
-      alert('Please fill all required fields')
-      return
-    }
-
-    const priceValue = parseFloat(formData.price)
-    if (isNaN(priceValue) || priceValue < 0) {
-      alert('Please enter a valid price')
-      return
-    }
-
-    if (isEditing && editingItemId) {
-      // Edit existing item
-      setEditedMenu(prev =>
-        prev.map(item =>
-          item.id === editingItemId
-            ? {
-                ...item,
-                name: formData.name.trim(),
-                category: formData.category,
-                subCategory: formData.subCategory,
-                price: priceValue,
-                image: formData.image,
-                available: formData.available,
-              }
-            : item
-        )
-      )
-    } else {
-      // Add new item
-      const newId = Math.max(...editedMenu.map(i => i.id), 0) + 1
-      const newItem: MenuItem = {
-        id: newId,
-        name: formData.name.trim(),
-        category: formData.category,
-        subCategory: formData.subCategory,
-        available: formData.available,
-        price: priceValue,
-        image: formData.image,
-      }
-      setEditedMenu(prev => [...prev, newItem])
-    }
-
-    setIsItemModalOpen(false)
-    setFormData({
-      name: '',
-      category: '',
-      subCategory: '',
-      price: '',
-      image: '',
-      available: true,
-    })
-  }
-
-  // Handle form field changes
   const handleFormChange = (field: string, value: any) => {
     setFormData(prev => ({
       ...prev,
@@ -211,86 +207,89 @@ export default function MenuPage() {
     }))
   }
 
-  // Handle image file upload
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const base64String = reader.result as string
-        handleFormChange('image', base64String)
-      }
-      reader.readAsDataURL(file)
+  const handleSubmit = async () => {
+    if (!formData.name.trim() || !formData.category || !formData.subcategory || !formData.price) {
+      setEditError('Please fill all required fields')
+      return
     }
-  }
 
-  // Open price edit modal
-  const openPriceModal = (item: MenuItem) => {
-    setEditingItem(item)
-    setNewPrice(item.price.toString())
-    setIsItemModalOpen(true)
-  }
+    const priceValue = parseFloat(formData.price)
+    const taxValue = parseFloat(formData.taxPercent)
 
-  // Update price from modal
-  const handlePriceUpdate = () => {
-    if (editingItem && newPrice) {
-      const priceValue = parseFloat(newPrice)
-      if (!isNaN(priceValue) && priceValue >= 0) {
-        setEditedMenu(prev =>
-          prev.map(item =>
-            item.id === editingItem.id ? { ...item, price: priceValue } : item
-          )
-        )
-      }
+    if (isNaN(priceValue) || priceValue < 0) {
+      setEditError('Please enter a valid price')
+      return
     }
-    setIsItemModalOpen(false)
-    setEditingItem(null)
-    setNewPrice('')
-  }
 
-  // Add new item
-  const handleAddItem = () => {
-    if (newItemName.trim() && newItemPrice) {
-      const priceValue = parseFloat(newItemPrice)
-      if (!isNaN(priceValue) && priceValue >= 0) {
-        const newId = Math.max(...editedMenu.map(i => i.id), 0) + 1
-        const newItem: MenuItem = {
-          id: newId,
-          name: newItemName.trim(),
-          available: newItemAvailable,
-          price: priceValue,
-        }
-        setEditedMenu(prev => [...prev, newItem])
-      }
+    if (isNaN(taxValue) || taxValue < 0) {
+      setEditError('Please enter a valid tax percentage')
+      return
     }
-    setIsAddModalOpen(false)
-    setNewItemName('')
-    setNewItemPrice('')
-    setNewItemAvailable(true)
-  }
 
-  // Confirm all changes (simulate API call)
-  const handleConfirmChanges = async () => {
     setIsSaving(true)
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // On success, update original menu to match edited menu
-      setOriginalMenu([...editedMenu])
-      
-      alert('Changes saved successfully!')
-    } catch {
-      // On failure, rollback to original menu
-      setEditedMenu([...originalMenu])
-      alert('Failed to save changes. Rolled back to previous state.')
+      const productData = {
+        name: formData.name.trim(),
+        category: formData.category,
+        subcategory: formData.subcategory,
+        price: priceValue,
+        taxPercent: taxValue,
+        available: formData.available,
+        imageUrl: formData.imageUrl,
+        isVeg: formData.isVeg,
+      }
+
+      if (isEditing && editingItemId) {
+        await updateProduct(outletId, editingItemId, productData)
+        setProducts(prev =>
+          prev.map(p =>
+            p.id === editingItemId
+              ? { ...p, ...productData }
+              : p
+          )
+        )
+      } else {
+        const newId = await createProduct(outletId, productData)
+        setProducts(prev => [...prev, { id: newId, outletId, ...productData } as Product])
+      }
+
+      setIsItemModalOpen(false)
+      setEditError(null)
+    } catch (error) {
+      console.error('Error saving product:', error)
+      setEditError('Failed to save product. Please try again.')
     } finally {
       setIsSaving(false)
     }
   }
 
-  // Check if there are unsaved changes
-  const hasUnsavedChanges = JSON.stringify(originalMenu) !== JSON.stringify(editedMenu)
+  const handleAvailabilityChange = async (productId: string, available: boolean) => {
+    try {
+      await updateProductAvailability(outletId, productId, available)
+      setProducts(prev =>
+        prev.map(p =>
+          p.id === productId ? { ...p, available } : p
+        )
+      )
+      setEditError(null)
+    } catch (error) {
+      console.error('Error updating availability:', error)
+      setEditError('Failed to update availability. Please try again.')
+    }
+  }
+
+  const handleDeleteProduct = async (productId: string) => {
+    if (!confirm('Are you sure you want to delete this product?')) return
+
+    try {
+      await deleteProduct(outletId, productId)
+      setProducts(prev => prev.filter(p => p.id !== productId))
+      setEditError(null)
+    } catch (error) {
+      console.error('Error deleting product:', error)
+      setEditError('Failed to delete product. Please try again.')
+    }
+  }
 
   return (
     <div className="flex h-screen">
@@ -299,18 +298,25 @@ export default function MenuPage() {
         <div className="p-8">
           {/* Page Header */}
           <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-foreground">Outlet Name</h1>
-            <p className="text-muted-foreground underline italic">Menu Page</p>
+            <h1 className="text-2xl font-bold text-foreground">Outlet Menu</h1>
+            <p className="text-muted-foreground underline italic">Manage Menu Items</p>
           </div>
 
           {/* Main Content Card */}
           <div className="border border-border rounded-lg p-6">
+            {/* Error Message */}
+            {editError && (
+              <div className="mb-4 p-3 bg-destructive/10 border border-destructive text-destructive rounded">
+                {editError}
+              </div>
+            )}
+
             {/* Search and Add Item Row */}
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="flex-1 max-w-xl">
                 <Input
                   type="text"
-                  placeholder="Search"
+                  placeholder="Search products..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   className="w-full border-foreground"
@@ -328,115 +334,104 @@ export default function MenuPage() {
             {/* Menu Table */}
             <div className="border border-border rounded overflow-hidden">
               {/* Table Header */}
-              <div className="grid grid-cols-6 bg-foreground text-background font-medium">
+              <div className="grid grid-cols-7 bg-foreground text-background font-medium">
                 <div className="p-3 border-r border-muted-foreground/30">Item Name</div>
                 <div className="p-3 border-r border-muted-foreground/30">Category</div>
                 <div className="p-3 border-r border-muted-foreground/30">Sub Category</div>
                 <div className="p-3 border-r border-muted-foreground/30">Price</div>
+                <div className="p-3 border-r border-muted-foreground/30">Tax %</div>
                 <div className="p-3 border-r border-muted-foreground/30">Available</div>
-                <div className="p-3">Edit</div>
+                <div className="p-3">Actions</div>
               </div>
 
               {/* Table Body */}
               <div className="divide-y divide-border">
-                {filteredMenu.map(item => (
-                  <div
-                    key={item.id}
-                    className="grid grid-cols-6 items-center min-h-[80px]"
-                  >
-                    {/* Item Name */}
-                    <div className="p-3 border-r border-border">
-                      <Input
-                        type="text"
-                        value={item.name}
-                        onChange={e => handleNameChange(item.id, e.target.value)}
-                        className="border-0 bg-transparent p-0 h-auto focus-visible:ring-0 focus-visible:ring-offset-0 text-foreground text-sm"
-                      />
-                    </div>
+                {filteredProducts.length > 0 ? (
+                  filteredProducts.map(product => (
+                    <div
+                      key={product.id}
+                      className="grid grid-cols-7 items-center min-h-[80px]"
+                    >
+                      {/* Item Name */}
+                      <div className="p-3 border-r border-border">
+                        <p className="text-foreground text-sm font-medium">{product.name}</p>
+                      </div>
 
-                    {/* Category */}
-                    <div className="p-3 border-r border-border text-foreground text-sm">
-                      {item.category}
-                    </div>
+                      {/* Category */}
+                      <div className="p-3 border-r border-border text-foreground text-sm">
+                        {product.category}
+                      </div>
 
-                    {/* Sub Category */}
-                    <div className="p-3 border-r border-border text-foreground text-sm">
-                      {item.subCategory}
-                    </div>
+                      {/* Sub Category */}
+                      <div className="p-3 border-r border-border text-foreground text-sm">
+                        {product.subcategory || '-'}
+                      </div>
 
-                    {/* Price */}
-                    <div className="p-3 border-r border-border">
-                      <span className="font-medium text-foreground text-sm">
-                        ₹{item.price}
-                      </span>
-                    </div>
+                      {/* Price */}
+                      <div className="p-3 border-r border-border">
+                        <span className="font-medium text-foreground text-sm">
+                          ₹{product.price}
+                        </span>
+                      </div>
 
-                    {/* Availability (Radio buttons) */}
-                    <div className="p-3 border-r border-border">
-                      <div className="flex flex-col gap-1.5">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`availability-${item.id}`}
-                            checked={item.available}
-                            onChange={() => handleAvailabilityChange(item.id, true)}
-                            className="w-4 h-4 accent-foreground"
-                          />
-                          <span className="text-xs text-foreground">Yes</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`availability-${item.id}`}
-                            checked={!item.available}
-                            onChange={() => handleAvailabilityChange(item.id, false)}
-                            className="w-4 h-4 accent-foreground"
-                          />
-                          <span className="text-xs text-foreground">No</span>
-                        </label>
+                      {/* Tax % */}
+                      <div className="p-3 border-r border-border text-foreground text-sm">
+                        {product.taxPercent}%
+                      </div>
+
+                      {/* Availability */}
+                      <div className="p-3 border-r border-border">
+                        <div className="flex gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`availability-${product.id}`}
+                              checked={product.available}
+                              onChange={() => handleAvailabilityChange(product.id, true)}
+                              className="w-4 h-4 accent-foreground"
+                            />
+                            <span className="text-xs text-foreground">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`availability-${product.id}`}
+                              checked={!product.available}
+                              onChange={() => handleAvailabilityChange(product.id, false)}
+                              className="w-4 h-4 accent-foreground"
+                            />
+                            <span className="text-xs text-foreground">No</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="p-3 flex gap-2">
+                        <button
+                          onClick={() => openItemModal(product)}
+                          className="text-foreground hover:text-foreground/70 transition-colors"
+                          title="Edit item"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProduct(product.id)}
+                          className="text-destructive hover:text-destructive/70 transition-colors"
+                          title="Delete item"
+                        >
+                          ✕
+                        </button>
                       </div>
                     </div>
-
-                    {/* Edit Button */}
-                    <div className="p-3">
-                      <button
-                        onClick={() => openItemModal(item)}
-                        className="text-foreground hover:text-foreground/70 transition-colors"
-                        title="Edit item"
-                      >
-                        <Edit2 size={18} />
-                      </button>
+                  ))
+                ) : (
+                  <div className="grid grid-cols-7 min-h-[80px] items-center">
+                    <div className="col-span-7 p-3 text-center text-muted-foreground">
+                      {searchQuery ? 'No products found matching your search.' : 'No products available. Add one to get started.'}
                     </div>
                   </div>
-                ))}
-
-                {/* Empty rows to match wireframe */}
-                {filteredMenu.length < 5 &&
-                  Array.from({ length: 5 - filteredMenu.length }).map((_, index) => (
-                    <div
-                      key={`empty-${index}`}
-                      className="grid grid-cols-6 min-h-[80px]"
-                    >
-                      <div className="p-3 border-r border-border" />
-                      <div className="p-3 border-r border-border" />
-                      <div className="p-3 border-r border-border" />
-                      <div className="p-3 border-r border-border" />
-                      <div className="p-3 border-r border-border" />
-                      <div className="p-3" />
-                    </div>
-                  ))}
+                )}
               </div>
-            </div>
-
-            {/* Confirm Changes Button */}
-            <div className="flex justify-end mt-6">
-              <Button
-                onClick={handleConfirmChanges}
-                disabled={isSaving || !hasUnsavedChanges}
-                className="bg-muted-foreground text-background hover:bg-muted-foreground/80"
-              >
-                {isSaving ? 'Saving...' : 'Confirm Changes'}
-              </Button>
             </div>
           </div>
         </div>
@@ -468,7 +463,7 @@ export default function MenuPage() {
               <Label htmlFor="category">Category *</Label>
               <Select value={formData.category} onValueChange={value => {
                 handleFormChange('category', value)
-                handleFormChange('subCategory', '')
+                handleFormChange('subcategory', '')
               }}>
                 <SelectTrigger id="category">
                   <SelectValue placeholder="Select category" />
@@ -486,7 +481,7 @@ export default function MenuPage() {
             {/* Sub Category */}
             <div className="space-y-2">
               <Label htmlFor="subcategory">Sub Category *</Label>
-              <Select value={formData.subCategory} onValueChange={value => handleFormChange('subCategory', value)}>
+              <Select value={formData.subcategory} onValueChange={value => handleFormChange('subcategory', value)}>
                 <SelectTrigger id="subcategory">
                   <SelectValue placeholder="Select sub category" />
                 </SelectTrigger>
@@ -519,46 +514,17 @@ export default function MenuPage() {
               />
             </div>
 
-            {/* Image Upload */}
+            {/* Tax Percent */}
             <div className="space-y-2">
-              <Label htmlFor="image">Image</Label>
-              <div className="flex flex-col gap-2">
-                <div className="relative">
-                  <input
-                    id="image"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                  />
-                  <Button
-                    type="button"
-                    onClick={() => document.getElementById('image')?.click()}
-                    variant="outline"
-                    className="w-full border-foreground bg-transparent text-foreground hover:bg-foreground/5"
-                  >
-                    Choose Image
-                  </Button>
-                </div>
-                {formData.image && (
-                  <div className="space-y-2">
-                    <img
-                      src={formData.image || "/placeholder.svg"}
-                      alt="Preview"
-                      className="w-full h-40 object-cover rounded border border-border"
-                    />
-                    <Button
-                      type="button"
-                      onClick={() => handleFormChange('image', '')}
-                      variant="outline"
-                      size="sm"
-                      className="w-full border-destructive text-destructive hover:bg-destructive/10 bg-transparent"
-                    >
-                      Remove Image
-                    </Button>
-                  </div>
-                )}
-              </div>
+              <Label htmlFor="taxPercent">Tax Percentage</Label>
+              <Input
+                id="taxPercent"
+                type="number"
+                value={formData.taxPercent}
+                onChange={e => handleFormChange('taxPercent', e.target.value)}
+                placeholder="Enter tax percentage"
+                min="0"
+              />
             </div>
 
             {/* Availability */}
@@ -587,75 +553,45 @@ export default function MenuPage() {
                 </label>
               </div>
             </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsItemModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} className="bg-black hover:bg-gray-800 text-white">
-              {isEditing ? 'Update Item' : 'Add Item'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      {/* Add Item Modal */}
-      <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add New Item</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
+            {/* Veg/Non-Veg */}
             <div className="space-y-2">
-              <Label>Item Name</Label>
-              <Input
-                type="text"
-                value={newItemName}
-                onChange={e => setNewItemName(e.target.value)}
-                placeholder="Enter item name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Price</Label>
-              <Input
-                type="number"
-                value={newItemPrice}
-                onChange={e => setNewItemPrice(e.target.value)}
-                placeholder="Enter price"
-                min="0"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Availability</Label>
+              <Label>Type</Label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name="new-item-availability"
-                    checked={newItemAvailable}
-                    onChange={() => setNewItemAvailable(true)}
+                    name="type"
+                    checked={formData.isVeg}
+                    onChange={() => handleFormChange('isVeg', true)}
                     className="w-4 h-4 accent-foreground"
                   />
-                  <span className="text-sm">Available</span>
+                  <span className="text-sm">Vegetarian</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name="new-item-availability"
-                    checked={!newItemAvailable}
-                    onChange={() => setNewItemAvailable(false)}
+                    name="type"
+                    checked={!formData.isVeg}
+                    onChange={() => handleFormChange('isVeg', false)}
                     className="w-4 h-4 accent-foreground"
                   />
-                  <span className="text-sm">Not available</span>
+                  <span className="text-sm">Non-Vegetarian</span>
                 </label>
               </div>
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsAddModalOpen(false)}>
+            <Button variant="outline" onClick={() => setIsItemModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddItem}>Add Item</Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={isSaving}
+              className="bg-black hover:bg-gray-800 text-white"
+            >
+              {isSaving ? 'Saving...' : (isEditing ? 'Update Item' : 'Add Item')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
