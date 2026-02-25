@@ -17,8 +17,24 @@ interface UpdateProductRequest {
 
 export const updateProduct = functions.https.onRequest(
   async (req, res): Promise<void> => {
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+    // Handle OPTIONS preflight request
+    if (req.method === "OPTIONS") {
+      res.status(200).send("");
+      return;
+    }
+
     try {
+      console.log("📥 UPDATE PRODUCT - Request received");
+      console.log("Method:", req.method);
+      console.log("Body:", JSON.stringify(req.body, null, 2));
+
       if (req.method !== "PATCH" && req.method !== "PUT") {
+        console.warn("❌ Wrong method:", req.method);
         res.status(405).json({
           success: false,
           message: "Method not allowed",
@@ -29,7 +45,10 @@ export const updateProduct = functions.https.onRequest(
       const db = admin.firestore();
       const data: UpdateProductRequest = req.body;
 
+      console.log("🔍 Validating productId:", data?.productId);
+
       if (!data || !data.productId) {
+        console.error("❌ Missing productId");
         res.status(400).json({
           success: false,
           message: "productId is required",
@@ -40,13 +59,18 @@ export const updateProduct = functions.https.onRequest(
       const productRef = db.collection("products").doc(data.productId);
       const productSnap = await productRef.get();
 
+      console.log("🔍 Product found:", productSnap.exists);
+
       if (!productSnap.exists) {
+        console.error("❌ Product not found:", data.productId);
         res.status(404).json({
           success: false,
           message: "Product not found",
         });
         return;
       }
+
+      console.log("✅ Product exists, current data:", productSnap.data());
 
       const updateData: any = {};
 
@@ -118,10 +142,15 @@ export const updateProduct = functions.https.onRequest(
       }
 
       if (data.isAvailable !== undefined) {
+        console.log("📝 Updating isAvailable to:", data.isAvailable);
         updateData.isAvailable = data.isAvailable;
+        updateData.available = data.isAvailable;
       }
 
+      console.log("📊 UpdateData:", JSON.stringify(updateData, null, 2));
+
       if (Object.keys(updateData).length === 0) {
+        console.warn("❌ No fields to update");
         res.status(400).json({
           success: false,
           message: "No valid fields provided for update",
@@ -129,7 +158,10 @@ export const updateProduct = functions.https.onRequest(
         return;
       }
 
+      console.log("🔄 Updating product:", data.productId);
       await productRef.update(updateData);
+
+      console.log("✅ Product updated successfully");
 
       res.status(200).json({
         success: true,
@@ -137,11 +169,12 @@ export const updateProduct = functions.https.onRequest(
       });
 
     } catch (error) {
-      console.error("updateProduct error:", error);
+      console.error("❌ updateProduct error:", error);
 
       res.status(500).json({
         success: false,
         message: "Internal server error",
+        error: String(error),
       });
     }
   }

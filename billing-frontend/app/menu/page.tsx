@@ -30,9 +30,8 @@ import {
   updateProductAvailability,
   Product,
 } from '@/lib/services/productService'
+import { getOutletIdForCurrentUser } from '@/lib/services/orderService'
 import { auth } from '@/lib/firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase/app'
 
 const CATEGORIES = ['Appetizers', 'Main Course', 'Desserts', 'Beverages', 'Sides']
 const SUB_CATEGORIES: Record<string, string[]> = {
@@ -89,22 +88,10 @@ export default function MenuPage() {
           throw new Error('User not authenticated')
         }
 
-        // Fetch outlet ID from user document
-        const uid = user.uid
-        const userRef = doc(db, 'users', uid)
-        const userDoc = await getDoc(userRef)
-        
-        if (!userDoc.exists()) {
-          throw new Error('User document not found')
-        }
-
-        const fetchedOutletId = userDoc.data()?.outletID
-        if (!fetchedOutletId) {
-          throw new Error('Outlet ID not found in user document')
-        }
-
+        // Fetch outlet ID from user document using service function
+        const fetchedOutletId = await getOutletIdForCurrentUser()
         setOutletId(fetchedOutletId)
-        console.log("OUTLET ID: ",fetchedOutletId);
+        console.log("OUTLET ID: ", fetchedOutletId);
 
         // Fetch products
         const fetchedProducts = await getProductsByOutletId(fetchedOutletId)
@@ -240,7 +227,9 @@ export default function MenuPage() {
       }
 
       if (isEditing && editingItemId) {
+        console.log('📥 Updating product:', { productId: editingItemId, ...productData })
         await updateProduct(outletId, editingItemId, productData)
+        console.log('✅ Product updated successfully')
         setProducts(prev =>
           prev.map(p =>
             p.id === editingItemId
@@ -249,14 +238,16 @@ export default function MenuPage() {
           )
         )
       } else {
+        console.log('📥 Creating new product:', productData)
         const newId = await createProduct(outletId, productData)
+        console.log('✅ Product created successfully:', newId)
         setProducts(prev => [...prev, { id: newId, outletId, ...productData } as Product])
       }
 
       setIsItemModalOpen(false)
       setEditError(null)
     } catch (error) {
-      console.error('Error saving product:', error)
+      console.error('❌ Error saving product:', error)
       setEditError('Failed to save product. Please try again.')
     } finally {
       setIsSaving(false)
@@ -265,7 +256,9 @@ export default function MenuPage() {
 
   const handleAvailabilityChange = async (productId: string, available: boolean) => {
     try {
+      console.log('📥 Toggling product availability:', { productId, available })
       await updateProductAvailability(outletId, productId, available)
+      console.log('✅ Availability toggle successful')
       setProducts(prev =>
         prev.map(p =>
           p.id === productId ? { ...p, available } : p
@@ -273,7 +266,7 @@ export default function MenuPage() {
       )
       setEditError(null)
     } catch (error) {
-      console.error('Error updating availability:', error)
+      console.error('❌ Error updating availability:', error)
       setEditError('Failed to update availability. Please try again.')
     }
   }
@@ -282,11 +275,13 @@ export default function MenuPage() {
     if (!confirm('Are you sure you want to delete this product?')) return
 
     try {
+      console.log('📥 Deleting product:', { productId })
       await deleteProduct(outletId, productId)
+      console.log('✅ Product deleted successfully')
       setProducts(prev => prev.filter(p => p.id !== productId))
       setEditError(null)
     } catch (error) {
-      console.error('Error deleting product:', error)
+      console.error('❌ Error deleting product:', error)
       setEditError('Failed to delete product. Please try again.')
     }
   }

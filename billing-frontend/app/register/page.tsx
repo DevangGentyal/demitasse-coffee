@@ -51,21 +51,22 @@ export default function RegisterPage() {
       const uid = userCred.user.uid
 
       // Save details to Firestore under `outlets/`
-      const outletDocRef = await addDoc(collection(db, 'outlets'), {
-        name:name,
-        location:location,
-        email:email,
-        phone:phone,
-        openingHours:openingHours,
+      const outletId = "outlet_001";
+      await setDoc(doc(db, "outlets", outletId), {
+        name,
+        location,
+        email,
+        phone,
+        openingHours,
         createdAt: new Date().toISOString(),
-      })
+      });
 
       // Save profile to Firestore under `users/{uid}`
       await setDoc(doc(db, 'users', uid), {
         email:email,
         phone:phone,
         type:"OUTLET",
-        outletID:outletDocRef.id,
+        outletID:outletId,
         createdAt: new Date().toISOString(),
       })
 
