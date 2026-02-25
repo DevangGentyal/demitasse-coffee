@@ -18,7 +18,7 @@ export interface Product {
   taxPercent: number
   isVeg?: boolean
   imageUrl?: string
-  available: boolean
+  isAvailable: boolean
   customizations?: any[]
   sortOrder?: number
   createdAt?: Timestamp
@@ -77,7 +77,9 @@ export const createProduct = async (
   try {
     const idToken = await getIdToken()
     
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/createProduct`, {
+    console.log('📥 CREATE PRODUCT - Request:', { outletId, name: productData.name, price: productData.price })
+
+    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/createProduct`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -95,9 +97,10 @@ export const createProduct = async (
     }
 
     const data = await response.json()
+    console.log('✅ Product created successfully:', data.id)
     return data.id
   } catch (error) {
-    console.error('Error creating product:', error)
+    console.error('❌ Error creating product:', error)
     throw error
   }
 }
@@ -113,14 +116,15 @@ export const updateProduct = async (
   try {
     const idToken = await getIdToken()
     
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateProduct`, {
-      method: 'POST',
+    console.log('📥 UPDATE PRODUCT - Request:', { outletId, productId, updates: Object.keys(updates) })
+
+    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/updateProduct`, {
+      method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
-        outletId,
         productId,
         ...updates,
       }),
@@ -130,8 +134,10 @@ export const updateProduct = async (
       const errorData = await response.json()
       throw new Error(errorData.message || 'Failed to update product')
     }
+
+    console.log('✅ Product updated successfully')
   } catch (error) {
-    console.error('Error updating product:', error)
+    console.error('❌ Error updating product:', error)
     throw error
   }
 }
@@ -147,8 +153,10 @@ export const updateProductAvailability = async (
   try {
     const idToken = await getIdToken()
     
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateProduct`, {
-      method: 'POST',
+    console.log('📥 UPDATE AVAILABILITY - Request:', { outletId, productId, available })
+
+    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/updateProduct`, {
+      method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`,
@@ -156,7 +164,7 @@ export const updateProductAvailability = async (
       body: JSON.stringify({
         outletId,
         productId,
-        available,
+        isAvailable: available,
       }),
     })
 
@@ -164,8 +172,10 @@ export const updateProductAvailability = async (
       const errorData = await response.json()
       throw new Error(errorData.message || 'Failed to update availability')
     }
+
+    console.log('✅ Availability updated successfully')
   } catch (error) {
-    console.error('Error updating availability:', error)
+    console.error('❌ Error updating availability:', error)
     throw error
   }
 }
@@ -177,14 +187,15 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
   try {
     const idToken = await getIdToken()
     
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/deleteProduct`, {
-      method: 'POST',
+    console.log('📥 DELETE PRODUCT - Request:', { outletId, productId })
+
+    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/deleteProduct`, {
+      method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
-        outletId,
         productId,
       }),
     })
@@ -193,8 +204,10 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
       const errorData = await response.json()
       throw new Error(errorData.message || 'Failed to delete product')
     }
+
+    console.log('✅ Product deleted successfully')
   } catch (error) {
-    console.error('Error deleting product:', error)
+    console.error('❌ Error deleting product:', error)
     throw error
   }
 }
