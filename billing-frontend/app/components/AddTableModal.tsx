@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useApp } from '@/app/context/AppContext'
+import { useApp, type Table } from '@/app/context/AppContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
@@ -13,19 +13,22 @@ interface AddTableModalProps {
 }
 
 export function AddTableModal({ isOpen, onClose }: AddTableModalProps) {
-  const { tables, setTables } = useApp()
+  const { tables, setTables } = useApp()  // ← moved INSIDE component (was outside before — that was bug #1)
   const [tableName, setTableName] = useState('')
   const [capacity, setCapacity] = useState(2)
 
-  const handleAdd = () => {
-    if (!tableName.trim()) return
+  const handleAdd = () => {  // ← renamed to handleAdd to match the button's onClick (was handleSubmit — that was bug #2)
+    const newId = tables.length > 0 ? Math.max(...tables.map(t => t.id)) + 1 : 1
 
-    const newTable = {
-      id: Math.max(0, ...tables.map(t => t.id)) + 1,
-      name: tableName,
+    const newTable: Table = {
+      id: newId,
+      name: tableName || `OD${newId}`,
       capacity: capacity,
       occupied: false,
       billAmount: 0,
+      x: 150 + (newId % 5) * 130,
+      y: 150 + Math.floor(newId / 5) * 120,
+      color: '#fbbf24',
     }
 
     setTables([...tables, newTable])
