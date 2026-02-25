@@ -144,7 +144,6 @@ export const updateProduct = functions.https.onRequest(
       if (data.isAvailable !== undefined) {
         console.log("📝 Updating isAvailable to:", data.isAvailable);
         updateData.isAvailable = data.isAvailable;
-        updateData.available = data.isAvailable;
       }
 
       console.log("📊 UpdateData:", JSON.stringify(updateData, null, 2));

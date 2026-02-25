@@ -64,7 +64,7 @@ export default function MenuPage() {
     subcategory: '',
     price: '',
     taxPercent: '0',
-    available: true,
+    isAvailable: true,
     imageUrl: '',
     isVeg: true,
   })
@@ -166,7 +166,7 @@ export default function MenuPage() {
         subcategory: product.subcategory || '',
         price: product.price.toString(),
         taxPercent: product.taxPercent.toString(),
-        available: product.available,
+        isAvailable: product.isAvailable,
         imageUrl: product.imageUrl || '',
         isVeg: product.isVeg ?? true,
       })
@@ -179,7 +179,7 @@ export default function MenuPage() {
         subcategory: '',
         price: '',
         taxPercent: '0',
-        available: true,
+        isAvailable: true,
         imageUrl: '',
         isVeg: true,
       })
@@ -221,7 +221,7 @@ export default function MenuPage() {
         subcategory: formData.subcategory,
         price: priceValue,
         taxPercent: taxValue,
-        available: formData.available,
+        isAvailable: formData.isAvailable,
         imageUrl: formData.imageUrl,
         isVeg: formData.isVeg,
       }
@@ -261,7 +261,7 @@ export default function MenuPage() {
       console.log('✅ Availability toggle successful')
       setProducts(prev =>
         prev.map(p =>
-          p.id === productId ? { ...p, available } : p
+          p.id === productId ? { ...p, isAvailable: available } : p
         )
       )
       setEditError(null)
@@ -381,7 +381,7 @@ export default function MenuPage() {
                             <input
                               type="radio"
                               name={`availability-${product.id}`}
-                              checked={product.available}
+                              checked={product.isAvailable}
                               onChange={() => handleAvailabilityChange(product.id, true)}
                               className="w-4 h-4 accent-foreground"
                             />
@@ -391,7 +391,7 @@ export default function MenuPage() {
                             <input
                               type="radio"
                               name={`availability-${product.id}`}
-                              checked={!product.available}
+                              checked={!product.isAvailable}
                               onChange={() => handleAvailabilityChange(product.id, false)}
                               className="w-4 h-4 accent-foreground"
                             />
@@ -530,8 +530,8 @@ export default function MenuPage() {
                   <input
                     type="radio"
                     name="availability"
-                    checked={formData.available}
-                    onChange={() => handleFormChange('available', true)}
+                    checked={formData.isAvailable}
+                    onChange={() => handleFormChange('isAvailable', true)}
                     className="w-4 h-4 accent-foreground"
                   />
                   <span className="text-sm">Available</span>
@@ -540,8 +540,8 @@ export default function MenuPage() {
                   <input
                     type="radio"
                     name="availability"
-                    checked={!formData.available}
-                    onChange={() => handleFormChange('available', false)}
+                    checked={!formData.isAvailable}
+                    onChange={() => handleFormChange('isAvailable', false)}
                     className="w-4 h-4 accent-foreground"
                   />
                   <span className="text-sm">Not available</span>

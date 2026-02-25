@@ -18,7 +18,7 @@ export interface Product {
   taxPercent: number
   isVeg?: boolean
   imageUrl?: string
-  available: boolean
+  isAvailable: boolean
   customizations?: any[]
   sortOrder?: number
   createdAt?: Timestamp
