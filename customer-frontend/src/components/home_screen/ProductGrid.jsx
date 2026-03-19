@@ -1,42 +1,24 @@
 import ProductCard from "@/components/home_screen/ProductCard";
-import javaChip from "@/assets/home_screen/java-chip.png";
+import { useMenu } from "@/context/MenuContext";
 
 export default function ProductGrid() {
-  const handleAdd = (product) => {
-    console.log("Add to cart:", product);
-  };
+  const { products, loading } = useMenu();
+
+  if (loading) return null;
+
+  const trending = products.slice(0, 4);
 
   return (
     <div className="grid grid-cols-2 gap-4 px-4 mt-4">
-      <ProductCard
-        image={javaChip}
-        name="Java Chip"
-        desc="Rich hazelnut syrup"
-        price={200}
-        onAdd={handleAdd}
-      />
-      <ProductCard
-        image={javaChip}
-        name="Java Chip"
-        desc="Rich hazelnut syrup"
-        price={200}
-        onAdd={handleAdd}
-      />
-      <ProductCard
-        image={javaChip}
-        name="Java Chip"
-        desc="Rich hazelnut syrup"
-        price={200}
-        onAdd={handleAdd}
-      />
-      <ProductCard
-        image={javaChip}
-        name="Java Chip"
-        desc="Rich hazelnut syrup"
-        price={200}
-        onAdd={handleAdd}
-      />
-
+      {trending.map((p) => (
+        <ProductCard
+          key={p.id}
+          id={p.id}
+          image={p.image}
+          name={p.name}
+          price={p.price}
+        />
+      ))}
     </div>
   );
 }

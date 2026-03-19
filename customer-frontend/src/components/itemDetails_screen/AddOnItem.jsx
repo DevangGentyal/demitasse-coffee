@@ -1,39 +1,64 @@
-import React from "react";
+export default function AddOnGroup({
+  group,
+  selected,
+  setSelected,
+  vegOnly
+}) {
 
-const AddOnItem = ({ title, price, count, setCount }) => {
+  const options = group.options.filter(opt => {
+
+    if (!vegOnly) return true;
+
+    return opt.meta?.vegType !== "Non-Veg";
+
+  });
+
+  if (options.length === 0) return null;
+
   return (
-    <div className="flex justify-between items-center bg-gray-50 rounded-xl px-4 py-3">
-      <div>
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-gray-500">₹{price}</p>
+    <div className="mt-6">
+
+      <h3 className="font-semibold mb-2">{group.groupName}</h3>
+
+      <div className="space-y-2">
+
+        {options.map((opt) => {
+
+          const active = selected.includes(opt.name);
+
+          const toggle = () => {
+
+            if (active) {
+              setSelected(selected.filter(o => o !== opt.name));
+              return;
+            }
+
+            if (selected.length >= group.max) return;
+
+            setSelected([...selected, opt.name]);
+
+          };
+
+          return (
+            <div
+              key={opt.name}
+              onClick={toggle}
+              className={`flex justify-between p-3 rounded-xl border
+                ${active ? "border-green-700 bg-green-50" : ""}
+              `}
+            >
+
+              <span>{opt.name}</span>
+
+              <span>₹{opt.price}</span>
+
+            </div>
+          );
+
+        })}
+
       </div>
 
-      {count === 0 ? (
-        <button
-          onClick={() => setCount(1)}
-          className="bg-green-600 text-white px-4 py-1 rounded-full text-sm"
-        >
-          Add
-        </button>
-      ) : (
-        <div className="flex items-center gap-3 bg-white px-3 py-1 rounded-full shadow">
-          <button
-            onClick={() => setCount(Math.max(0, count - 1))}
-            className="text-lg"
-          >
-            −
-          </button>
-          <span className="text-sm font-medium">{count}</span>
-          <button
-            onClick={() => setCount(count + 1)}
-            className="text-lg"
-          >
-            +
-          </button>
-        </div>
-      )}
     </div>
   );
-};
-
-export default AddOnItem;
+}
