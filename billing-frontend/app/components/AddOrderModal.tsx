@@ -46,21 +46,21 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
       try {
         setIsLoading(true)
         setError(null)
-        
+
         console.log('📥 Fetching outlet ID...')
         const fetchedOutletId = await getOutletIdForCurrentUser()
         console.log('✅ Outlet ID:', fetchedOutletId)
         setOutletId(fetchedOutletId)
-        
+
         console.log('📥 Fetching products for outlet:', fetchedOutletId)
         const fetchedProducts = await getProductsByOutletId(fetchedOutletId)
         console.log('✅ Total products fetched:', fetchedProducts.length)
         console.log('📦 Products:', fetchedProducts)
-        
-        const availableProducts = fetchedProducts.filter(p => p.available)
+
+        const availableProducts = fetchedProducts.filter(p => p.isAvailable)
         console.log('✅ Available products:', availableProducts.length)
         setProducts(availableProducts)
-        
+
         if (availableProducts.length === 0) {
           setError('No available items in menu')
         }
@@ -164,7 +164,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
       setQuantity(1)
       setError(null)
       onClose()
-      
+
       // Trigger callback to refetch orders
       if (onOrderCreated) {
         onOrderCreated()

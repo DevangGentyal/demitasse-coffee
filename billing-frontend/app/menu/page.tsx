@@ -29,7 +29,10 @@ import {
   deleteProduct,
   updateProductAvailability,
   Product,
+  CustomizationGroup,
+  CustomizationOption,
 } from '@/lib/services/productService'
+import { Plus, Trash2 } from 'lucide-react'
 import { getOutletIdForCurrentUser } from '@/lib/services/orderService'
 import { auth } from '@/lib/firebase/auth'
 
@@ -67,7 +70,13 @@ export default function MenuPage() {
     isAvailable: true,
     imageUrl: '',
     isVeg: true,
+    description: '',
   })
+
+  // Customization Modal states
+  const [isCustModalOpen, setIsCustModalOpen] = useState(false)
+  const [editingCustProduct, setEditingCustProduct] = useState<Product | null>(null)
+  const [localCustomizations, setLocalCustomizations] = useState<CustomizationGroup[]>([])
 
   // Fetch data on mount
   useEffect(() => {
@@ -81,7 +90,7 @@ export default function MenuPage() {
     const fetchData = async () => {
       try {
         setDataLoading(true)
-        
+
         // Get current user - should be available since isLoading is false
         const user = auth.currentUser
         if (!user) {
@@ -169,6 +178,7 @@ export default function MenuPage() {
         isAvailable: product.isAvailable,
         imageUrl: product.imageUrl || '',
         isVeg: product.isVeg ?? true,
+        description: product.description || '',
       })
     } else {
       setIsEditing(false)
@@ -182,6 +192,7 @@ export default function MenuPage() {
         isAvailable: true,
         imageUrl: '',
         isVeg: true,
+        description: '',
       })
     }
     setIsItemModalOpen(true)
@@ -224,6 +235,7 @@ export default function MenuPage() {
         isAvailable: formData.isAvailable,
         imageUrl: formData.imageUrl,
         isVeg: formData.isVeg,
+        description: formData.description,
       }
 
       if (isEditing && editingItemId) {
@@ -286,6 +298,86 @@ export default function MenuPage() {
     }
   }
 
+  const handleCustEdit = (product: Product) => {
+    setEditingCustProduct(product)
+    setLocalCustomizations(product.customizations ? JSON.parse(JSON.stringify(product.customizations)) : [])
+    setIsCustModalOpen(true)
+  }
+
+  const handleAddOptionSet = () => {
+    setLocalCustomizations(prev => [
+      ...prev,
+      { groupName: '', min: 0, max: 1, options: [] }
+    ])
+  }
+
+  const handleUpdateOptionSet = (index: number, field: keyof CustomizationGroup, value: any) => {
+    setLocalCustomizations(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], [field]: value }
+      return updated
+    })
+  }
+
+  const handleRemoveOptionSet = (index: number) => {
+    setLocalCustomizations(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const handleAddChoice = (groupIndex: number) => {
+    setLocalCustomizations(prev => {
+      const updated = [...prev]
+      updated[groupIndex].options = [
+        ...updated[groupIndex].options,
+        { name: '', price: 0, isAvailable: true }
+      ]
+      return updated
+    })
+  }
+
+  const handleUpdateChoice = (groupIndex: number, optionIndex: number, field: keyof CustomizationOption, value: any) => {
+    setLocalCustomizations(prev => {
+      const updated = [...prev]
+      const options = [...updated[groupIndex].options]
+      options[optionIndex] = { ...options[optionIndex], [field]: value }
+      updated[groupIndex] = { ...updated[groupIndex], options }
+      return updated
+    })
+  }
+
+  const handleRemoveChoice = (groupIndex: number, optionIndex: number) => {
+    setLocalCustomizations(prev => {
+      const updated = [...prev]
+      updated[groupIndex].options = updated[groupIndex].options.filter((_, i) => i !== optionIndex)
+      return updated
+    })
+  }
+
+  const handleSaveCustomizations = async () => {
+    if (!editingCustProduct || !outletId) return
+
+    setIsSaving(true)
+    try {
+      await updateProduct(outletId, editingCustProduct.id, {
+        customizations: localCustomizations
+      })
+
+      setProducts(prev =>
+        prev.map(p =>
+          p.id === editingCustProduct.id
+            ? { ...p, customizations: localCustomizations }
+            : p
+        )
+      )
+      setIsCustModalOpen(false)
+      setEditError(null)
+    } catch (error) {
+      console.error('Error saving customizations:', error)
+      setEditError('Failed to save customizations.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="flex h-screen">
       <Sidebar />
@@ -329,14 +421,15 @@ export default function MenuPage() {
             {/* Menu Table */}
             <div className="border border-border rounded overflow-hidden">
               {/* Table Header */}
-              <div className="grid grid-cols-7 bg-foreground text-background font-medium">
+              <div className="grid grid-cols-8 bg-foreground text-background font-medium text-xs sm:text-sm">
                 <div className="p-3 border-r border-muted-foreground/30">Item Name</div>
                 <div className="p-3 border-r border-muted-foreground/30">Category</div>
-                <div className="p-3 border-r border-muted-foreground/30">Sub Category</div>
+                <div className="p-3 border-r border-muted-foreground/30">Sub-Category</div>
                 <div className="p-3 border-r border-muted-foreground/30">Price</div>
-                <div className="p-3 border-r border-muted-foreground/30">Tax %</div>
-                <div className="p-3 border-r border-muted-foreground/30">Available</div>
-                <div className="p-3">Actions</div>
+                <div className="p-3 border-r border-muted-foreground/30 text-center">Tax %</div>
+                <div className="p-3 border-r border-muted-foreground/30 text-center">Available</div>
+                <div className="p-3 border-r border-muted-foreground/30 text-center">Customizations</div>
+                <div className="p-3 text-center">Actions</div>
               </div>
 
               {/* Table Body */}
@@ -345,7 +438,7 @@ export default function MenuPage() {
                   filteredProducts.map(product => (
                     <div
                       key={product.id}
-                      className="grid grid-cols-7 items-center min-h-[80px]"
+                      className="grid grid-cols-8 items-center min-h-[60px] hover:bg-muted/30 transition-colors"
                     >
                       {/* Item Name */}
                       <div className="p-3 border-r border-border">
@@ -370,13 +463,13 @@ export default function MenuPage() {
                       </div>
 
                       {/* Tax % */}
-                      <div className="p-3 border-r border-border text-foreground text-sm">
+                      <div className="p-3 border-r border-border text-foreground text-sm text-center">
                         {product.taxPercent}%
                       </div>
 
                       {/* Availability */}
-                      <div className="p-3 border-r border-border">
-                        <div className="flex gap-2">
+                      <div className="p-3 border-r border-border flex justify-center">
+                        <div className="flex flex-col sm:flex-row gap-2">
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="radio"
@@ -400,11 +493,30 @@ export default function MenuPage() {
                         </div>
                       </div>
 
+                      {/* Customizations */}
+                      <div className="p-3 border-r border-border text-center">
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">
+                            {!product.customizations || product.customizations.length === 0 
+                              ? "No add-ons" 
+                              : `${product.customizations.length} option set${product.customizations.length > 1 ? 's' : ''}`}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCustEdit(product)}
+                            className="text-[10px] h-6 px-3 border-foreground/30 hover:bg-foreground hover:text-background transition-all"
+                          >
+                            Edit Add-ons
+                          </Button>
+                        </div>
+                      </div>
+
                       {/* Actions */}
-                      <div className="p-3 flex gap-2">
+                      <div className="p-3 flex gap-3 justify-center">
                         <button
                           onClick={() => openItemModal(product)}
-                          className="text-foreground hover:text-foreground/70 transition-colors"
+                          className="hover:text-primary transition-colors"
                           title="Edit item"
                         >
                           <Edit2 size={18} />
@@ -420,8 +532,8 @@ export default function MenuPage() {
                     </div>
                   ))
                 ) : (
-                  <div className="grid grid-cols-7 min-h-[80px] items-center">
-                    <div className="col-span-7 p-3 text-center text-muted-foreground">
+                  <div className="grid grid-cols-8 min-h-[80px] items-center">
+                    <div className="col-span-8 p-3 text-center text-muted-foreground">
                       {searchQuery ? 'No products found matching your search.' : 'No products available. Add one to get started.'}
                     </div>
                   </div>
@@ -443,7 +555,7 @@ export default function MenuPage() {
           <div className="space-y-4 py-4">
             {/* Name */}
             <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
+              <Label htmlFor="name">Product Name *</Label>
               <Input
                 id="name"
                 type="text"
@@ -453,78 +565,94 @@ export default function MenuPage() {
               />
             </div>
 
-            {/* Category */}
+            {/* Description */}
             <div className="space-y-2">
-              <Label htmlFor="category">Category *</Label>
-              <Select value={formData.category} onValueChange={value => {
-                handleFormChange('category', value)
-                handleFormChange('subcategory', '')
-              }}>
-                <SelectTrigger id="category">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map(cat => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="description">Description (Optional)</Label>
+              <textarea
+                id="description"
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={formData.description}
+                onChange={e => handleFormChange('description', e.target.value)}
+                placeholder="Describe this product (ingredients, taste, etc.)"
+              />
             </div>
 
-            {/* Sub Category */}
-            <div className="space-y-2">
-              <Label htmlFor="subcategory">Sub Category *</Label>
-              <Select value={formData.subcategory} onValueChange={value => handleFormChange('subcategory', value)}>
-                <SelectTrigger id="subcategory">
-                  <SelectValue placeholder="Select sub category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {formData.category && SUB_CATEGORIES[formData.category] ? (
-                    SUB_CATEGORIES[formData.category].map(subCat => (
-                      <SelectItem key={subCat} value={subCat}>
-                        {subCat}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Category */}
+              <div className="space-y-2">
+                <Label htmlFor="category">Category *</Label>
+                <Select value={formData.category} onValueChange={value => {
+                  handleFormChange('category', value)
+                  handleFormChange('subcategory', '')
+                }}>
+                  <SelectTrigger id="category">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map(cat => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
                       </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value="none" disabled>
-                      Select category first
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Sub Category */}
+              <div className="space-y-2">
+                <Label htmlFor="subcategory">Sub Category *</Label>
+                <Select value={formData.subcategory} onValueChange={value => handleFormChange('subcategory', value)}>
+                  <SelectTrigger id="subcategory">
+                    <SelectValue placeholder="Select sub category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {formData.category && SUB_CATEGORIES[formData.category] ? (
+                      SUB_CATEGORIES[formData.category].map(subCat => (
+                        <SelectItem key={subCat} value={subCat}>
+                          {subCat}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="none" disabled>
+                        Select category first
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* Price */}
-            <div className="space-y-2">
-              <Label htmlFor="price">Price *</Label>
-              <Input
-                id="price"
-                type="number"
-                value={formData.price}
-                onChange={e => handleFormChange('price', e.target.value)}
-                placeholder="Enter price"
-                min="0"
-              />
-            </div>
+            <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg border border-border/50">
+              {/* Price */}
+              <div className="space-y-2">
+                <Label htmlFor="price">Price (₹) *</Label>
+                <Input
+                  id="price"
+                  type="number"
+                  value={formData.price}
+                  onChange={e => handleFormChange('price', e.target.value)}
+                  placeholder="0.00"
+                  min="0"
+                />
+              </div>
 
-            {/* Tax Percent */}
-            <div className="space-y-2">
-              <Label htmlFor="taxPercent">Tax Percentage</Label>
-              <Input
-                id="taxPercent"
-                type="number"
-                value={formData.taxPercent}
-                onChange={e => handleFormChange('taxPercent', e.target.value)}
-                placeholder="Enter tax percentage"
-                min="0"
-              />
+              {/* Tax Percent */}
+              <div className="space-y-2">
+                <Label htmlFor="taxPercent">Tax %</Label>
+                <Input
+                  id="taxPercent"
+                  type="number"
+                  value={formData.taxPercent}
+                  onChange={e => handleFormChange('taxPercent', e.target.value)}
+                  placeholder="0"
+                  min="0"
+                />
+              </div>
             </div>
 
             {/* Availability */}
             <div className="space-y-2">
-              <Label>Availability</Label>
+              <Label>Available for ordering</Label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -534,7 +662,7 @@ export default function MenuPage() {
                     onChange={() => handleFormChange('isAvailable', true)}
                     className="w-4 h-4 accent-foreground"
                   />
-                  <span className="text-sm">Available</span>
+                  <span className="text-sm font-medium">Yes, Available</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -544,14 +672,14 @@ export default function MenuPage() {
                     onChange={() => handleFormChange('isAvailable', false)}
                     className="w-4 h-4 accent-foreground"
                   />
-                  <span className="text-sm">Not available</span>
+                  <span className="text-sm font-medium text-muted-foreground">No, Hidden</span>
                 </label>
               </div>
             </div>
 
             {/* Veg/Non-Veg */}
             <div className="space-y-2">
-              <Label>Type</Label>
+              <Label>Diet Type</Label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -561,7 +689,7 @@ export default function MenuPage() {
                     onChange={() => handleFormChange('isVeg', true)}
                     className="w-4 h-4 accent-foreground"
                   />
-                  <span className="text-sm">Vegetarian</span>
+                  <span className="text-sm font-medium">Vegetarian</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -571,9 +699,24 @@ export default function MenuPage() {
                     onChange={() => handleFormChange('isVeg', false)}
                     className="w-4 h-4 accent-foreground"
                   />
-                  <span className="text-sm">Non-Vegetarian</span>
+                  <span className="text-sm font-medium">Non-Vegetarian</span>
                 </label>
               </div>
+            </div>
+
+            {/* Image URL */}
+            <div className="space-y-2">
+              <Label htmlFor="imageUrl">Product Image URL</Label>
+              <Input
+                id="imageUrl"
+                type="text"
+                value={formData.imageUrl}
+                onChange={e => handleFormChange('imageUrl', e.target.value)}
+                placeholder="https://example.com/image.jpg"
+              />
+              <p className="text-[10px] text-muted-foreground italic">
+                * Will support multiple images soon
+              </p>
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -586,6 +729,168 @@ export default function MenuPage() {
               className="bg-black hover:bg-gray-800 text-white"
             >
               {isSaving ? 'Saving...' : (isEditing ? 'Update Item' : 'Add Item')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isCustModalOpen} onOpenChange={setIsCustModalOpen}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader className="px-6 pt-6 mb-2">
+            <DialogTitle className="text-xl flex items-center gap-2">
+              <span className="text-muted-foreground font-normal">Customizations:</span> 
+              {editingCustProduct?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-2 space-y-6">
+            {localCustomizations.length > 0 ? (
+              localCustomizations.map((group, gIndex) => (
+                <div key={gIndex} className="bg-muted/20 border border-border rounded-xl overflow-hidden shadow-sm">
+                  {/* Option Set Header */}
+                  <div className="bg-muted/40 p-4 border-b border-border flex items-start justify-between gap-4">
+                    <div className="flex-1 space-y-4">
+                      <div className="flex flex-col gap-1.5">
+                        <Label className="text-xs font-bold uppercase tracking-wider text-foreground/70">Option Set Name</Label>
+                        <Input
+                          value={group.groupName}
+                          onChange={e => handleUpdateOptionSet(gIndex, 'groupName', e.target.value)}
+                          placeholder="e.g. Choice of Milk"
+                          className="bg-background border-foreground/20 focus:border-foreground"
+                        />
+                      </div>
+                      
+                      {/* Min/Max row */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-bold uppercase tracking-wider text-foreground/70">Minimum Selection</Label>
+                          <Input
+                            type="number"
+                            value={group.min}
+                            onChange={e => handleUpdateOptionSet(gIndex, 'min', parseInt(e.target.value) || 0)}
+                            min="0"
+                            className="bg-background border-foreground/20"
+                          />
+                          <p className="text-[10px] text-muted-foreground italic">Minimum number of choices user must select</p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-bold uppercase tracking-wider text-foreground/70">Maximum Selection</Label>
+                          <Input
+                            type="number"
+                            value={group.max}
+                            onChange={e => handleUpdateOptionSet(gIndex, 'max', parseInt(e.target.value) || 1)}
+                            min="1"
+                            className="bg-background border-foreground/20"
+                          />
+                          <p className="text-[10px] text-muted-foreground italic">Maximum number of choices allowed</p>
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:bg-destructive/10 -mt-1"
+                      onClick={() => handleRemoveOptionSet(gIndex)}
+                      title="Remove Option Set"
+                    >
+                      <Trash2 size={18} />
+                    </Button>
+                  </div>
+
+                  {/* Choices Section */}
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Choices</Label>
+                    </div>
+                    
+                    <div className="space-y-2.5">
+                      {group.options.map((option, oIndex) => (
+                        <div key={oIndex} className="flex gap-3 items-center bg-background p-3 rounded-lg border border-border group hover:border-foreground/30 transition-all shadow-sm">
+                          <div className="flex-1 space-y-1">
+                            <Input
+                              value={option.name}
+                              onChange={e => handleUpdateChoice(gIndex, oIndex, 'name', e.target.value)}
+                              placeholder="e.g. Almond Milk"
+                              className="h-9 text-sm font-medium border-transparent hover:border-border focus:border-foreground px-2"
+                            />
+                          </div>
+                          
+                          <div className="flex items-center gap-4">
+                            <div className="relative w-28">
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">₹</span>
+                              <Input
+                                type="number"
+                                value={option.price}
+                                onChange={e => handleUpdateChoice(gIndex, oIndex, 'price', parseFloat(e.target.value) || 0)}
+                                placeholder="0"
+                                className="h-9 pl-6 text-sm bg-muted/30 border-transparent hover:border-border focus:border-foreground text-right"
+                              />
+                            </div>
+                            
+                            <div className="flex items-center gap-2 pl-4 border-l border-border h-6">
+                              <label className="flex items-center gap-2 cursor-pointer group/toggle">
+                                <div className="relative inline-flex items-center cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={option.isAvailable}
+                                    onChange={e => handleUpdateChoice(gIndex, oIndex, 'isAvailable', e.target.checked)}
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-8 h-4 bg-muted rounded-full peer peer-checked:bg-foreground after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-4"></div>
+                                </div>
+                                <span className={`text-[10px] font-bold uppercase tracking-tight ${option.isAvailable ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                  {option.isAvailable ? 'In Stock' : 'Out'}
+                                </span>
+                              </label>
+                            </div>
+                            
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => handleRemoveChoice(gIndex, oIndex)}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAddChoice(gIndex)}
+                      className="w-full h-10 border-dashed border-2 hover:border-foreground hover:bg-foreground/5 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-all mt-2"
+                    >
+                      <Plus size={14} className="mr-2" /> + Add Choice
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-12 text-center border-2 border-dashed border-muted rounded-xl bg-muted/5">
+                <p className="text-muted-foreground text-sm font-medium">No option sets added yet.</p>
+                <p className="text-[11px] text-muted-foreground/60 italic mt-1">Add sets like "Sweetness Level" or "Extra Toppings"</p>
+              </div>
+            )}
+            
+            <Button
+              variant="outline"
+              onClick={handleAddOptionSet}
+              className="w-full h-12 border-2 border-dashed border-foreground/20 hover:border-foreground hover:bg-foreground/5 text-sm font-bold uppercase tracking-widest transition-all"
+            >
+              <Plus size={18} className="mr-2" /> + Add Option Set
+            </Button>
+          </div>
+          <DialogFooter className="p-6 bg-muted/30 border-t border-border mt-auto">
+            <Button variant="outline" onClick={() => setIsCustModalOpen(false)} className="px-6">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveCustomizations}
+              disabled={isSaving}
+              className="bg-foreground text-background hover:bg-foreground/90 px-8 font-bold"
+            >
+              {isSaving ? 'Saving Changes...' : 'Save Configuration'}
             </Button>
           </DialogFooter>
         </DialogContent>
