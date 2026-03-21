@@ -1,9 +1,12 @@
 import React, { useState } from "react";
 import VegNonVegIcon from "../common/VegNonVegIcon";
+import { useCart } from "../../context/CartContext"; // ✅ ADD THIS
 
 const OfferCard = ({ offer }) => {
   const [qty, setQty] = useState(0);
   const [copied, setCopied] = useState(false);
+
+  const { addToCart } = useCart(); // ✅ ADD THIS
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(offer.code);
@@ -23,7 +26,6 @@ const OfferCard = ({ offer }) => {
       ? `Get ${offer.discountValue}% off`
       : `Flat ₹${offer.discountValue} off`;
 
-  // ✅ FIXED: Use fetched products
   const menuDisplay =
     offer.products && offer.products.length > 0
       ? offer.products.map((p) => p.name).join(" + ")
@@ -52,7 +54,6 @@ const OfferCard = ({ offer }) => {
           {offer.description || "Enjoy this exclusive combo deal"}
         </p>
 
-        {/* ✅ NOW PRODUCTS WILL SHOW */}
         <p className="text-sm text-gray-700 mt-1 font-medium">
           Includes: {menuDisplay}
         </p>
@@ -85,10 +86,25 @@ const OfferCard = ({ offer }) => {
 
       {qty === 0 ? (
         <button
-          onClick={() => setQty(1)}
+          onClick={() => {
+            setQty(1);
+
+            // ✅ ADD THIS (MAIN LOGIC)
+            addToCart({
+              id: offer.id,
+              name: title,
+              price:
+                offer.discountType === "PERCENT"
+                  ? 0 // you can adjust later
+                  : offer.discountValue,
+              originalPrice: offer.minOrderValue,
+              type: "offer",
+              itemsIncluded: offer.products?.map(p => p.name)
+            });
+          }}
           className="w-full mt-4 py-3 rounded-full font-medium bg-orange-500 text-white active:scale-95 transition"
         >
-           Add to Cart
+          Add to Cart
         </button>
       ) : (
         <div className="mt-4 flex items-center justify-between bg-gray-100 rounded-full px-4 py-2">
