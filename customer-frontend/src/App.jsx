@@ -1,35 +1,43 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "./context/AuthContext"; // added
+import Login from "./pages/auth_screen/Login";
+import Register from "./pages/auth_screen/Register";
+import Home from "./pages/home_screen/Home";
+import Menu from "./pages/menu_screen/Menu";
+import Cart from "./pages/cart_screen/Cart";
+import BillDetails from "./pages/cart_screen/BillDetails";
+import ItemDetails from "./pages/itemDetails_screen/ItemDetails";
+import Offers from "./pages/offer_screen/Offers";
+import ProtectedRoute from "./components/ProtectedRoute_screen/ProtectedRoute";
+import SelectOutlet from "./pages/location_screen/SelectOutlet";
 
-import Home from "@/pages/home_screen/Home";
-import Menu from "@/pages/menu_screen/Menu";
-import Offers from "@/pages/offer_screen/Offers";
-import Cart from "@/pages/cart_screen/Cart";
-import ItemDetails from "@/pages/itemDetails_screen/ItemDetails";
-import BillDetails from "@/pages/cart_screen/BillDetails";
 
-import BottomNav from "@/components/BottomNav";
-import { CartProvider } from "@/context/CartContext";
+function App() {
+  const { user } = useAuth();
 
-export default function App() {
   return (
     <BrowserRouter>
-      <CartProvider>
-        <div className="min-h-screen bg-[#f4efe9] max-w-md mx-auto pb-24">
-          
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/home" element={<Home />} />
-            <Route path="/menu" element={<Menu />} />
-            <Route path="/offers" element={<Offers />} />
-            <Route path="/item/:id" element={<ItemDetails />} />
-            <Route path="/cart" element={<Cart />} />
-            <Route path="/bill" element={<BillDetails />} />
-          </Routes>
-
-          {/* Persistent Bottom Nav */}
-          <BottomNav />
-        </div>
-      </CartProvider>
+      <Routes>
+        {/* send unauthenticated visitors to login, otherwise go home */}
+        <Route
+          path="/"
+          element={
+            user ? <Navigate to="/home" /> : <Navigate to="/login" />
+          }
+        />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/select-outlet" element={<SelectOutlet />} />
+        <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+        <Route path="/menu" element={<ProtectedRoute><Menu /></ProtectedRoute>} />
+        <Route path="/cart" element={<ProtectedRoute><Cart /></ProtectedRoute>} />
+        <Route path="/bill-details" element={<ProtectedRoute><BillDetails /></ProtectedRoute>} />
+        <Route path="/item-details" element={<ProtectedRoute><ItemDetails /></ProtectedRoute>} />
+        <Route path="/offers" element={<ProtectedRoute><Offers /></ProtectedRoute>} />
+      </Routes>
     </BrowserRouter>
   );
 }
+
+export default App;

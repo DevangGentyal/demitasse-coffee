@@ -5,7 +5,7 @@ export default function ProductGrid() {
   const handleAdd = (product) => {
     console.log("Add to cart:", product);
   };
-
+  
   return (
     <div className="grid grid-cols-2 gap-4 px-4 mt-4">
       <ProductCard
@@ -36,7 +36,6 @@ export default function ProductGrid() {
         price={200}
         onAdd={handleAdd}
       />
-
     </div>
   );
 }
