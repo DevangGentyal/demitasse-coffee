@@ -9,15 +9,16 @@ import VegFilter from "@/components/menu_screen/VegFilter";
 import MenuProductGrid from "@/components/menu_screen/MenuProductGrid";
 
 import { useMenu } from "@/context/MenuContext";
+import { useFilter } from "@/context/FilterContext";
 
 export default function Menu() {
 
   const { products, loading } = useMenu();
+  const { vegOnly } = useFilter();
 
   const [activeCategory, setActiveCategory] = useState(null);
   const [activeSubcategory, setActiveSubcategory] = useState(null);
   const [search, setSearch] = useState("");
-  const [vegOnly, setVegOnly] = useState(false);
 
   if (loading) {
     return <div className="p-6">Loading menu...</div>;
@@ -46,18 +47,27 @@ export default function Menu() {
         categories={categories}
         activeCategory={activeCategory}
         onChange={(cat) => {
-          setActiveCategory(cat);
+        setActiveCategory(prev => {
+          // 🔁 toggle behavior
+          if (prev === cat) {
+            setActiveSubcategory(null);
+            return null;
+          }
           setActiveSubcategory(null);
-        }}
+          return cat;
+        });
+      }}
       />
 
       <SubCategoryTabs
         subcategories={subcategories}
         activeSub={activeSubcategory}
-        onChange={setActiveSubcategory}
+        onChange={(sub) => {
+        setActiveSubcategory(prev => (prev === sub ? null : sub));
+        }}
       />
 
-      <VegFilter onChange={setVegOnly} />
+      <VegFilter />
 
       <MenuProductGrid
         products={products}

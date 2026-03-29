@@ -1,14 +1,20 @@
-import React from "react";
+import React, { useState } from "react";
 
 const ItemImage = ({ image }) => {
-  return (
-    <div className="flex justify-center items-center py-2">
 
-      {image ? (
+  const [imgError, setImgError] = useState(false);
+
+  const showImage = image && !imgError;
+
+  return (
+    <div className="w-full h-40 flex justify-center items-center">
+      
+      {showImage ? (
         <img
           src={image}
           alt="product"
-          className="max-h-32 w-auto object-contain"
+          onError={() => setImgError(true)}
+          className="h-full w-full object-cover"
         />
       ) : null}
 

@@ -11,6 +11,7 @@ import BottomNav from "@/components/BottomNav";
 
 import { CartProvider } from "@/context/CartContext";
 import { MenuProvider } from "@/context/MenuContext";
+import { FilterProvider } from "@/context/FilterContext";
 
 
 function Layout() {
@@ -49,18 +50,14 @@ export default function App() {
   return (
 
     <BrowserRouter>
-
-      <MenuProvider>
-
-        <CartProvider>
-
-          <Layout />
-
-        </CartProvider>
-
-      </MenuProvider>
-
-    </BrowserRouter>
+  <MenuProvider>
+    <CartProvider>
+      <FilterProvider>
+        <Layout />
+      </FilterProvider>
+    </CartProvider>
+  </MenuProvider>
+</BrowserRouter>
 
   );
 

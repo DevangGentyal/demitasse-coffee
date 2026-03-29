@@ -8,28 +8,23 @@ export default function MenuProductGrid({
   vegOnly
 }) {
 
-  if (!activeCategory) {
-    return (
-      <div className="px-4 mt-6 text-center text-gray-500">
-        Please select a category
-      </div>
-    );
-  }
-
   const filteredProducts = products.filter((p) => {
 
-    if (p.category !== activeCategory) return false;
-
-    if (activeSubcategory && p.subcategory !== activeSubcategory)
+    // ✅ SEARCH (GLOBAL - works always)
+    if (search && !p.name.toLowerCase().includes(search.toLowerCase())) {
       return false;
+    }
 
+    // ✅ VEG FILTER
     if (vegOnly && !p.isVeg) return false;
 
-    if (
-      search &&
-      !p.name.toLowerCase().includes(search.toLowerCase())
-    )
+    // ✅ CATEGORY (only if selected)
+    if (activeCategory && p.category !== activeCategory) return false;
+
+    // ✅ SUBCATEGORY (only if selected)
+    if (activeSubcategory && p.subcategory !== activeSubcategory) {
       return false;
+    }
 
     return true;
   });
