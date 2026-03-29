@@ -27,6 +27,8 @@ import BottomNav from "@/components/BottomNav";
 // Contexts
 import { CartProvider } from "@/context/CartContext";
 import { MenuProvider } from "@/context/MenuContext";
+import { FilterProvider } from "@/context/FilterContext";
+
 
 function Layout() {
   const location = useLocation();
@@ -72,11 +74,14 @@ function AuthRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
-      <MenuProvider>
-        <CartProvider>
-          <Layout />
-        </CartProvider>
-      </MenuProvider>
-    </BrowserRouter>
+  <MenuProvider>
+    <CartProvider>
+      <FilterProvider>
+        <Layout />
+      </FilterProvider>
+    </CartProvider>
+  </MenuProvider>
+</BrowserRouter>
+
   );
 }

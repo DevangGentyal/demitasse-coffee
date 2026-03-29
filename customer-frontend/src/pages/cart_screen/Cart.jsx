@@ -1,11 +1,14 @@
 import { useCart } from "../../context/CartContext";
+import { useNavigate } from "react-router-dom";
+
 import CartHeader from "../../components/cart_screen/CartHeader.jsx";
 import CartItem from "../../components/cart_screen/CartItem.jsx";
 import ApplyCoupon from "../../components/cart_screen/ApplyCoupon.jsx";
 
 const Cart = () => {
 
-  // ✅ GET DATA FROM CONTEXT
+  const navigate = useNavigate();
+
   const {
     cart,
     updateQty,
@@ -13,20 +16,16 @@ const Cart = () => {
     totalItems
   } = useCart();
 
-  const handleApplyCoupon = (code) => {
-    alert(`Coupon applied: ${code}`);
-  };
-
   const tax = 45;
   const grandTotal = totalPrice + tax;
 
   return (
     <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-28">
+
       <CartHeader />
 
       <div className="px-4 space-y-4">
 
-        {/* CART ITEMS */}
         {cart.length === 0 ? (
           <p className="text-center mt-10 text-gray-500">
             Your cart is empty
@@ -34,20 +33,18 @@ const Cart = () => {
         ) : (
           cart.map((item) => (
             <CartItem
-              key={item.id}
+              key={item.id + JSON.stringify(item.variation) + JSON.stringify(item.addons)}
               item={item}
-              onQtyChange={(id, qty) =>
-                updateQty(id, item.type, qty)
-              }
+              onQtyChange={(qty) => updateQty(item, qty)}
             />
           ))
         )}
 
-        {/* APPLY COUPON */}
-        <ApplyCoupon onApply={handleApplyCoupon} />
+        <ApplyCoupon onApply={() => {}} />
 
-        {/* BILL SUMMARY */}
+        {/* Bill Summary */}
         <div className="bg-white rounded-2xl p-4 shadow-md">
+
           <h3 className="font-semibold mb-3">Bill Summary</h3>
 
           <div className="flex justify-between text-sm text-gray-600">
@@ -60,7 +57,19 @@ const Cart = () => {
             <span>₹{tax}</span>
           </div>
 
-          <button className="text-orange-600 text-sm mt-3 underline">
+          <button
+            onClick={() =>
+              navigate("/bill", {
+                state: {
+                  items: cart,
+                  itemTotal: totalPrice,
+                  tax,
+                  grandTotal
+                }
+              })
+            }
+            className="text-orange-600 text-sm mt-3 underline"
+          >
             View Detailed Bill
           </button>
 
@@ -72,11 +81,11 @@ const Cart = () => {
           </div>
         </div>
 
-        {/* ACTION BUTTONS */}
         <div className="flex gap-4">
           <button className="flex-1 bg-red-500 text-white py-3 rounded-full">
             Cancel
           </button>
+
           <button className="flex-1 bg-green-500 text-white py-3 rounded-full">
             Place Order ({totalItems})
           </button>

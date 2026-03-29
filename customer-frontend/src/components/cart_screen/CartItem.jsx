@@ -1,50 +1,54 @@
-import React from "react";
-import VegNonVegIcon from "../common/VegNonVegIcon";
+import VegNonVegIcon from "@/components/common/VegNonVegIcon";
 
-const CartItem = ({ item, onQtyChange }) => {
+export default function CartItem({ item, onQtyChange }) {
+
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-md flex justify-between items-center">
-      
-      {/* LEFT SIDE */}
-      <div>
-        {/* NAME + VEG/NON-VEG ICON */}
-        <div className="flex items-center gap-2">
-          <VegNonVegIcon type={item.type} />
-          <h3 className="font-semibold text-gray-800">{item.name}</h3>
+    <div className="bg-white rounded-2xl p-4 shadow-md">
+
+      <div className="flex justify-between items-start">
+
+        <div>
+
+          <div className="flex items-center gap-2">
+            <VegNonVegIcon type={item.isVeg ? "veg" : "nonveg"} />
+
+            <h3 className="font-semibold">{item.name}</h3>
+          </div>
+
+          {/* Variations + Add-ons */}
+          <div className="text-xs text-gray-500 mt-1">
+
+            {Object.values(item.variation || {}).map((v, i) => (
+              <div key={i}>• {v}</div>
+            ))}
+
+            {Object.values(item.addons || {}).flat().map((a, i) => (
+              <div key={i}>+ {a}</div>
+            ))}
+
+          </div>
+
         </div>
 
-        <p className="text-sm text-gray-500">{item.desc}</p>
+        {/* Qty Controls */}
+        <div className="flex items-center gap-2">
 
-        {/* 🔥 ADD THIS (for offer items) */}
-        {item.type === "offer" && item.itemsIncluded && (
-          <div className="text-xs text-gray-500 mt-1">
-            {item.itemsIncluded.map((i, index) => (
-              <p key={index}>• {i}</p>
-            ))}
-          </div>
-        )}
+          <button
+            onClick={() => onQtyChange(item.qty - 1)}
+            className="px-2 bg-gray-200 rounded"
+          >-</button>
 
-        <p className="mt-1 font-semibold text-orange-600">
-          ₹{item.price}
-        </p>
+          <span>{item.qty}</span>
+
+          <button
+            onClick={() => onQtyChange(item.qty + 1)}
+            className="px-2 bg-gray-200 rounded"
+          >+</button>
+
+        </div>
+
       </div>
 
-      {/* RIGHT SIDE (QTY CONTROLS) */}
-      <div className="flex items-center bg-gray-100 rounded-full px-3 py-1">
-        
-        {/* 🔥 PREVENT NEGATIVE */}
-        <button onClick={() => onQtyChange(item.id, item.qty - 1)}>
-          −
-        </button>
-
-        <span className="mx-3">{item.qty}</span>
-
-        <button onClick={() => onQtyChange(item.id, item.qty + 1)}>
-          +
-        </button>
-      </div>
     </div>
   );
-};
-
-export default CartItem;
+}
