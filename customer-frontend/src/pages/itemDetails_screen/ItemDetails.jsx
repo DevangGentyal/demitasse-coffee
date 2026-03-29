@@ -113,7 +113,7 @@ export default function ItemDetails() {
     });
 
     setShowSnack(true);
-
+    
     setTimeout(() => {
       setShowSnack(false);
     }, 2000);
