@@ -57,7 +57,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
         console.log('✅ Total products fetched:', fetchedProducts.length)
         console.log('📦 Products:', fetchedProducts)
         
-        const availableProducts = fetchedProducts.filter(p => p.available)
+        const availableProducts = fetchedProducts.filter(p => p.isAvailable)
         console.log('✅ Available products:', availableProducts.length)
         setProducts(availableProducts)
         

@@ -278,7 +278,7 @@ export default function OrdersPage() {
         </div>
       </main>
 
-      <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} onOrderCreated={refetchOrders} />
+      <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} onOrderCreated={refetchOrders}  />
     </div>
   )
 }
