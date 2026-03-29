@@ -14,6 +14,16 @@ const CartItem = ({ item, onQtyChange }) => {
         </div>
 
         <p className="text-sm text-gray-500">{item.desc}</p>
+
+        {/* 🔥 ADD THIS (for offer items) */}
+        {item.type === "offer" && item.itemsIncluded && (
+          <div className="text-xs text-gray-500 mt-1">
+            {item.itemsIncluded.map((i, index) => (
+              <p key={index}>• {i}</p>
+            ))}
+          </div>
+        )}
+
         <p className="mt-1 font-semibold text-orange-600">
           ₹{item.price}
         </p>
@@ -21,9 +31,17 @@ const CartItem = ({ item, onQtyChange }) => {
 
       {/* RIGHT SIDE (QTY CONTROLS) */}
       <div className="flex items-center bg-gray-100 rounded-full px-3 py-1">
-        <button onClick={() => onQtyChange(item.id, item.qty - 1)}>−</button>
+        
+        {/* 🔥 PREVENT NEGATIVE */}
+        <button onClick={() => onQtyChange(item.id, item.qty - 1)}>
+          −
+        </button>
+
         <span className="mx-3">{item.qty}</span>
-        <button onClick={() => onQtyChange(item.id, item.qty + 1)}>+</button>
+
+        <button onClick={() => onQtyChange(item.id, item.qty + 1)}>
+          +
+        </button>
       </div>
     </div>
   );
