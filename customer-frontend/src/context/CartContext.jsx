@@ -7,7 +7,6 @@ export const useCart = () => useContext(CartContext);
 export function CartProvider({ children }) {
 
   const [cart, setCart] = useState([]);
-  const [appliedOffer, setAppliedOffer] = useState(null);
 
   // ✅ helper to match items properly
   const isSameItem = (a, b) => {
@@ -75,9 +74,7 @@ export function CartProvider({ children }) {
         updateQty,
         clearCart,
         totalPrice,
-        totalItems,
-        appliedOffer,
-        setAppliedOffer,
+        totalItems
       }}
     >
       {children}

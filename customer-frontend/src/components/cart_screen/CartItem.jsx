@@ -3,15 +3,11 @@ import VegNonVegIcon from "@/components/common/VegNonVegIcon";
 export default function CartItem({ item, onQtyChange }) {
 
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-md flex justify-between items-center">
-      
-      {/* LEFT SIDE */}
-      <div>
-        {/* NAME + VEG/NON-VEG ICON */}
-        <div className="flex items-center gap-2">
-          <VegNonVegIcon isVeg={item.isVeg} />
-          <h3 className="font-semibold text-gray-800">{item.name}</h3>
-        </div>
+    <div className="bg-white rounded-2xl p-4 shadow-md">
+
+      <div className="flex justify-between items-start">
+
+        <div>
 
           <div className="flex items-center gap-2">
             <VegNonVegIcon type={item.isVeg ? "veg" : "nonveg"} />

@@ -1,11 +1,8 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithPopup 
-} from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import { auth, db, googleProvider } from "../../lib/firebase";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
 
 const RegisterForm = () => {
   const [formData, setFormData] = useState({
@@ -27,13 +24,13 @@ const RegisterForm = () => {
     });
   };
 
-  // ✅ EMAIL REGISTER (UPDATED)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     const { name, dob, gender, location, email, password } = formData;
 
+    // Basic validation
     if (!name || !dob || !gender || !location || !email || !password) {
       alert("Please fill in all fields!");
       setLoading(false);
@@ -41,6 +38,7 @@ const RegisterForm = () => {
     }
 
     try {
+      // 🔐 Create user in Firebase Authentication
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
@@ -49,70 +47,27 @@ const RegisterForm = () => {
 
       const user = userCredential.user;
 
+      // 🔥 Store extra user details in Firestore
       await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
-        name,
-        dob,
-        gender,
-        location,
-        email,
-        provider: "email",
-        isProfileComplete: true,
-        hasPlacedFirstOrder: false, // 🔥 ADDED
+        name: name,
+        dob: dob,
+        gender: gender,
+        location: location,
+        email: email,
         createdAt: new Date(),
       });
 
       console.log("User Registered:", user);
 
-      navigate("/select-outlet");
+      // Redirect after registration
+      navigate("/home");
 
     } catch (error) {
-      console.log("Full Error:", error);
-      alert(error.code);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🔥 GOOGLE REGISTER (UPDATED)
-  const handleGoogleRegister = async () => {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-
-      console.log("Google User:", user);
-
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
-
-      if (!userSnap.exists()) {
-        // 🆕 New user
-        await setDoc(userRef, {
-          uid: user.uid,
-          name: user.displayName,
-          email: user.email,
-          provider: "google",
-          isProfileComplete: false,
-          hasPlacedFirstOrder: false, // 🔥 ADDED
-          createdAt: new Date(),
-        });
-
-        navigate("/complete-profile");
-
-      } else {
-        const userData = userSnap.data();
-
-        if (!userData.isProfileComplete) {
-          navigate("/complete-profile");
-        } else {
-          navigate("/home");
-        }
-      }
-
-    } catch (error) {
-      alert(error.message);
-      console.error("Google Register Error:", error);
-    }
+  console.log("Full Error:", error);
+  alert(error.code);
+} finally {
+  setLoading(false);
+}
   };
 
   return (
@@ -218,27 +173,13 @@ const RegisterForm = () => {
           />
         </div>
 
-        {/* Register Button */}
+        {/* Button */}
         <button
           type="submit"
           disabled={loading}
           className="w-full bg-[#8B4513] text-white py-3 rounded-xl font-semibold hover:bg-[#A0522D] transition duration-300 shadow-md disabled:opacity-50"
         >
           {loading ? "Registering..." : "Register"}
-        </button>
-
-        {/* Google Register */}
-        <button
-          type="button"
-          onClick={handleGoogleRegister}
-          className="w-full flex items-center justify-center gap-3 border py-3 rounded-xl font-medium hover:bg-gray-100 transition duration-300 shadow-sm"
-        >
-          <img
-            src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-            alt="Google"
-            className="w-5 h-5"
-          />
-          Continue with Google
         </button>
 
         <p className="text-center text-sm text-gray-600 mt-4">

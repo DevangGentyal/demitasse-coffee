@@ -11,9 +11,6 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (currentUser) {
-        localStorage.setItem("userType", "registered");
-      }
       setLoading(false);
     });
 
@@ -23,7 +20,6 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await signOut(auth);
-      localStorage.removeItem("userType");
     } catch (error) {
       console.error("Logout error:", error);
     }
