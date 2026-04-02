@@ -103,7 +103,6 @@ const Cart = () => {
 
       <div className="px-4 space-y-5">
 
-        {/* CART ITEMS */}
         {cart.length === 0 ? (
           <p className="text-center mt-10 text-gray-500">
             Your cart is empty
@@ -185,7 +184,6 @@ const Cart = () => {
           </div>
         </div>
 
-        {/* ACTION BUTTONS */}
         <div className="flex gap-4">
           <button className="flex-1 bg-red-500 text-white py-3 rounded-full">
             Cancel

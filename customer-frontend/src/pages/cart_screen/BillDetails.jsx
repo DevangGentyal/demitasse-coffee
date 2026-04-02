@@ -18,6 +18,10 @@ const BillDetails = () => {
     navigate("/cart");
   };
 
+  const handleBack = () => {
+    navigate("/cart"); // ✅ always go to cart
+  };
+
   if (!state) {
     return <div className="p-4">No bill data</div>;
   }
