@@ -104,9 +104,11 @@ export default function ItemDetails() {
   const handleAdd = () => {
 
     addToCart({
-      id: product.id,
-      name: product.name,
-      price: totalPrice,
+      id:product.id,
+      name:product.name,
+      desc:product.desc,
+      isVeg:product.isVeg,
+      price:totalPrice,
       variation,
       addons,
       isVeg:product.isVeg
