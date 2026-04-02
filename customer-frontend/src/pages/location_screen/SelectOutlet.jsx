@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react"
 import { collection, getDocs } from "firebase/firestore"
 import { db } from "../../lib/firebase"
 import { useNavigate } from "react-router-dom"
-import { useLocationContext } from "../../context/LocationContext"
 
 const SelectOutlet = ({ onClose }) => {
 
@@ -11,9 +10,6 @@ const SelectOutlet = ({ onClose }) => {
   const [location, setLocation] = useState(null)
   const [outlets, setOutlets] = useState([])
   const [selectedOutlet, setSelectedOutlet] = useState("")
-
-  const { setOutlet, setTableNumber: setGlobalTableNumber, tableNumber: globalTableNumber } = useLocationContext()
-  const [tableNumber, setTableNumber] = useState(globalTableNumber || "")
 
   useEffect(() => {
     getLocation()
@@ -112,6 +108,7 @@ const SelectOutlet = ({ onClose }) => {
     setSelectedOutlet(e.target.value)
   }
 
+  // Continue button logic
   const handleContinue = () => {
 
     if (!selectedOutlet) {
@@ -119,14 +116,8 @@ const SelectOutlet = ({ onClose }) => {
       return
     }
 
-    if (!tableNumber) {
-      alert("Please enter table number")
-      return
-    }
-
-    // Save selected outlet and table number
-    setOutlet(selectedOutlet)
-    setGlobalTableNumber(tableNumber)
+    // Save selected outlet
+    localStorage.setItem("selectedOutlet", selectedOutlet)
 
     console.log("Selected Outlet:", selectedOutlet)
 
@@ -158,14 +149,6 @@ const SelectOutlet = ({ onClose }) => {
             Detecting your location...
           </p>
         )}
-
-        <input
-          type="number"
-          placeholder="Enter Table Number"
-          value={tableNumber}
-          onChange={(e) => setTableNumber(e.target.value)}
-          className="w-full border rounded-md p-2 mb-4"
-        />
 
         <select
           className="w-full border rounded-md p-2 mb-4"

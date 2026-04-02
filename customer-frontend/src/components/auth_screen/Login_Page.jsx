@@ -1,15 +1,7 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom"; 
-import { 
-  signInWithEmailAndPassword, 
-  sendPasswordResetEmail,
-  signInWithPopup 
-} from "firebase/auth";
-
-import { auth, googleProvider } from "../../lib/firebase";
-import { db } from "../../lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-
+import { Link, useNavigate } from "react-router-dom"; // ✅ useNavigate for redirect
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "../../lib/firebase";
 
 const Login_Page = () => {
   const [formData, setFormData] = useState({
@@ -19,7 +11,7 @@ const Login_Page = () => {
   const [loading, setLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
 
-  const navigate = useNavigate();
+  const navigate = useNavigate(); // ✅ navigation function
 
   const handleChange = (e) => {
     setFormData({
@@ -28,91 +20,34 @@ const Login_Page = () => {
     });
   };
 
-  // ✅ EMAIL/PASSWORD LOGIN
- const handleSubmit = async (e) => {
-  e.preventDefault();
-  setLoading(true);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
 
-  const { email, password } = formData;
+    const { email, password } = formData;
 
-  if (!email || !password) {
-    alert("Please enter both email and password");
-    setLoading(false);
-    return;
-  }
-
-  try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    const userRef = doc(db, "users", user.uid);
-    const userSnap = await getDoc(userRef);
-
-    if (!userSnap.exists()) {
-      alert("User data not found.");
+    // ✅ basic validation
+    if (!email || !password) {
+      alert("Please enter both email and password");
       setLoading(false);
       return;
     }
 
-    const userData = userSnap.data();
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log("Logged In:", userCredential.user); // ✅ logs user object, not password
 
-    // 🟡 Profile incomplete
-    if (!userData.isProfileComplete) {
-      navigate("/complete-profile");
-      return;
+      // ✅ redirect to homepage
+      navigate("/select-outlet");
+
+    } catch (error) {
+      alert(error.message); // show Firebase error
+      console.error("Login Error:", error.message);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    // ✅ Normal flow
-    navigate("/select-outlet");
-
-  } catch (error) {
-    alert(error.message);
-    console.error("Login Error:", error.message);
-  } finally {
-    setLoading(false);
-  }
-};
-
-  // ✅ GOOGLE LOGIN
-const handleGoogleLogin = async () => {
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    const user = result.user;
-
-    const userRef = doc(db, "users", user.uid);
-    const userSnap = await getDoc(userRef);
-
-    // ❌ User not registered
-    if (!userSnap.exists()) {
-      alert("No account found. Please register first.");
-      await auth.signOut();
-      navigate("/register");
-      return;
-    }
-
-    const userData = userSnap.data();
-
-    // 🟡 Profile incomplete → go complete profile
-    if (!userData.isProfileComplete) {
-      navigate("/complete-profile");
-      return;
-    }
-
-    // ✅ Profile complete → go to outlet
-    navigate("/select-outlet");
-
-  } catch (error) {
-    console.error("Google Login Error:", error);
-
-    if (error.code === "auth/popup-blocked") {
-      alert("Popup blocked! Allow popups and try again.");
-    } else {
-      alert(error.message);
-    }
-  }
-};
-
-  // ✅ FORGOT PASSWORD
   const handleForgotPassword = async () => {
     const email = formData.email;
     if (!email) {
@@ -182,44 +117,19 @@ const handleGoogleLogin = async () => {
           <span 
             className="text-[#8B4513] cursor-pointer hover:underline"
             onClick={handleForgotPassword}
+            disabled={resetLoading}
           >
             {resetLoading ? "Sending..." : "Forgot Password?"}
           </span>
         </div>
 
-        {/* Email Login Button */}
+        {/* Button */}
         <button
           type="submit"
           disabled={loading}
           className="w-full bg-[#8B4513] text-white py-3 rounded-xl font-semibold hover:bg-[#A0522D] transition duration-300 shadow-md disabled:opacity-50"
         >
           {loading ? "Logging in..." : "Login"}
-        </button>
-
-        {/* 🔥 Google Login Button */}
-        <button
-          type="button"
-          onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-3 border py-3 rounded-xl font-medium hover:bg-gray-100 transition duration-300 shadow-sm"
-        >
-          <img
-            src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-            alt="Google"
-            className="w-5 h-5"
-          />
-          Continue with Google
-        </button>
-
-        {/* Guest Login Button */}
-        <button
-          type="button"
-          onClick={() => {
-            localStorage.setItem("userType", "guest");
-            navigate("/select-outlet");
-          }}
-          className="w-full flex items-center justify-center gap-3 bg-gray-100 py-3 rounded-xl font-medium hover:bg-gray-200 transition duration-300 shadow-sm"
-        >
-          Continue as Guest
         </button>
 
         {/* Register Link */}

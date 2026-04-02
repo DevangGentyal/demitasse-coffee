@@ -1,72 +1,79 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import OfferCard from "./OfferCard";
-import { useOffers } from "../../context/OfferContext";
+import { collection, getDocs, doc, getDoc } from "firebase/firestore";
+import { db } from "../../lib/firebase";
 
 const OfferList = () => {
-  const { filteredOffers } = useOffers();
+  const [offers, setOffers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  if (!filteredOffers) {
+  useEffect(() => {
+    const fetchOffers = async () => {
+      try {
+        console.log("Fetching offers...");
+
+        const snapshot = await getDocs(collection(db, "offers"));
+
+        const offersData = await Promise.all(
+          snapshot.docs.map(async (offerDoc) => {
+            const offerData = offerDoc.data();
+
+            let products = [];
+
+            // ✅ Fetch products if applicableProductIds exists
+            if (offerData.applicableProductIds?.length > 0) {
+              const productPromises = offerData.applicableProductIds.map(
+                async (productId) => {
+                  const productRef = doc(db, "products", productId);
+                  const productSnap = await getDoc(productRef);
+
+                  if (productSnap.exists()) {
+                    return {
+                      id: productSnap.id,
+                      ...productSnap.data(),
+                    };
+                  }
+                  return null;
+                }
+              );
+
+              products = (await Promise.all(productPromises)).filter(Boolean);
+            }
+
+            return {
+              id: offerDoc.id,
+              ...offerData,
+              products, // ✅ attach fetched products
+            };
+          })
+        );
+
+        console.log("Offers with products:", offersData);
+
+        setOffers(offersData);
+      } catch (error) {
+        console.error("Firestore Error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOffers();
+  }, []);
+
+  if (loading) {
     return <div className="text-center py-10">Loading offers...</div>;
   }
 
-  const {
-    registrationOffer,
-    birthdayOffer,
-    trendingOffers = [],
-    normalOffers = [],
-  } = filteredOffers || {};
-
-  const hasOffers =
-    registrationOffer ||
-    birthdayOffer ||
-    trendingOffers.length > 0 ||
-    normalOffers.length > 0;
-
-  if (!hasOffers) {
-    return <div className="text-center py-10">No offers available today</div>;
+  if (offers.length === 0) {
+    return <div className="text-center py-10">No offers available</div>;
   }
 
   return (
-    <div className="px-4 space-y-8 pb-24">
-      
-      {/* Registration */}
-      {registrationOffer && (
-        <OfferCard
-          offer={registrationOffer}
-          badge="Welcome Offer 🎁"
-          isAutoApplied
-        />
-      )}
-
-      {/* Birthday */}
-      {birthdayOffer && (
-        <OfferCard
-          offer={birthdayOffer}
-          badge="Happy Birthday 🎂"
-        />
-      )}
-
-      {/* Trending */}
-      {trendingOffers.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Trending Offers 🔥</h2>
-
-          {trendingOffers.map((offer) => (
-            <OfferCard key={offer.id} offer={offer} />
-          ))}
-        </div>
-      )}
-
-      {/* Normal */}
-      {normalOffers.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Other Offers</h2>
-
-          {normalOffers.map((offer) => (
-            <OfferCard key={offer.id} offer={offer} />
-          ))}
-        </div>
-      )}
+    <div className="px-4 space-y-5 pb-24">
+      {offers.map((offer) => (
+        <OfferCard key={offer.id} offer={offer} />
+      ))}
     </div>
   );
 };
