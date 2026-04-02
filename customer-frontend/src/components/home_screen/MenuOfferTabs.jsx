@@ -22,7 +22,14 @@ export default function MenuOfferTabs() {
       </button>
 
       <button
-        onClick={() => navigate("/offers")}
+        onClick={() => {
+          const isGuest = localStorage.getItem("userType") === "guest";
+          if (isGuest) {
+            alert("go and login to get offers");
+            return;
+          }
+          navigate("/offers");
+        }}
         className={`flex-1 py-3 rounded-full font-medium transition
           ${
             active === "OFFERS"

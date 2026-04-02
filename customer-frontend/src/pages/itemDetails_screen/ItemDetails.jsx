@@ -73,6 +73,8 @@ if(!product) return null;
     addToCart({
       id:product.id,
       name:product.name,
+      desc:product.desc,
+      isVeg:product.isVeg,
       price:totalPrice,
       variation,
       addons

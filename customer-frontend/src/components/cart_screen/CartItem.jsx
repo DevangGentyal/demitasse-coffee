@@ -9,7 +9,7 @@ const CartItem = ({ item, onQtyChange }) => {
       <div>
         {/* NAME + VEG/NON-VEG ICON */}
         <div className="flex items-center gap-2">
-          <VegNonVegIcon type={item.type} />
+          <VegNonVegIcon isVeg={item.isVeg} />
           <h3 className="font-semibold text-gray-800">{item.name}</h3>
         </div>
 

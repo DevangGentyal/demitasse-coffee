@@ -6,6 +6,7 @@ export const useCart = () => useContext(CartContext);
 
 export function CartProvider({ children }) {
   const [cart, setCart] = useState([]);
+  const [appliedOffer, setAppliedOffer] = useState(null);
 
   // ✅ ADD TO CART (handles duplicate items)
   const addToCart = (item) => {
@@ -73,6 +74,8 @@ export function CartProvider({ children }) {
         clearCart,
         totalPrice,
         totalItems,
+        appliedOffer,
+        setAppliedOffer,
       }}
     >
       {children}

@@ -2,16 +2,24 @@ import { MapPinIcon } from "@heroicons/react/24/solid";
 import { signOut } from "firebase/auth";
 import { auth } from "../../lib/firebase";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import { useLocationContext } from "../../context/LocationContext";
 
 export default function Header() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { selectedOutlet } = useLocationContext();
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
+  const handleAuthAction = async () => {
+    if (!user) {
       navigate("/login");
-    } catch (error) {
-      console.error("Logout Error:", error);
+    } else {
+      try {
+        await signOut(auth);
+        navigate("/login");
+      } catch (error) {
+        console.error("Logout Error:", error);
+      }
     }
   };
 
@@ -21,22 +29,23 @@ export default function Header() {
       {/* Location */}
       <div className="flex items-center gap-2">
         <MapPinIcon className="w-5 h-5 text-green-600" />
-        <span className="font-semibold text-lg">Baner, Pune</span>
+        <span className="font-semibold text-lg">{selectedOutlet || "Select Outlet"}</span>
       </div>
 
       {/* Profile + Logout */}
       <div className="flex items-center gap-3">
         
-        {/* Logout Hyperlink */}
         <button
-          onClick={handleLogout}
+          onClick={handleAuthAction}
           className="text-sm text-red-600 hover:underline font-medium"
         >
-          Logout
+          {!user ? "Login" : "Logout"}
         </button>
 
-        {/* Profile Circle */}
-        <div className="w-10 h-10 bg-amber-800 rounded-full"></div>
+        {/* Profile Circle ONLY for registered */}
+        {user && (
+          <div className="w-10 h-10 bg-amber-800 rounded-full"></div>
+        )}
 
       </div>
 
