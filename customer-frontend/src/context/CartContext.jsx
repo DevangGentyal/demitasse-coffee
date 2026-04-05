@@ -7,6 +7,7 @@ export const useCart = () => useContext(CartContext);
 export function CartProvider({ children }) {
 
   const [cart, setCart] = useState([]);
+  const [appliedOffer, setAppliedOffer] = useState(null); // ✅ Added
 
   // ✅ helper to match items properly
   const isSameItem = (a, b) => {
@@ -19,17 +20,13 @@ export function CartProvider({ children }) {
 
   // ✅ ADD TO CART
   const addToCart = (item) => {
-
     setCart(prev => {
-
       const existingIndex = prev.findIndex(i => isSameItem(i, item));
-
       if (existingIndex !== -1) {
         const updated = [...prev];
         updated[existingIndex].qty += 1;
         return updated;
       }
-
       return [...prev, { ...item, qty: 1 }];
     });
   };
@@ -41,12 +38,10 @@ export function CartProvider({ children }) {
 
   // 🔁 UPDATE QTY
   const updateQty = (target, qty) => {
-
     if (qty <= 0) {
       removeFromCart(target);
       return;
     }
-
     setCart(prev =>
       prev.map(item =>
         isSameItem(item, target)
@@ -56,7 +51,10 @@ export function CartProvider({ children }) {
     );
   };
 
-  const clearCart = () => setCart([]);
+  const clearCart = () => {
+    setCart([]);
+    setAppliedOffer(null); // ✅ Also clear applied offer
+  };
 
   // 💰 TOTAL PRICE
   const totalPrice = cart.reduce((total, item) => {
@@ -74,7 +72,9 @@ export function CartProvider({ children }) {
         updateQty,
         clearCart,
         totalPrice,
-        totalItems
+        totalItems,
+        appliedOffer, // ✅ Exported
+        setAppliedOffer // ✅ Exported
       }}
     >
       {children}

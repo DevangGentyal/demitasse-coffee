@@ -5,38 +5,47 @@ import { useNavigate } from "react-router-dom";
 
 export default function Header() {
   const navigate = useNavigate();
+  const isGuest = localStorage.getItem("userType") === "guest";
 
-  const handleLogout = async () => {
+  const handleAuthAction = async () => {
     try {
+      if (isGuest) {
+        localStorage.removeItem("userType");
+        navigate("/login");
+        return;
+      }
       await signOut(auth);
+      localStorage.removeItem("userType");
       navigate("/login");
     } catch (error) {
-      console.error("Logout Error:", error);
+      console.error("Auth Error:", error);
     }
   };
 
   return (
     <div className="flex justify-between items-center px-4 pt-4">
-      
+
       {/* Location */}
       <div className="flex items-center gap-2">
         <MapPinIcon className="w-5 h-5 text-green-600" />
         <span className="font-semibold text-lg">Baner, Pune</span>
       </div>
 
-      {/* Profile + Logout */}
+      {/* Profile + Auth Action */}
       <div className="flex items-center gap-3">
-        
-        {/* Logout Hyperlink */}
+
+        {/* Auth Hyperlink */}
         <button
-          onClick={handleLogout}
-          className="text-sm text-red-600 hover:underline font-medium"
+          onClick={handleAuthAction}
+          className={`text-sm font-medium hover:underline ${isGuest ? 'text-red-600' : 'text-red-600'}`}
         >
-          Logout
+          {isGuest ? "Login" : "Logout"}
         </button>
 
         {/* Profile Circle */}
-        <div className="w-10 h-10 bg-amber-800 rounded-full"></div>
+        {!isGuest && (
+          <div className="w-10 h-10 bg-amber-800 rounded-full"></div>
+        )}
 
       </div>
 

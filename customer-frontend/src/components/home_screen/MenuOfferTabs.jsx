@@ -22,7 +22,17 @@ export default function MenuOfferTabs() {
       </button>
 
       <button
-        onClick={() => navigate("/offers")}
+        onClick={() => {
+          const isGuest = localStorage.getItem("userType") === "guest";
+          if (isGuest) {
+            if (window.confirm("Offers are exclusive! Login or Register to unlock!")) {
+              localStorage.removeItem("userType");
+              navigate("/login");
+            }
+            return;
+          }
+          navigate("/offers")
+        }}
         className={`flex-1 py-3 rounded-full font-medium transition
           ${
             active === "OFFERS"
