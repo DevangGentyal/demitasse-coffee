@@ -9,13 +9,21 @@ export function LocationProvider({ children }) {
         localStorage.getItem("selectedOutlet") || ""
     );
 
+    const [outletName, setOutletNameState] = useState(
+        localStorage.getItem("outletName") || ""
+    );
+
     const [tableNumber, setTableNumberState] = useState(
         localStorage.getItem("tableNumber") || ""
     );
 
-    const setOutlet = (outlet) => {
-        setSelectedOutletState(outlet);
-        localStorage.setItem("selectedOutlet", outlet);
+    const setOutlet = (outletId, name) => {
+        setSelectedOutletState(outletId);
+        localStorage.setItem("selectedOutlet", outletId);
+        if (name) {
+            setOutletNameState(name);
+            localStorage.setItem("outletName", name);
+        }
     };
 
     const setTableNumber = (tableNum) => {
@@ -27,6 +35,7 @@ export function LocationProvider({ children }) {
         <LocationContext.Provider
             value={{
                 selectedOutlet,
+                outletName,
                 setOutlet,
                 tableNumber,
                 setTableNumber,

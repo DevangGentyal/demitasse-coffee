@@ -28,13 +28,11 @@ const Cart = () => {
 
   const { offers } = useOffers();
 
-  // ✅ Coupon States
   const [couponCode, setCouponCode] = useState("");
   const [couponError, setCouponError] = useState("");
   const [hasPlacedFirstOrder, setHasPlacedFirstOrder] = useState(false);
   const [userDob, setUserDob] = useState("");
 
-  // ✅ Fetch user order status
   useEffect(() => {
     const fetchUserOrderStatus = async () => {
       if (user) {
@@ -58,13 +56,17 @@ const Cart = () => {
     fetchUserOrderStatus();
   }, [user]);
 
-  // ✅ APPLY COUPON
   const handleApplyCoupon = () => {
-    const result = validateCoupon(couponCode, offers, {
-      hasPlacedFirstOrder,
-      dob: userDob,
-      userType: isGuest ? "guest" : "registered"
-    });
+    const result = validateCoupon(
+      couponCode,
+      offers,
+      {
+        hasPlacedFirstOrder,
+        dob: userDob,
+        userType: isGuest ? "guest" : "registered"
+      },
+      cart
+    );
 
     if (!result.valid) {
       setCouponError(result.message);
@@ -76,18 +78,67 @@ const Cart = () => {
     setAppliedOffer(result.offer);
   };
 
-  // ✅ DISCOUNT CALCULATION
+  // ✅ FIXED DISCOUNT CALCULATION
   let discount = 0;
 
   if (appliedOffer) {
-    if (appliedOffer.discountType === "PERCENT") {
-      discount = (totalPrice * appliedOffer.discountValue) / 100;
+    let applicableItems = cart;
+
+    if (appliedOffer.products && appliedOffer.products.length > 0) {
+      const allowedNames = appliedOffer.products.map(p =>
+        p.name.toLowerCase()
+      );
+      applicableItems = cart.filter(item =>
+        allowedNames.includes(item.name.toLowerCase())
+      );
+    }
+
+    // 🔥 FIX: quantity → qty
+    const applicableTotal = applicableItems.reduce(
+      (acc, item) => acc + (item.price * item.qty),
+      0
+    );
+
+    const applicableQuantity = applicableItems.reduce(
+      (acc, item) => acc + item.qty,
+      0
+    );
+
+    if (applicableItems.length > 0) {
+      const isBogo =
+        appliedOffer.discountType === "BOGO" ||
+        (appliedOffer.title &&
+          appliedOffer.title.toLowerCase().includes("buy 1 get 1"));
+
+      if (isBogo && applicableQuantity >= 2) {
+        let expandedItems = [];
+
+        applicableItems.forEach(item => {
+          for (let i = 0; i < item.qty; i++) { // ✅ FIXED
+            expandedItems.push(item);
+          }
+        });
+
+        expandedItems.sort((a, b) => b.price - a.price);
+
+        let bogoDiscount = 0;
+        for (let i = 1; i < expandedItems.length; i += 2) {
+          bogoDiscount += expandedItems[i].price;
+        }
+
+        discount = bogoDiscount;
+      } else if (appliedOffer.discountType === "PERCENT") {
+        discount = (applicableTotal * appliedOffer.discountValue) / 100;
+      } else {
+        discount = Math.min(appliedOffer.discountValue, applicableTotal);
+      }
     } else {
-      discount = appliedOffer.discountValue;
+      discount = 0;
     }
   }
 
   let automaticDiscount = 0;
+
   if (!appliedOffer && !hasPlacedFirstOrder && !isGuest) {
     automaticDiscount = totalPrice * 0.20;
   }
@@ -103,7 +154,6 @@ const Cart = () => {
 
       <div className="px-4 space-y-5">
 
-        {/* CART ITEMS */}
         {cart.length === 0 ? (
           <p className="text-center mt-10 text-gray-500">
             Your cart is empty
@@ -111,14 +161,17 @@ const Cart = () => {
         ) : (
           cart.map((item) => (
             <CartItem
-              key={item.id + JSON.stringify(item.variation) + JSON.stringify(item.addons)}
+              key={
+                item.id +
+                JSON.stringify(item.variation) +
+                JSON.stringify(item.addons)
+              }
               item={item}
               onQtyChange={(qty) => updateQty(item, qty)}
             />
           ))
         )}
 
-        {/* ✅ APPLY COUPON CONNECTED */}
         <ApplyCoupon
           couponCode={couponCode}
           setCouponCode={setCouponCode}
@@ -129,7 +182,6 @@ const Cart = () => {
           isGuest={isGuest}
         />
 
-        {/* ✅ BILL SUMMARY */}
         <div className="bg-white rounded-2xl p-4 shadow-md">
 
           <h3 className="font-semibold mb-3">Bill Summary</h3>
@@ -144,7 +196,6 @@ const Cart = () => {
             <span>₹{tax}</span>
           </div>
 
-          {/* ✅ SHOW DISCOUNT */}
           {appliedOffer && (
             <div className="flex justify-between text-sm text-green-600 mt-1">
               <span>Discount ({appliedOffer.title})</span>
@@ -152,7 +203,6 @@ const Cart = () => {
             </div>
           )}
 
-          {/* ✅ SHOW FIRST ORDER DISCOUNT */}
           {automaticDiscount > 0 && (
             <div className="flex justify-between text-sm text-green-600 font-medium mt-1">
               <span>Registration Offer Applied (20%)</span>
@@ -185,7 +235,6 @@ const Cart = () => {
           </div>
         </div>
 
-        {/* ACTION BUTTONS */}
         <div className="flex gap-4">
           <button className="flex-1 bg-red-500 text-white py-3 rounded-full">
             Cancel
