@@ -2,10 +2,12 @@ import { MapPinIcon } from "@heroicons/react/24/solid";
 import { signOut } from "firebase/auth";
 import { auth } from "../../lib/firebase";
 import { useNavigate } from "react-router-dom";
+import { useLocationContext } from "../../context/LocationContext";
 
 export default function Header() {
   const navigate = useNavigate();
   const isGuest = localStorage.getItem("userType") === "guest";
+  const { outletName, tableNumber } = useLocationContext();
 
   const handleAuthAction = async () => {
     try {
@@ -28,7 +30,16 @@ export default function Header() {
       {/* Location */}
       <div className="flex items-center gap-2">
         <MapPinIcon className="w-5 h-5 text-green-600" />
-        <span className="font-semibold text-lg">Baner, Pune</span>
+        <div className="flex flex-col">
+          <span className="font-semibold text-lg leading-tight">
+            {outletName ? `${outletName}` : "Select Outlet"}
+          </span>
+          {tableNumber && (
+            <span className="text-xs font-medium text-gray-500">
+               Table: {tableNumber}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Profile + Auth Action */}

@@ -108,8 +108,12 @@ const SelectOutlet = ({ onClose }) => {
       return
     }
 
+    const selectedObj = outlets.find(o => o.id === selectedOutlet);
+
     // Save selected outlet and table using context
-    setGlobalOutlet(selectedOutlet)
+    if (selectedObj) {
+      setGlobalOutlet(selectedObj.id, selectedObj.name);
+    }
     setGlobalTable(tableNo)
 
     // Close popup safely
@@ -148,7 +152,7 @@ const SelectOutlet = ({ onClose }) => {
         >
           <option value="">Select Outlet</option>
           {outlets.map((outlet) => (
-            <option key={outlet.id} value={outlet.name}>
+            <option key={outlet.id} value={outlet.id}>
               {outlet.name} ({outlet.distance.toFixed(2)} km)
             </option>
           ))}

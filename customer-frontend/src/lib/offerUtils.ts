@@ -11,6 +11,7 @@ export interface Offer {
     endDate: any;
     applicableFor?: string;
     isTrending?: boolean;
+    products?: { name: string }[];
 }
 
 export interface User {
@@ -117,7 +118,8 @@ export const filterOffers = (
 export const validateCoupon = (
     code: string,
     offers: Offer[],
-    user: User & { userType?: string }
+    user: User & { userType?: string },
+    cart: any[] = []
 ) => {
     if (user?.userType === "guest") {
         return { valid: false, message: "Login required to apply offers" };
@@ -153,6 +155,24 @@ export const validateCoupon = (
     if (offer.applicableFor === "new_user") {
         if (user?.hasPlacedFirstOrder) {
             return { valid: false, message: "Only for new users" };
+        }
+    }
+
+    // Check Cartesian constraints
+    if (offer.products && offer.products.length > 0) {
+        const allowedNames = offer.products.map(p => p.name.toLowerCase());
+        const applicableItems = cart.filter(item => allowedNames.includes(item.name.toLowerCase()));
+        
+        if (applicableItems.length === 0) {
+            return { valid: false, message: `Must add valid items to cart (${allowedNames.join(", ")})` };
+        }
+
+        const applicableQty = applicableItems.reduce((sum, item) => sum + item.quantity, 0);
+
+        // Simple BOGO detection based on discountType or title
+        const isBogo = offer.discountType === "BOGO" || (offer.title && offer.title.toLowerCase().includes("buy 1 get 1"));
+        if (isBogo && applicableQty < 2) {
+            return { valid: false, message: "Must add at least 2 items for this BOGO offer." };
         }
     }
 
