@@ -1,0 +1,9 @@
+﻿src/App.jsx(22,26): error TS1261: Already included file name 'C:/Users/jadha/OneDrive/Desktop/cafe/demitasse-coffee/customer-frontend/src/pages/offer_screen/OfferDetails.jsx' differs from file name 'C:/Users/jadha/OneDrive/Desktop/cafe/demitasse-coffee/customer-frontend/src/pages/offer_screen/offerDetails.jsx' only in casing.
+  The file is in the program because:
+    Imported via "./pages/offer_screen/OfferDetails" from file 'C:/Users/jadha/OneDrive/Desktop/cafe/demitasse-coffee/customer-frontend/src/App.jsx'
+    Matched by include pattern 'src' in 'C:/Users/jadha/OneDrive/Desktop/cafe/demitasse-coffee/customer-frontend/tsconfig.json'
+src/components/offer_screen/OfferCard.tsx(4,10): error TS2305: Module '"firebase/firestore"' has no exported member 'Timestamp'.
+src/context/OfferContext.tsx(2,10): error TS2305: Module '"firebase/firestore"' has no exported member 'collection'.
+src/context/OfferContext.tsx(2,22): error TS2305: Module '"firebase/firestore"' has no exported member 'getDocs'.
+src/context/OfferContext.tsx(2,31): error TS2305: Module '"firebase/firestore"' has no exported member 'doc'.
+src/context/OfferContext.tsx(2,36): error TS2305: Module '"firebase/firestore"' has no exported member 'getDoc'.

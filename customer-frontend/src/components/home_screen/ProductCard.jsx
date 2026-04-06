@@ -13,7 +13,7 @@ export default function ProductCard({
   return (
     <div className="bg-white rounded-3xl p-4 shadow-md">
 
-      <div className="bg-gray-100 rounded-2xl flex items-center justify-center h-44 w-full overflow-hidden">
+      <div className="bg-gray-100 rounded-2xl flex items-center justify-center h-44 w-full overflow-hidden cursor-pointer" onClick={() => navigate(`/item/${id}`)}>
         {image && !image.includes("placeholder") ? (
           <img
             src={image}
