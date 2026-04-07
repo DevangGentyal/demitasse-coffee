@@ -5,11 +5,14 @@ import { useRef } from "react";
 
 export default function OfferCard() {
   const { filteredOffers } = useOffers();
-  const trendingOffers = filteredOffers?.trendingOffers || [];
+  const allOffers = [
+    ...(filteredOffers?.trendingOffers || []),
+    ...(filteredOffers?.normalOffers || []),
+  ];
   const navigate = useNavigate();
   const scrollRef = useRef(null);
 
-  if (!trendingOffers.length) return null;
+  if (!allOffers.length) return null;
 
   const handleCardClick = () => {
     const isGuest = localStorage.getItem("userType") === "guest";
@@ -30,7 +33,7 @@ export default function OfferCard() {
         ref={scrollRef}
         style={{ WebkitOverflowScrolling: "touch" }}
       >
-        {trendingOffers.map((offer) => (
+        {allOffers.map((offer) => (
           <div
             key={offer.id}
             className="min-w-[270px] bg-gradient-to-r from-amber-900 to-amber-600 rounded-2xl p-4 text-white flex justify-between cursor-pointer hover:scale-105 transition-transform duration-200"

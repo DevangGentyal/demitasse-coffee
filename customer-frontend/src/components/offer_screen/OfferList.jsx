@@ -16,18 +16,19 @@ const OfferList = () => {
     normalOffers = [],
   } = filteredOffers || {};
 
+  const allGeneralOffers = [...trendingOffers, ...normalOffers];
+
   const hasOffers =
     registrationOffer ||
     birthdayOffer ||
-    trendingOffers.length > 0 ||
-    normalOffers.length > 0;
+    allGeneralOffers.length > 0;
 
   if (!hasOffers) {
     return <div className="text-center py-10">No offers available today</div>;
   }
 
   return (
-    <div className="px-4 space-y-8 pb-24">
+    <div className="px-4 space-y-4 pb-24">
 
       {/* Registration */}
       {registrationOffer && (
@@ -46,27 +47,10 @@ const OfferList = () => {
         />
       )}
 
-      {/* Trending */}
-      {trendingOffers.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Trending Offers 🔥</h2>
-
-          {trendingOffers.map((offer) => (
-            <OfferCard key={offer.id} offer={offer} />
-          ))}
-        </div>
-      )}
-
-      {/* Normal */}
-      {normalOffers.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Other Offers</h2>
-
-          {normalOffers.map((offer) => (
-            <OfferCard key={offer.id} offer={offer} />
-          ))}
-        </div>
-      )}
+      {/* General Offers */}
+      {allGeneralOffers.map((offer) => (
+        <OfferCard key={offer.id} offer={offer} />
+      ))}
     </div>
   );
 };
