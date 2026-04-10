@@ -235,16 +235,38 @@ const Cart = () => {
           </div>
         </div>
 
-        <div className="flex gap-4">
-          <button className="flex-1 bg-red-500 text-white py-3 rounded-full">
-            Cancel
-          </button>
+        <div className="space-y-3">
 
-          <button className="flex-1 bg-green-500 text-white py-3 rounded-full">
-            Place Order ({totalItems})
-          </button>
-        </div>
+  {/* Top row buttons */}
+  <div className="flex gap-4">
+    <button className="flex-1 bg-red-500 text-white py-3 rounded-full">
+      Cancel
+    </button>
 
+    <button className="flex-1 bg-green-500 text-white py-3 rounded-full">
+      Place Order ({totalItems})
+    </button>
+  </div>
+
+  {/* Generate Bill button */}
+  <button
+    onClick={() =>
+      navigate("/bill", {
+        state: {
+          items: cart,
+          itemTotal: totalPrice,
+          tax,
+          discount: totalDiscount,
+          grandTotal
+        }
+      })
+    }
+    className="w-full bg-black text-white py-4 mt-5 rounded-2xl text-base font-semibold"
+  >
+    Generate Bill
+  </button>
+
+</div>
       </div>
     </div>
   );

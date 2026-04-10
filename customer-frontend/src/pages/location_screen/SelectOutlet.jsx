@@ -1,22 +1,31 @@
 import React, { useState, useEffect } from "react"
-import { collection, getDocs } from "firebase/firestore"
+import { collection, getDocs, query, where } from "firebase/firestore"
 import { db } from "../../lib/firebase"
 import { useNavigate } from "react-router-dom"
-import { useLocationContext } from "../../context/LocationContext" // ✅ Added Context
+import { useLocationContext } from "../../context/LocationContext"
 
 const SelectOutlet = ({ onClose }) => {
 
   const navigate = useNavigate()
-  const { setOutlet: setGlobalOutlet, setTableNumber: setGlobalTable } = useLocationContext() // ✅ Added Context
+  const { setOutlet: setGlobalOutlet, setTableNumber: setGlobalTable } = useLocationContext()
 
   const [location, setLocation] = useState(null)
   const [outlets, setOutlets] = useState([])
+  const [tables, setTables] = useState([])
+
   const [selectedOutlet, setSelectedOutlet] = useState("")
-  const [tableNo, setTableNo] = useState("") // ✅ Added local state
+  const [selectedTable, setSelectedTable] = useState("")
 
   useEffect(() => {
     getLocation()
   }, [])
+
+  useEffect(() => {
+    if (selectedOutlet) {
+      fetchTables(selectedOutlet)
+      setSelectedTable("") // reset on outlet change
+    }
+  }, [selectedOutlet])
 
   // Distance calculation
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -25,28 +34,33 @@ const SelectOutlet = ({ onClose }) => {
     const dLon = (lon2 - lon1) * (Math.PI / 180)
 
     const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.sin(dLat / 2) ** 2 +
       Math.cos(lat1 * (Math.PI / 180)) *
       Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2)
+      Math.sin(dLon / 2) ** 2
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     return R * c
   }
 
-  // Fetch outlets from Firestore
-  const fetchOutlets = async (userLocation) => {
+  // Fetch outlets
+  const fetchOutlets = async (userLocation = null) => {
     try {
       const querySnapshot = await getDocs(collection(db, "outlets"))
-      const outletList = querySnapshot.docs.map((doc) => {
+
+      let outletList = querySnapshot.docs.map((doc) => {
         const data = doc.data()
-        const distance = calculateDistance(
-          userLocation.lat,
-          userLocation.lng,
-          data.lat,
-          data.lng
-        )
+
+        let distance = null
+        if (userLocation) {
+          distance = calculateDistance(
+            userLocation.lat,
+            userLocation.lng,
+            data.lat,
+            data.lng
+          )
+        }
+
         return {
           id: doc.id,
           ...data,
@@ -54,8 +68,24 @@ const SelectOutlet = ({ onClose }) => {
         }
       })
 
-      // Sort nearest outlets
-      outletList.sort((a, b) => a.distance - b.distance)
+      // Sort if location available
+      if (userLocation) {
+        outletList.sort((a, b) => a.distance - b.distance)
+      }
+
+      // Ensure outlet_001 always exists
+      const exists = outletList.find(o => o.id === "outlet_001")
+      if (!exists) {
+        const fallbackDoc = querySnapshot.docs.find(d => d.id === "outlet_001")
+        if (fallbackDoc) {
+          outletList.unshift({
+            id: fallbackDoc.id,
+            ...fallbackDoc.data(),
+            distance: 0
+          })
+        }
+      }
+
       setOutlets(outletList)
 
     } catch (error) {
@@ -63,10 +93,35 @@ const SelectOutlet = ({ onClose }) => {
     }
   }
 
-  // Get user GPS location
+  // Fetch tables (isOccupied = false)
+  const fetchTables = async (outletId) => {
+    try {
+      const q = query(
+        collection(db, "tables"),
+        where("outletId", "==", outletId),
+        where("isOccupied", "==", false)
+      )
+
+      const snapshot = await getDocs(q)
+
+      const tableList = snapshot.docs
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }))
+          .sort((a, b) => a.tableNumber - b.tableNumber) // ✅ SORT
+
+        setTables(tableList)
+
+    } catch (error) {
+      console.error("Error fetching tables:", error)
+    }
+  }
+
+  // Get location
   const getLocation = () => {
     if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser")
+      fetchOutlets() // fallback
       return
     }
 
@@ -79,49 +134,34 @@ const SelectOutlet = ({ onClose }) => {
         setLocation(userLocation)
         fetchOutlets(userLocation)
       },
-      (error) => {
-        console.error(error)
-        alert("Unable to retrieve your location")
+      () => {
+        // ❗ user denied → fallback
+        fetchOutlets()
       }
     )
   }
 
-  // Handle dropdown selection
-  const handleOutletChange = (e) => {
-    setSelectedOutlet(e.target.value)
-  }
-
-  // Handle table change
-  const handleTableChange = (e) => {
-    setTableNo(e.target.value)
-  }
-
-  // Continue button logic
   const handleContinue = () => {
     if (!selectedOutlet) {
       alert("Please select an outlet")
       return
     }
 
-    if (!tableNo.trim()) {
-      alert("Please enter a Table Number")
+    if (!selectedTable) {
+      alert("Please select a table")
       return
     }
 
-    const selectedObj = outlets.find(o => o.id === selectedOutlet);
+    const selectedObj = outlets.find(o => o.id === selectedOutlet)
 
-    // Save selected outlet and table using context
     if (selectedObj) {
-      setGlobalOutlet(selectedObj.id, selectedObj.name);
-    }
-    setGlobalTable(tableNo)
-
-    // Close popup safely
-    if (onClose) {
-      onClose()
+      setGlobalOutlet(selectedObj.id, selectedObj.name)
     }
 
-    // Redirect to home
+    setGlobalTable(Number(selectedTable))
+
+    if (onClose) onClose()
+
     navigate("/home")
   }
 
@@ -131,44 +171,41 @@ const SelectOutlet = ({ onClose }) => {
       <div className="w-full max-w-md bg-white shadow-xl rounded-2xl p-8 text-center">
 
         <h2 className="text-2xl font-bold text-[#3e2723] mb-4">
-          Select Nearby Outlet & Table
+          Select Outlet & Table
         </h2>
 
-        {location ? (
-          <p className="text-sm text-green-600 mb-4">
-            Location detected successfully
-          </p>
-        ) : (
-          <p className="text-sm text-gray-600 mb-4">
-            Detecting your location...
-          </p>
-        )}
-
-        {/* OUTLET SELECT */}
+        {/* OUTLETS */}
         <select
-          className="w-full border rounded-md p-2 mb-4 outline-none focus:ring-1 focus:ring-brown-500"
+          className="w-full border rounded-md p-2 mb-4"
           value={selectedOutlet}
-          onChange={handleOutletChange}
+          onChange={(e) => setSelectedOutlet(e.target.value)}
         >
           <option value="">Select Outlet</option>
           {outlets.map((outlet) => (
             <option key={outlet.id} value={outlet.id}>
-              {outlet.name} ({outlet.distance.toFixed(2)} km)
+              {outlet.name}
+              {outlet.distance !== null && ` (${outlet.distance.toFixed(2)} km)`}
             </option>
           ))}
         </select>
 
-        {/* TABLE NUMBER INPUT */}
-        <input
-          type="text"
-          placeholder="Enter Table Number (e.g. 5)"
-          className="w-full border rounded-md p-2 mb-4 outline-none focus:ring-1 focus:ring-brown-500"
-          value={tableNo}
-          onChange={handleTableChange}
-        />
+        {/* TABLE DROPDOWN */}
+        <select
+          className="w-full border rounded-md p-2 mb-4"
+          value={selectedTable}
+          onChange={(e) => setSelectedTable(e.target.value)}
+          disabled={!selectedOutlet}
+        >
+          <option value="">Select Table</option>
+          {tables.map((table) => (
+            <option key={table.id} value={table.tableNumber}>
+              {table.tableNumber}
+            </option>
+          ))}
+        </select>
 
         <button
-          className="bg-[#6B4F4F] text-white w-full py-2 rounded-lg font-medium"
+          className="bg-[#6B4F4F] text-white w-full py-2 rounded-lg"
           onClick={handleContinue}
         >
           Continue

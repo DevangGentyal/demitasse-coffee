@@ -6,26 +6,31 @@ import {
   doc,
   getDoc
 } from "firebase/firestore";
+import { useLocationContext } from "@/context/LocationContext"; // ✅ ADD
 
 const MenuContext = createContext();
 
-const OUTLET_ID = "outlet_001";
-
 export function MenuProvider({ children }) {
+  const { selectedOutlet } = useLocationContext(); // ✅ USE CONTEXT
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!selectedOutlet) return; // 🚨 prevent empty fetch
+
     async function loadMenu() {
+      setLoading(true);
+
       try {
         //  get outlet (for menuVersion)
-        const outletRef = doc(db, "outlets", OUTLET_ID);
+        const outletRef = doc(db, "outlets", selectedOutlet);
         const outletSnap = await getDoc(outletRef);
 
         const serverVersion = outletSnap.data()?.menuVersion ?? 0;
 
-        const cachedMenu = localStorage.getItem(`menu_${OUTLET_ID}`);
-        const cachedVersion = localStorage.getItem(`menu_version_${OUTLET_ID}`);
+        const cachedMenu = localStorage.getItem(`menu_${selectedOutlet}`);
+        const cachedVersion = localStorage.getItem(`menu_version_${selectedOutlet}`);
 
         //  USE CACHE if menu version same
         if (cachedMenu && cachedVersion == serverVersion) {
@@ -34,9 +39,9 @@ export function MenuProvider({ children }) {
           return;
         }
 
-        //  fetch menu from outlets document
+        //  fetch menu
         const snapshot = await getDocs(
-          collection(db, "outlets", OUTLET_ID, "products")
+          collection(db, "outlets", selectedOutlet, "products")
         );
 
         const menu = snapshot.docs.map((doc) => {
@@ -66,9 +71,9 @@ export function MenuProvider({ children }) {
 
         menu.sort((a, b) => a.sortOrder - b.sortOrder);
 
-        //  SAVE CACHE + VERSION
-        localStorage.setItem(`menu_${OUTLET_ID}`, JSON.stringify(menu));
-        localStorage.setItem(`menu_version_${OUTLET_ID}`, serverVersion);
+        //  SAVE CACHE per outlet
+        localStorage.setItem(`menu_${selectedOutlet}`, JSON.stringify(menu));
+        localStorage.setItem(`menu_version_${selectedOutlet}`, serverVersion);
 
         setProducts(menu);
         setLoading(false);
@@ -79,7 +84,7 @@ export function MenuProvider({ children }) {
     }
 
     loadMenu();
-  }, []);
+  }, [selectedOutlet]); // ✅ CRITICAL
 
   return (
     <MenuContext.Provider value={{ products, loading }}>

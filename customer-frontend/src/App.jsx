@@ -32,7 +32,9 @@ import { CartProvider } from "@/context/CartContext";
 import { MenuProvider } from "@/context/MenuContext";
 import { FilterProvider } from "@/context/FilterContext";
 import { OfferProvider } from "@/context/OfferContext";
-import { LocationProvider } from "@/context/LocationContext"; // ✅ Added LocationProvider
+import { LocationProvider } from "@/context/LocationContext"; 
+import { useLocationContext } from "@/context/LocationContext"; // ✅ add this import at top
+
 
 // ✅ NEW WRAPPER (VERY IMPORTANT)
 function AppContent() {
@@ -157,8 +159,22 @@ function Layout() {
 function AuthRedirect() {
   const { user } = useAuth();
   const userType = localStorage.getItem("userType");
-  return user || userType === "guest" ? <Navigate to="/home" /> : <Navigate to="/login" />;
+
+  const { selectedOutlet, tableNumber } = useLocationContext();
+
+  const isLoggedIn = !!user || userType === "guest";
+
+  if (!isLoggedIn) {
+    return <Navigate to="/login" />;
+  }
+
+  if (!selectedOutlet || !tableNumber) {
+    return <Navigate to="/select-outlet" />;
+  }
+
+  return <Navigate to="/home" />;
 }
+
 
 export default function App() {
   return (

@@ -7,7 +7,7 @@ import { useLocationContext } from "../../context/LocationContext";
 export default function Header() {
   const navigate = useNavigate();
   const isGuest = localStorage.getItem("userType") === "guest";
-  const { outletName, tableNumber } = useLocationContext();
+  const { outletName, tableNumber, selectedOutlet } = useLocationContext();
 
   const handleAuthAction = async () => {
     try {
@@ -24,42 +24,55 @@ export default function Header() {
     }
   };
 
+  // ✅ CLICK HANDLER
+  const handleLocationClick = () => {
+    navigate("/select-outlet");
+  };
+
   return (
     <div className="flex justify-between items-center px-4 pt-4">
 
       {/* Location */}
-      <div className="flex items-center gap-2">
+      <div
+        onClick={handleLocationClick}
+        className="flex items-center gap-2 cursor-pointer"
+      >
         <MapPinIcon className="w-5 h-5 text-green-600" />
+
         <div className="flex flex-col">
           <span className="font-semibold text-lg leading-tight">
-            {outletName ? `${outletName}` : "Select Outlet"}
+            {selectedOutlet
+              ? outletName
+              : "Select Outlet & Table"}
           </span>
-          {tableNumber && (
+
+          {tableNumber ? (
             <span className="text-xs font-medium text-gray-500">
-               Table: {tableNumber}
+              Table: {tableNumber}
             </span>
+          ) : (
+            selectedOutlet && (
+              <span className="text-xs text-red-500">
+                Select Table
+              </span>
+            )
           )}
         </div>
       </div>
 
-      {/* Profile + Auth Action */}
+      {/* Auth */}
       <div className="flex items-center gap-3">
-
-        {/* Auth Hyperlink */}
         <button
           onClick={handleAuthAction}
-          className={`text-sm font-medium hover:underline ${isGuest ? 'text-red-600' : 'text-red-600'}`}
+          className="text-sm font-medium text-red-600 hover:underline"
         >
           {isGuest ? "Login" : "Logout"}
         </button>
 
-        {/* Profile Circle */}
         {!isGuest && (
           <div className="w-10 h-10 bg-amber-800 rounded-full"></div>
         )}
-
       </div>
-
     </div>
   );
 }
