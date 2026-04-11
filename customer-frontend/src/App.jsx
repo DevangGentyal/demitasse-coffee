@@ -6,6 +6,8 @@ import Offers from "@/pages/offer_screen/Offers";
 import Cart from "@/pages/cart_screen/Cart";
 import ItemDetails from "@/pages/itemDetails_screen/ItemDetails";
 import BillDetails from "@/pages/cart_screen/BillDetails";
+import LoyaltyPage from "@/pages/LoyaltyPage";
+import RedeemPage from "@/pages/RedeemPage";
 
 import BottomNav from "@/components/BottomNav";
 import { CartProvider } from "@/context/CartContext";
@@ -24,6 +26,8 @@ export default function App() {
             <Route path="/item/:id" element={<ItemDetails />} />
             <Route path="/cart" element={<Cart />} />
             <Route path="/bill" element={<BillDetails />} />
+            <Route path="/loyalty" element={<LoyaltyPage />} />
+            <Route path="/redeem" element={<RedeemPage />} />
           </Routes>
 
           {/* Persistent Bottom Nav */}

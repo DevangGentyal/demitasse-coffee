@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useCart } from "../../context/CartContext.jsx";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
 
 
 import CartHeader from "../../components/cart_screen/CartHeader.jsx";
@@ -7,33 +10,14 @@ import CartItem from "../../components/cart_screen/CartItem.jsx";
 import ApplyCoupon from "../../components/cart_screen/ApplyCoupon.jsx";
 
 const Cart = () => {
+  const { cart, updateQuantity, clearCart } = useCart();
+  const navigate = useNavigate();
+  const [placing, setPlacing] = useState(false);
 
-  const [items, setItems] = useState([
-  {
-    id: 1,
-    name: "Mocha Frappe",
-    desc: "Rich hazelnut syrup",
-    price: 300,
-    qty: 2,
-    type: "veg",      // ✅ ADD THIS
-  },
-  {
-    id: 2,
-    name: "Caramel Latte",
-    desc: "Smooth caramel flavor",
-    price: 300,
-    qty: 1,
-    type: "nonveg",   // ✅ ADD THIS
-  },
-]);
-
+  const items = cart;
 
   const handleQtyChange = (id, qty) => {
-    setItems(
-      items.map((item) =>
-        item.id === id ? { ...item, qty: Math.max(1, qty) } : item
-      )
-    );
+    updateQuantity(id, qty);
   };
 
   const handleApplyCoupon = (code) => {
@@ -47,6 +31,42 @@ const Cart = () => {
 
   const tax = 45;
   const grandTotal = itemTotal + tax;
+
+  const handlePlaceOrder = async () => {
+    if (items.length === 0) {
+      alert("Cart is empty");
+      return;
+    }
+    setPlacing(true);
+    try {
+      const payload = {
+        outletId: "demo-outlet",
+        customerName: "Dummy Customer",
+        customerId: "customer-123", // Map directly to our initialized loyalty user
+        items: items,
+        totalAmount: grandTotal,
+      };
+
+      const res = await fetch(`${API_BASE}/createOrder`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      
+      const result = await res.json();
+      if (result.success) {
+        clearCart();
+        navigate("/loyalty");
+      } else {
+        alert("Error placing order: " + result.message);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Network error.");
+    } finally {
+      setPlacing(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-28">
@@ -96,11 +116,18 @@ const Cart = () => {
 
         {/* ACTION BUTTONS */}
         <div className="flex gap-4">
-          <button className="flex-1 bg-red-500 text-white py-3 rounded-full">
-            Cancel
+          <button 
+             onClick={() => clearCart()}
+             className="flex-1 bg-red-500 text-white py-3 rounded-full"
+          >
+            Clear
           </button>
-          <button className="flex-1 bg-green-500 text-white py-3 rounded-full">
-            Place Order
+          <button 
+             onClick={handlePlaceOrder}
+             disabled={placing}
+             className="flex-1 bg-green-500 text-white py-3 rounded-full disabled:bg-gray-400"
+          >
+            {placing ? "Placing..." : "Place Order"}
           </button>
         </div>
       </div>

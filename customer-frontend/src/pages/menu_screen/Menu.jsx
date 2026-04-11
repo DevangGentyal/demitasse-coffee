@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useCart } from "@/context/CartContext";
 
 import Header from "@/components/home_screen/Header";
 import SearchBar from "@/components/home_screen/SearchBar";
@@ -56,9 +57,11 @@ export default function Menu() {
   const [activeCategory, setActiveCategory] = useState(CATEGORIES[0]);
   const [search, setSearch] = useState("");
   const [vegOnly, setVegOnly] = useState(false);
+  const { addToCart } = useCart();
 
   const handleAdd = (product) => {
     console.log("Added to cart:", product);
+    addToCart(product);
   };
 
   return (

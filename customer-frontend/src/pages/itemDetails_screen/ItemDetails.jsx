@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import HeaderBar from "../../components/itemDetails_screen/HeaderBar.jsx";
 import AddOnItem from "../../components/itemDetails_screen/AddOnItem.jsx";
 import cappuccino from "../../assets/home_screen/offer.png";
+import { useCart } from "../../context/CartContext.jsx";
 
 const ItemDetails = () => {
   const sizes = [
@@ -10,6 +11,7 @@ const ItemDetails = () => {
     { name: "Large", price: 260 },
   ];
 
+  const { addToCart, updateQuantity, cart } = useCart();
   const [selectedSize, setSelectedSize] = useState(sizes[0]);
   const [extraShot1, setExtraShot1] = useState(0);
   const [extraShot2, setExtraShot2] = useState(0);
@@ -19,6 +21,24 @@ const ItemDetails = () => {
   const basePrice = selectedSize.price; // for top display ONLY
   const addOnPrice = (extraShot1 + extraShot2) * 40;
   const cartPrice = basePrice + addOnPrice; // for Add to Cart ONLY
+
+  const handleAddToCart = () => {
+    addToCart({
+      id: "cappuccino-item", // Mock dynamic ID since we're hardcoding this page's product
+      name: "Cappuccino",
+      price: cartPrice,
+      desc: `${selectedSize.name} / ${extraShot1 + extraShot2} Extra Shots`,
+      type: "veg",
+      category: "coffee", // Required for free pizza loyalty logic
+      qty: 1
+    });
+    setCartQty(1);
+  };
+
+  const handleUpdate = (amt) => {
+    setCartQty(amt);
+    updateQuantity("cappuccino-item", amt);
+  };
 
   return (
     <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-6">
@@ -87,7 +107,7 @@ const ItemDetails = () => {
       <div className="px-4 mt-5">
         {cartQty === 0 ? (
           <button
-            onClick={() => setCartQty(1)}
+            onClick={handleAddToCart}
             className="w-full bg-green-700 text-white py-3 rounded-full font-semibold"
           >
             Add to cart • ₹{cartPrice}
@@ -95,7 +115,7 @@ const ItemDetails = () => {
         ) : (
           <div className="flex items-center justify-between bg-green-700 text-white px-6 py-3 rounded-full">
             <button
-              onClick={() => setCartQty(Math.max(0, cartQty - 1))}
+              onClick={() => handleUpdate(Math.max(0, cartQty - 1))}
               className="text-xl font-bold"
             >
               −
@@ -106,7 +126,7 @@ const ItemDetails = () => {
             </span>
 
             <button
-              onClick={() => setCartQty(cartQty + 1)}
+              onClick={() => handleUpdate(cartQty + 1)}
               className="text-xl font-bold"
             >
               +

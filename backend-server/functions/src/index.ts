@@ -16,3 +16,7 @@ export { createOrder } from "./orders/createOrder";
 export { updateOrder } from "./orders/updateOrder";
 
 export { deleteOrder } from "./orders/deleteOrder";
+
+export { checkRewards } from "./loyalty/checkRewards";
+
+export { redeemReward } from "./loyalty/redeemReward";

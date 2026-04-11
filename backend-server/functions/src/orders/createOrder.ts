@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
+import { earnPoints } from "../loyalty/earnPoints";
 
 const db = admin.firestore();
 
@@ -36,6 +37,7 @@ export const createOrder = functions.https.onRequest(
       const {
         outletId,
         customerName,
+        customerId,
         tableId,
         items,
         totalAmount,
@@ -71,6 +73,7 @@ export const createOrder = functions.https.onRequest(
         tableId: tableId || null,
         items: items.map((item: any) => ({
           id: item.id || Math.random().toString(36).substr(2, 9),
+          category: item.category || "unknown",
           name: item.name,
           quantity: item.quantity || 1,
           status: item.status || "pending",
@@ -90,6 +93,13 @@ export const createOrder = functions.https.onRequest(
       await orderRef.set(orderData);
 
       console.log("✅ Order created successfully:", orderRef.id);
+
+      // --- LOYALTY LOGIC ---
+      if (customerId) {
+        // Run loyalty logic separately without disrupting the return payload
+        earnPoints(customerId, customerName, totalAmount, items, orderRef.id);
+      }
+      // --- END LOYALTY LOGIC ---
 
       res.status(201).json({
         success: true,
