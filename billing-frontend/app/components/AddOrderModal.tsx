@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useApp } from '@/app/context/AppContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
-import { X, Plus, Trash2 } from 'lucide-react'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
+import { X, Plus, Trash2, Search, Tag } from 'lucide-react'
 import { getProductsByOutletId, Product } from '@/lib/services/productService'
 import { getOutletIdForCurrentUser, createOrder as createOrderService } from '@/lib/services/orderService'
 
@@ -30,13 +33,29 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
   const [customerName, setCustomerName] = useState('')
   const [tableId, setTableId] = useState('')
   const [items, setItems] = useState<OrderItem[]>([])
-  const [selectedProductId, setSelectedProductId] = useState('')
-  const [quantity, setQuantity] = useState(1)
+  
   const [products, setProducts] = useState<Product[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [outletId, setOutletId] = useState<string | null>(null)
+
+  // Memoized categories from items
+  const categories = useMemo(() => {
+    return Array.from(new Set(products.map(p => p.category).filter(Boolean)))
+  }, [products])
+
+  // Memoized filtered products
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory
+      return matchesSearch && matchesCategory
+    })
+  }, [products, searchQuery, selectedCategory])
 
   // Fetch menu items when modal opens
   useEffect(() => {
@@ -76,17 +95,12 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
     fetchMenu()
   }, [isOpen])
 
-  const handleAddItem = () => {
-    if (!selectedProductId) return
-
-    const product = products.find(p => p.id === selectedProductId)
-    if (!product) return
-
-    const existingItem = items.find(i => i.id === selectedProductId)
+  const handleAddItem = (product: Product) => {
+    const existingItem = items.find(i => i.id === product.id)
     if (existingItem) {
       setItems(items.map(i =>
-        i.id === selectedProductId
-          ? { ...i, quantity: i.quantity + quantity }
+        i.id === product.id
+          ? { ...i, quantity: i.quantity + 1 }
           : i
       ))
     } else {
@@ -95,7 +109,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
         {
           id: product.id,
           name: product.name,
-          quantity,
+          quantity: 1,
           price: product.price,
           status: 'pending',
           addOns: '',
@@ -103,9 +117,6 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
         },
       ])
     }
-
-    setSelectedProductId('')
-    setQuantity(1)
   }
 
   const handleRemoveItem = (itemId: string) => {
@@ -160,8 +171,8 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
       setCustomerName('')
       setTableId('')
       setItems([])
-      setSelectedProductId('')
-      setQuantity(1)
+      setSearchQuery('')
+      setSelectedCategory('all')
       setError(null)
       onClose()
       
@@ -234,48 +245,69 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
             {/* Menu Items */}
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">
-                Add Items *
+                Select Menu Items *
               </label>
               {isLoading ? (
-                <div className="text-center py-4">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
                   <p className="text-xs text-muted-foreground mt-2">Loading menu...</p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <select
-                    value={selectedProductId}
-                    onChange={e => setSelectedProductId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-md bg-input border border-border text-foreground text-sm"
-                    disabled={products.length === 0}
-                  >
-                    <option value="">
-                      {products.length === 0 ? 'No available items' : 'Select an item'}
-                    </option>
-                    {products.map(product => (
-                      <option key={product.id} value={product.id}>
-                        {product.name} - ₹{product.price.toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
-
+                <div className="space-y-4">
+                  {/* Filters and Search - Pattern reused from Offer section */}
                   <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      min="1"
-                      max="10"
-                      value={quantity}
-                      onChange={e => setQuantity(Number(e.target.value))}
-                      className="w-20 bg-input border-border"
-                    />
-                    <Button
-                      onClick={handleAddItem}
-                      disabled={!selectedProductId || products.length === 0}
-                      className="flex-1 bg-accent hover:bg-accent/90 text-accent-foreground disabled:opacity-50"
-                    >
-                      <Plus size={16} />
-                      Add
-                    </Button>
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="Search menu items..." 
+                        value={searchQuery} 
+                        onChange={e => setSearchQuery(e.target.value)} 
+                        className="pl-9 bg-input border-border"
+                      />
+                    </div>
+                    <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                      <SelectTrigger className="w-[160px] bg-input border-border">
+                        <SelectValue placeholder="Category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        {categories.map(cat => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Menu Display - Structured Grid/Cards pattern */}
+                  <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1 p-1">
+                    {filteredProducts.map(product => (
+                      <Card key={product.id} className="p-3 bg-secondary/20 border-border hover:border-primary/50 transition-all flex flex-col justify-between group">
+                        <div className="mb-3">
+                          <div className="flex justify-between items-start gap-1 mb-1">
+                            <p className="text-sm font-bold text-foreground leading-tight truncate" title={product.name}>
+                              {product.name}
+                            </p>
+                            <div className="flex items-center gap-1 bg-background/80 px-1.5 py-0.5 rounded border border-border text-[9px] font-bold text-muted-foreground uppercase flex-shrink-0">
+                              <Tag size={10} />
+                              {product.category}
+                            </div>
+                          </div>
+                          <p className="text-sm font-sans font-bold text-primary">₹{product.price.toFixed(2)}</p>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          onClick={() => handleAddItem(product)} 
+                          className="w-full h-8 text-xs bg-sidebar text-sidebar-foreground hover:bg-sidebar/90 flex items-center gap-1.5 transition-transform active:scale-95"
+                        >
+                          <Plus size={14} /> Add to Order
+                        </Button>
+                      </Card>
+                    ))}
+                    {filteredProducts.length === 0 && (
+                      <div className="col-span-2 py-10 text-center border-2 border-dashed rounded-lg border-muted">
+                        <p className="text-sm text-muted-foreground">No menu items match your selection</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

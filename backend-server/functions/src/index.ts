@@ -16,3 +16,8 @@ export { createOrder } from "./orders/createOrder";
 export { updateOrder } from "./orders/updateOrder";
 
 export { deleteOrder } from "./orders/deleteOrder";
+
+export { createOffer } from "./offers/createOffer";
+
+export { updateOffer } from "./offers/updateOffer";
+
