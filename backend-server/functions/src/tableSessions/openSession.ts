@@ -7,6 +7,17 @@ const db = admin.firestore();
 
 export const openSession = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+    // Handle OPTIONS preflight request
+    if (req.method === "OPTIONS") {
+      res.status(200).send("");
+      return;
+    }
+
     try {
       // Allow only POST
       if (req.method !== "POST") {
@@ -65,6 +76,7 @@ export const openSession = functions.https.onRequest(
             status: "ACTIVE",
             startedAt: FieldValue.serverTimestamp(),
             closedAt: null,
+            totalAmount: 0,
           });
           
         tx.update(tableRef, {

@@ -3,13 +3,28 @@ import ProductCard from "@/components/home_screen/ProductCard";
 export default function MenuProductGrid({
   products,
   activeCategory,
+  activeSubcategory,
   search,
   vegOnly,
-  onAdd, // kept for future backend usage
+  onAdd,
 }) {
+  // If no category selected → show nothing
+  if (!activeCategory) {
+    return (
+      <div className="px-4 mt-6 text-center text-gray-500">
+        Please select a category
+      </div>
+    );
+  }
+
   const filteredProducts = products.filter((p) => {
     if (p.category !== activeCategory) return false;
+
+    if (activeSubcategory && p.subcategory !== activeSubcategory)
+      return false;
+
     if (vegOnly && !p.isVeg) return false;
+
     if (
       search &&
       !p.name.toLowerCase().includes(search.toLowerCase())
@@ -29,7 +44,7 @@ export default function MenuProductGrid({
         filteredProducts.map((p) => (
           <ProductCard
             key={p.id}
-            id={p.id}         
+            id={p.id}
             image={p.image}
             name={p.name}
             desc={p.desc}

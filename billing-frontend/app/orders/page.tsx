@@ -19,7 +19,7 @@ export default function OrdersPage() {
   const { orders: localOrders, addOrder, updateOrder, deleteOrder, updateOrderItem } = useApp()
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [dataLoading, setDataLoading] = useState(true)
-  const [orders, setOrders] = useState<(DBOrder & { tableId?: number; timeOfOrder: Date })[]>([])
+  const [orders, setOrders] = useState<(DBOrder & { tableId?: string; timeOfOrder: Date })[]>([])
   const [outletId, setOutletId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -278,7 +278,7 @@ export default function OrdersPage() {
         </div>
       </main>
 
-      <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} onOrderCreated={refetchOrders} />
+      <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} onOrderCreated={refetchOrders}  />
     </div>
   )
 }

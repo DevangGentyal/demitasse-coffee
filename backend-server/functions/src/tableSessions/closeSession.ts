@@ -13,6 +13,17 @@ const db = admin.firestore();
  */
 export const closeSession = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+    // Handle OPTIONS preflight request
+    if (req.method === "OPTIONS") {
+      res.status(200).send("");
+      return;
+    }
+
     try {
       // Only POST allowed
       if (req.method !== "POST") {

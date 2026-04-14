@@ -38,6 +38,7 @@ export const createOrder = functions.https.onRequest(
         outletId,
         customerName,
         customerId,
+        customerPhone,
         tableId,
         items,
         totalAmount,
@@ -64,13 +65,55 @@ export const createOrder = functions.https.onRequest(
         return;
       }
 
+      // Handle table session logic if tableId is provided
+      let activeSessionId = null;
+      if (tableId) {
+        console.log(`🪑 Checking table session for table: ${tableId}`);
+        const tableRef = db.collection("tables").doc(tableId.toString());
+        const tableSnap = await tableRef.get();
+
+        if (tableSnap.exists) {
+          const tableData = tableSnap.data();
+          if (tableData?.isOccupied && tableData.activeSessionId) {
+            activeSessionId = tableData.activeSessionId;
+            console.log(`🔗 Linking order to existing session: ${activeSessionId}`);
+          } else {
+            // Start a new session
+            const sessionRef = db.collection("sessions").doc();
+            activeSessionId = sessionRef.id;
+            console.log(`🆕 Starting new session: ${activeSessionId}`);
+            
+            await db.runTransaction(async (tx) => {
+              tx.set(sessionRef, {
+                outletId,
+                tableId: tableId.toString(),
+                status: "ACTIVE",
+                startedAt: FieldValue.serverTimestamp(),
+                closedAt: null,
+                totalAmount: 0,
+              });
+
+              tx.update(tableRef, {
+                isOccupied: true,
+                activeSessionId: sessionRef.id,
+                updatedAt: FieldValue.serverTimestamp(),
+              });
+            });
+          }
+        } else {
+          console.warn(`⚠️ Table ${tableId} not found in DB`);
+        }
+      }
+
       // Create new order document
       const orderRef = db.collection("orders").doc();
 
       const orderData = {
         outletId,
         customerName: customerName.trim(),
+        customerPhone: customerPhone ? String(customerPhone).trim() : "",
         tableId: tableId || null,
+        sessionId: activeSessionId,
         items: items.map((item: any) => ({
           id: item.id || Math.random().toString(36).substr(2, 9),
           category: item.category || "unknown",
