@@ -12,12 +12,15 @@ export { updateProduct } from "./products/updateProduct";
 export { deleteProduct } from "./products/deleteProduct";
 
 export { createOrder } from "./orders/createOrder";
-
+export { syncOrderCreated } from "./orders/syncOrderCreated";
 export { updateOrder } from "./orders/updateOrder";
-
 export { deleteOrder } from "./orders/deleteOrder";
 
 export { createOffer } from "./offers/createOffer";
-
 export { updateOffer } from "./offers/updateOffer";
+
+export { addTable } from "./tables/addTable";
+export { updateTable } from "./tables/updateTable";
+export { deleteTable } from "./tables/deleteTable";
+export { saveFloorMap } from "./floorMap/saveFloorMap";
 

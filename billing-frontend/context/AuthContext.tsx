@@ -3,6 +3,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, logOut as firebaseLogOut } from "@/lib/firebase/auth";
+import { db } from "@/lib/firebase/app";
+import { doc, getDoc } from "firebase/firestore";
 
 // Global Context
 interface AuthContextType {
@@ -29,15 +31,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoggedIn(!!firebaseUser);
       
       if (firebaseUser) {
-        // Try to get outlet ID from custom claims
+        // 1. Try to get outlet ID from custom claims
         const idTokenResult = await firebaseUser.getIdTokenResult();
-        const outlet = idTokenResult.claims.outlet_id || localStorage.getItem('outlet_id');
-        setOutletId(outlet as string);
+        let outlet = idTokenResult.claims.outlet_id as string;
+        
+        // 2. If not in claims, try Firestore document
+        if (!outlet) {
+          try {
+            const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+            if (userDoc.exists()) {
+              outlet = userDoc.data()?.outletID;
+              console.log("Fetched outlet ID from Firestore:", outlet);
+            }
+          } catch (err) {
+            console.error("Error fetching user document for outlet ID:", err);
+          }
+        }
+
+        // 3. Fallback to localStorage
+        if (!outlet) {
+          outlet = localStorage.getItem('outlet_id') as string;
+        }
+
+        if (outlet) {
+          setOutletId(outlet);
+          localStorage.setItem('outlet_id', outlet);
+        } else {
+          setOutletId(null);
+        }
       } else {
         setOutletId(null);
       }
       
-      setIsLoading(false); // Auth check complete
+      setIsLoading(false);
     });
 
     return () => unsubscribe();

@@ -34,7 +34,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       // Update via cloud function if outletId is available
       if (outletId) {
         console.log('📤 Updating order status via cloud function')
-        await updateOrderService(outletId, order.id, { orderStatus: newStatus })
+        await updateOrderService(outletId, order.id, { orderStatus: newStatus as any })
       }
       
       // Update in local context for immediate UI update
@@ -166,7 +166,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
           {expandedItems ? (
             <>
               <p className="text-sm font-bold text-foreground mb-2">Items ({order.items.length})</p>
-              {order.items.map((item, idx) => (
+              {order.items.map((item: any, idx: number) => (
                 <button
                   key={item.id || `item-${idx}`}
                   onClick={() => handleItemStatusToggle(item.id, item.status)}
@@ -188,7 +188,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
           ) : (
             <>
               <div className="space-y-1.5">
-                {order.items.slice(0, 2).map((item, idx) => (
+                {order.items.slice(0, 2).map((item: any, idx: number) => (
                   <div key={item.id || `item-${idx}`} className="flex items-center gap-2 text-sm text-foreground">
                     <span className="font-bold min-w-fit">{item.quantity}x</span>
                     <span className="truncate font-semibold">{item.name}</span>

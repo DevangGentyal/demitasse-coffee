@@ -15,6 +15,7 @@ export interface OrderItem {
   name: string
   quantity: number
   status?: 'pending' | 'in-progress' | 'ready'
+  price?: number
   addOns?: string
   notes?: string
 }
@@ -23,7 +24,8 @@ export interface Order {
   id: string
   outletId: string
   customerName: string
-  tableId?: number
+  customerPhone?: string
+  tableId?: string
   items: OrderItem[]
   timeOfOrder: Timestamp | Date
   orderStatus: 'pending' | 'in-progress' | 'ready' | 'completed'
@@ -143,6 +145,7 @@ export const createOrder = async (
     const payload = {
       outletId,
       customerName: orderData.customerName,
+      customerPhone: orderData.customerPhone || '',
       tableId: orderData.tableId || null,
       items: orderData.items.map(item => ({
         id: item.id || Math.random().toString(36).substr(2, 9),
@@ -159,7 +162,7 @@ export const createOrder = async (
 
     console.log('📤 Creating order with payload:', payload)
 
-    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/createOrder`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/createOrder`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -195,7 +198,7 @@ export const deleteOrder = async (outletId: string, orderId: string): Promise<vo
 
     console.log('📤 Deleting order:', { outletId, orderId })
 
-    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/deleteOrder`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/deleteOrder`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -232,7 +235,7 @@ export const updateOrder = async (
   try {
     const idToken = await getIdToken()
 
-    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/updateOrder`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/updateOrder`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

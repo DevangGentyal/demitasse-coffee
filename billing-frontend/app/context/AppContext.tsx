@@ -1,17 +1,24 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { db } from '@/lib/firebase/app'
+import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore'
+import { useAuth } from '@/context/AuthContext'
+import { floorMapService } from '@/lib/services/floorMapService'
 
 export interface Table {
-  id: number
+  id: string
   name: string
   capacity: number
   occupied: boolean
   billAmount: number
   customerName?: string
+  customerPhone?: string
+  activeSessionId?: string
   x: number
   y: number
   color: string
+  isOccupied?: boolean // Backend uses isOccupied
 }
 
 export interface OrderItem {
@@ -21,84 +28,125 @@ export interface OrderItem {
   status?: 'pending' | 'in-progress' | 'ready'
   addOns?: string
   notes?: string
+  price?: number
 }
 
 export interface Order {
   id: string
-  tableId?: number
+  tableId?: string
+  sessionId?: string
   customerName: string
+  customerPhone?: string
   items: OrderItem[]
   timeOfOrder: Date
   status: 'pending' | 'in-progress' | 'ready' | 'completed'
   totalAmount?: number
+  outletId: string
 }
 
 interface AppContextType {
   tables: Table[]
-  setTables: (tables: Table[]) => void
+  setTables: React.Dispatch<React.SetStateAction<Table[]>>
   orders: Order[]
-  setOrders: (orders: Order[]) => void
+  setOrders: React.Dispatch<React.SetStateAction<Order[]>>
   addOrder: (order: Order) => void
   updateOrder: (orderId: string, updates: Partial<Order>) => void
   updateOrderItem: (orderId: string, itemId: string, updates: Partial<OrderItem>) => void
   deleteOrder: (orderId: string) => void
-  updateTable: (tableId: number, updates: Partial<Table>) => void
+  updateTable: (tableId: string, updates: Partial<Table>, skipSync?: boolean) => void
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
 
+const toFiniteNumber = (value: unknown, fallback: number): number => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { outletId, isLoggedIn } = useAuth()
   const [tables, setTables] = useState<Table[]>([])
   const [orders, setOrders] = useState<Order[]>([])
 
   useEffect(() => {
-    const savedTables = localStorage.getItem('demitasse_tables')
-    const savedOrders = localStorage.getItem('demitasse_orders')
+    if (!isLoggedIn || !outletId) {
+      setTables([])
+      setOrders([])
+      return
+    }
 
-    if (savedTables) setTables(JSON.parse(savedTables))
-    else setTables(getDefaultTables())
+    // Subscribe to tables for this outlet
+    const tablesQuery = query(collection(db, 'tables'), where('outletId', '==', outletId))
+    const unsubscribeTables = onSnapshot(tablesQuery, (snapshot) => {
+      const tablesList = snapshot.docs
+        .filter(doc => {
+          const data = doc.data()
+          return data.outletId === outletId && data.name !== 'Counter'
+        })
+        .map(doc => {
+        const data = doc.data()
+        return {
+          ...data,
+          id: doc.id,
+          x: toFiniteNumber(data.x, 100),
+          y: toFiniteNumber(data.y, 100),
+          // Map backend isOccupied to occupied for frontend compatibility
+          occupied: data.isOccupied || false
+        } as Table
+      })
+      setTables(tablesList)
+    })
 
-    if (savedOrders) setOrders(JSON.parse(savedOrders))
-  }, [])
+    // Subscribe to orders for this outlet
+    const ordersQuery = query(collection(db, 'orders'), where('outletId', '==', outletId))
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+      const ordersList = snapshot.docs.map(doc => {
+        const data = doc.data()
+        return {
+          ...data,
+          id: doc.id,
+          timeOfOrder: data.timeOfOrder instanceof Timestamp ? data.timeOfOrder.toDate() : new Date(data.timeOfOrder),
+          status: data.orderStatus || 'pending'
+        } as unknown as Order
+      })
+      setOrders(ordersList)
+    })
 
-  useEffect(() => {
-    localStorage.setItem('demitasse_tables', JSON.stringify(tables))
-  }, [tables])
-
-  useEffect(() => {
-    localStorage.setItem('demitasse_orders', JSON.stringify(orders))
-  }, [orders])
+    return () => {
+      unsubscribeTables()
+      unsubscribeOrders()
+    }
+  }, [isLoggedIn, outletId])
 
   const addOrder = (order: Order) => {
-    setOrders([...orders, order])
+    // Orders are now managed via Cloud Functions and synced via onSnapshot
   }
 
   const updateOrder = (orderId: string, updates: Partial<Order>) => {
-    setOrders(orders.map(o => (o.id === orderId ? { ...o, ...updates } : o)))
+    // Orders are now managed via Cloud Functions and synced via onSnapshot
   }
 
   const updateOrderItem = (orderId: string, itemId: string, updates: Partial<OrderItem>) => {
-    setOrders(
-      orders.map(o =>
-        o.id === orderId
-          ? {
-              ...o,
-              items: o.items.map(item =>
-                item.id === itemId ? { ...item, ...updates } : item
-              ),
-            }
-          : o
-      )
-    )
+    // Orders are now managed via Cloud Functions and synced via onSnapshot
   }
 
   const deleteOrder = (orderId: string) => {
-    setOrders(orders.filter(o => o.id !== orderId))
+    // Orders are now managed via Cloud Functions and synced via onSnapshot
   }
 
-  const updateTable = (tableId: number, updates: Partial<Table>) => {
-    setTables(tables.map(t => (t.id === tableId ? { ...t, ...updates } : t)))
-  }
+  const updateTable = useCallback(async (tableId: string, updates: Partial<Table>, skipSync = false) => {
+    try {
+      // Optimistic update
+      setTables(prev => prev.map(t => (t.id === tableId ? { ...t, ...updates } : t)))
+      
+      // Sync with backend if it's a layout change and we are not skipping sync
+      if (!skipSync && (updates.x !== undefined || updates.y !== undefined || updates.name !== undefined)) {
+        await floorMapService.updateTable(tableId, updates)
+      }
+    } catch (error) {
+      console.error('Error updating table:', error)
+    }
+  }, [])
 
   return (
     <AppContext.Provider
@@ -125,17 +173,4 @@ export function useApp() {
     throw new Error('useApp must be used within AppProvider')
   }
   return context
-}
-
-function getDefaultTables(): Table[] {
-  return [
-    { id: 1, name: 'OD1', capacity: 2, occupied: true, billAmount: 500, x: 80, y: 100, color: '#fbbf24' },
-    { id: 2, name: 'OD2', capacity: 2, occupied: true, billAmount: 450, x: 220, y: 100, color: '#fbbf24' },
-    { id: 3, name: 'OD3', capacity: 4, occupied: false, billAmount: 0, x: 360, y: 100, color: '#fbbf24' },
-    { id: 4, name: 'OD4', capacity: 4, occupied: false, billAmount: 0, x: 500, y: 100, color: '#fbbf24' },
-    { id: 5, name: 'OD5', capacity: 2, occupied: true, billAmount: 350, x: 640, y: 100, color: '#fbbf24' },
-    { id: 6, name: 'OD6', capacity: 2, occupied: false, billAmount: 0, x: 80, y: 250, color: '#fbbf24' },
-    { id: 7, name: 'OD7', capacity: 2, occupied: false, billAmount: 0, x: 220, y: 250, color: '#fbbf24' },
-    { id: 8, name: 'Counter', capacity: 0, occupied: false, billAmount: 0, x: 450, y: 350, color: '#9ca3af' },
-  ]
 }
