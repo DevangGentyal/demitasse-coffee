@@ -41,13 +41,13 @@ function AppContent() {
   return (
     <LocationProvider>
       <MenuProvider>
-        <CartProvider>
-          <FilterProvider>
-            <OfferProvider user={currentUser || {}}>
+        <OfferProvider user={currentUser || {}}>
+          <CartProvider>
+            <FilterProvider>
               <Layout />
-            </OfferProvider>
-          </FilterProvider>
-        </CartProvider>
+            </FilterProvider>
+          </CartProvider>
+        </OfferProvider>
       </MenuProvider>
     </LocationProvider>
   );

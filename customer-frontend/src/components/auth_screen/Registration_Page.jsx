@@ -2,10 +2,42 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   createUserWithEmailAndPassword,
-  signInWithPopup
+  signInWithPopup,
+  EmailAuthProvider,
+  linkWithCredential,
 } from "firebase/auth";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "../../lib/firebase";
+
+// 🎨 Friendly error messages for Firebase error codes
+const getFriendlyError = (errorCode) => {
+  const map = {
+    "auth/email-already-in-use": "An account with this email already exists. Please login instead.",
+    "auth/invalid-email": "The email address is not valid.",
+    "auth/weak-password": "Password must be at least 6 characters.",
+    "auth/network-request-failed": "No internet connection. Please try again.",
+    "auth/popup-closed-by-user": "Google sign-in was cancelled.",
+    "auth/too-many-requests": "Too many attempts. Please wait a moment and try again.",
+  };
+  return map[errorCode] || "Something went wrong. Please try again.";
+};
+
+// 🎨 Inline error banner component
+const ErrorBanner = ({ message, onClose }) => {
+  if (!message) return null;
+  return (
+    <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm shadow-sm">
+      <span className="text-lg leading-none mt-0.5">⚠️</span>
+      <span className="flex-1">{message}</span>
+      <button
+        onClick={onClose}
+        className="text-red-400 hover:text-red-600 font-bold text-base leading-none ml-1"
+      >
+        ✕
+      </button>
+    </div>
+  );
+};
 
 const RegisterForm = () => {
   const [formData, setFormData] = useState({
@@ -14,6 +46,7 @@ const RegisterForm = () => {
     password: "",
   });
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
   const navigate = useNavigate();
 
@@ -22,17 +55,19 @@ const RegisterForm = () => {
       ...formData,
       [e.target.name]: e.target.value,
     });
+    setErrorMsg(""); // Clear error on input change
   };
 
   // ✅ EMAIL REGISTER (UPDATED)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setErrorMsg("");
 
     const { name, email, password } = formData;
 
     if (!name || !email || !password) {
-      alert("Please fill in all fields!");
+      setErrorMsg("Please fill in all fields to continue.");
       setLoading(false);
       return;
     }
@@ -51,7 +86,7 @@ const RegisterForm = () => {
         name,
         email,
         provider: "email",
-        isProfileComplete: false, // Redirects to complete-profile
+        isProfileComplete: false,
         hasPlacedFirstOrder: false, 
         createdAt: new Date(),
       });
@@ -62,7 +97,7 @@ const RegisterForm = () => {
 
     } catch (error) {
       console.log("Full Error:", error);
-      alert(error.code);
+      setErrorMsg(getFriendlyError(error.code));
     } finally {
       setLoading(false);
     }
@@ -70,6 +105,7 @@ const RegisterForm = () => {
 
   // 🔥 GOOGLE REGISTER (UPDATED)
   const handleGoogleRegister = async () => {
+    setErrorMsg("");
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
@@ -80,14 +116,13 @@ const RegisterForm = () => {
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
-        // 🆕 New user
         await setDoc(userRef, {
           uid: user.uid,
           name: user.displayName,
           email: user.email,
           provider: "google",
           isProfileComplete: false,
-          hasPlacedFirstOrder: false, // 🔥 ADDED
+          hasPlacedFirstOrder: false,
           createdAt: new Date(),
         });
 
@@ -104,7 +139,7 @@ const RegisterForm = () => {
       }
 
     } catch (error) {
-      alert(error.message);
+      setErrorMsg(getFriendlyError(error.code));
       console.error("Google Register Error:", error);
     }
   };
@@ -116,6 +151,9 @@ const RegisterForm = () => {
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+
+        {/* ✅ Inline Error Banner */}
+        <ErrorBanner message={errorMsg} onClose={() => setErrorMsg("")} />
 
         {/* Name */}
         <div>
@@ -131,8 +169,6 @@ const RegisterForm = () => {
             className="w-full mt-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-[#8B4513] outline-none"
           />
         </div>
-
-
 
         {/* Email */}
         <div>

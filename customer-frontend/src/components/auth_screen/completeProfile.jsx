@@ -3,6 +3,22 @@ import { useNavigate } from "react-router-dom";
 import { auth, db } from "../../lib/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 
+// ── Inline banner ─────────────────────────────────────────────────────────────
+const Banner = ({ message, type = "error", onClose }) => {
+    if (!message) return null;
+    const styles = type === "success"
+        ? "bg-green-50 border-green-200 text-green-700"
+        : "bg-red-50 border-red-200 text-red-700";
+    const icon = type === "success" ? "✅" : "⚠️";
+    return (
+        <div className={`flex items-start gap-3 border rounded-xl px-4 py-3 text-sm mb-4 ${styles}`}>
+            <span className="text-base leading-none mt-0.5">{icon}</span>
+            <span className="flex-1">{message}</span>
+            <button onClick={onClose} className="font-bold text-base leading-none ml-1 opacity-50 hover:opacity-100">✕</button>
+        </div>
+    );
+};
+
 const CompleteProfile = () => {
     const [formData, setFormData] = useState({
         dob: "",
@@ -11,23 +27,26 @@ const CompleteProfile = () => {
     });
 
     const [loading, setLoading] = useState(false);
+    const [bannerMsg, setBannerMsg] = useState("");
+    const [bannerType, setBannerType] = useState("error");
     const navigate = useNavigate();
 
+    const showMsg = (msg, type = "error") => { setBannerMsg(msg); setBannerType(type); };
+
     const handleChange = (e) => {
-        setFormData({
-            ...formData,
-            [e.target.name]: e.target.value,
-        });
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+        setBannerMsg("");
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
+        setBannerMsg("");
 
         const { dob, gender, location } = formData;
 
         if (!dob || !gender || !location) {
-            alert("Please fill all fields");
+            showMsg("Please fill in all fields to continue.");
             setLoading(false);
             return;
         }
@@ -36,7 +55,9 @@ const CompleteProfile = () => {
             const user = auth.currentUser;
 
             if (!user) {
-                alert("User not logged in");
+                showMsg("You are not logged in. Please login again.");
+                setLoading(false);
+                navigate("/login");
                 return;
             }
 
@@ -50,13 +71,11 @@ const CompleteProfile = () => {
             });
 
             console.log("Profile completed");
-
-            // ✅ redirect to select outlet
             navigate("/select-outlet");
 
         } catch (error) {
             console.error("Profile Update Error:", error);
-            alert(error.message);
+            showMsg(error.message || "Failed to save profile. Please try again.");
         } finally {
             setLoading(false);
         }
@@ -70,12 +89,14 @@ const CompleteProfile = () => {
                 <h2 className="text-3xl font-bold text-center text-[#3e2723] mb-2">
                     Complete Your Profile
                 </h2>
-
                 <p className="text-center text-gray-500 mb-6">
                     Just a few more details to continue
                 </p>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
+
+                    {/* Banner */}
+                    <Banner message={bannerMsg} type={bannerType} onClose={() => setBannerMsg("")} />
 
                     {/* DOB */}
                     <div>
