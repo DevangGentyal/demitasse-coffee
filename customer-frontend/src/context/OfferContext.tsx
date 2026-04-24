@@ -1,20 +1,22 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { useLocationContext } from "./LocationContext";
 
 import {
   filterOffers,
+  isValidDate,
   Offer,
   FilteredOffers,
   User,
 } from "../lib/offerUtils";
 
-import { useCart } from "./CartContext";
-
 // CONTEXT TYPE
 interface OfferContextType {
   offers: Offer[];
   filteredOffers: FilteredOffers | null;
+  fullUser: User | null;
+  allValidOffers: Offer[]; // ✅ NEW: All valid offers for category-based filtering
 }
 
 const OfferContext = createContext<OfferContextType | undefined>(undefined);
@@ -31,23 +33,31 @@ export const useOffers = () => {
 // PROVIDER PROPS
 interface OfferProviderProps {
   children: React.ReactNode;
-  user: any; // 🔥 keep loose because auth user != firestore user
+  user: any; 
 }
 
 export const OfferProvider: React.FC<OfferProviderProps> = ({
   children,
   user,
 }) => {
+  // All raw offers fetched from Firestore
+  const [allOffers, setAllOffers] = useState<Offer[]>([]);
+
+  // Offers filtered by the currently selected outlet
   const [offers, setOffers] = useState<Offer[]>([]);
+
+  // ✅ NEW: All valid (active + date-valid) offers for category filtering
+  const [allValidOffers, setAllValidOffers] = useState<Offer[]>([]);
+
   const [filteredOffers, setFilteredOffers] =
     useState<FilteredOffers | null>(null);
 
-  const [fullUser, setFullUser] = useState<User | null>(null); // 🔥 NEW
+  const [fullUser, setFullUser] = useState<User | null>(null);
 
-  const { addToCart } = useCart();
-  const [autoApplied, setAutoApplied] = useState(false);
+  // Get the currently selected outlet from LocationContext
+  const { selectedOutlet } = useLocationContext();
 
-  // 🔥 FETCH OFFERS
+  // 🔥 FETCH ALL OFFERS ONCE
   useEffect(() => {
     const fetchOffers = async () => {
       try {
@@ -58,7 +68,7 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
           ...doc.data(),
         })) as Offer[];
 
-        setOffers(offersData);
+        setAllOffers(offersData);
       } catch (err) {
         console.error("Error fetching offers:", err);
       }
@@ -67,7 +77,27 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
     fetchOffers();
   }, []);
 
-  // 🔥 FETCH FULL USER (IMPORTANT FIX)
+  // 🔥 FILTER BY OUTLET — welcome offers (no outletId) are always included
+  useEffect(() => {
+    if (!allOffers.length) return;
+
+    const outletFiltered = allOffers.filter((offer) => {
+      // If the offer has no outletId (or empty string) → it's a global/welcome offer → always show
+      if (!offer.outletId) return true;
+      // Otherwise only show if it belongs to the currently selected outlet
+      return offer.outletId === selectedOutlet;
+    });
+
+    setOffers(outletFiltered);
+
+    // ✅ NEW: Set all valid offers (active + date-valid) for category-based filtering
+    const validOffers = outletFiltered.filter(
+      (offer) => offer.isActive && isValidDate(offer)
+    );
+    setAllValidOffers(validOffers);
+  }, [allOffers, selectedOutlet]);
+
+  // 🔥 FETCH FULL USER 
   useEffect(() => {
     const fetchUser = async () => {
       if (!user?.uid) return;
@@ -87,34 +117,27 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
     fetchUser();
   }, [user]);
 
-  // 🔥 APPLY FILTER (NOW MULTI-AWARE)
+  // 🔥 APPLY FILTER (runs after outlet-based filtering)
   useEffect(() => {
-    if (!offers.length) return;
+    if (!offers.length) {
+      setFilteredOffers({ trendingOffers: [], registrationOffer: null, birthdayOffer: null, normalOffers: [] });
+      return;
+    }
 
-    // Guest Flow or Loading User
     if (!user?.uid) {
-      const filtered = filterOffers(offers, { userType: "guest" } as User & { userType?: string });
+      const filtered = filterOffers(offers, { userType: "guest" } as User);
       setFilteredOffers(filtered);
       return;
     }
 
-    // Awaiting full user fetch for registered users
     if (!fullUser) return;
 
-    // Registered Flow
-    const filtered = filterOffers(offers, { ...fullUser, userType: "registered" } as User & { userType?: string });
+    const filtered = filterOffers(offers, { ...fullUser, userType: "registered" } as User);
     setFilteredOffers(filtered);
-
-    // ✅ AUTO APPLY REGISTRATION LOGIC (FLAG ONLY)
-    if (filtered.registrationOffer && !autoApplied) {
-      // Intentionally bypassed modifying the physical cart items here so the 
-      // math logic natively running in Cart.jsx can handle it gracefully.
-      setAutoApplied(true);
-    }
-  }, [offers, fullUser]); // 🔥 IMPORTANT CHANGE
+  }, [offers, fullUser, user]);
 
   return (
-    <OfferContext.Provider value={{ offers, filteredOffers }}>
+    <OfferContext.Provider value={{ offers, filteredOffers, fullUser, allValidOffers }}>
       {children}
     </OfferContext.Provider>
   );

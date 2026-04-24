@@ -34,11 +34,6 @@ export default function Header() {
           <span className="font-semibold text-lg leading-tight">
             {outletName ? `${outletName}` : "Select Outlet"}
           </span>
-          {tableNumber && (
-            <span className="text-xs font-medium text-gray-500">
-               Table: {tableNumber}
-            </span>
-          )}
         </div>
       </div>
 

@@ -2,17 +2,40 @@ import React, { useState, useEffect } from "react"
 import { collection, getDocs } from "firebase/firestore"
 import { db } from "../../lib/firebase"
 import { useNavigate } from "react-router-dom"
-import { useLocationContext } from "../../context/LocationContext" // ✅ Added Context
+import { useLocationContext } from "../../context/LocationContext"
+
+// ── Inline banner ─────────────────────────────────────────────────────────────
+const Banner = ({ message, type = "error", onClose }) => {
+  if (!message) return null;
+  const styles = type === "success"
+    ? "bg-green-50 border-green-200 text-green-700"
+    : "bg-red-50 border-red-200 text-red-700";
+  const icon = type === "success" ? "✅" : "⚠️";
+  return (
+    <div className={`flex items-start gap-3 border rounded-xl px-4 py-3 text-sm mb-4 ${styles}`}>
+      <span className="text-base leading-none mt-0.5">{icon}</span>
+      <span className="flex-1">{message}</span>
+      <button onClick={onClose} className="font-bold text-base leading-none ml-1 opacity-50 hover:opacity-100">✕</button>
+    </div>
+  );
+};
 
 const SelectOutlet = ({ onClose }) => {
 
   const navigate = useNavigate()
-  const { setOutlet: setGlobalOutlet, setTableNumber: setGlobalTable } = useLocationContext() // ✅ Added Context
+  const { setOutlet: setGlobalOutlet, setTableNumber: setGlobalTable } = useLocationContext()
 
   const [location, setLocation] = useState(null)
   const [outlets, setOutlets] = useState([])
   const [selectedOutlet, setSelectedOutlet] = useState("")
-  const [tableNo, setTableNo] = useState("") // ✅ Added local state
+  const [tableNo, setTableNo] = useState("")
+  const [bannerMsg, setBannerMsg] = useState("")
+  const [bannerType, setBannerType] = useState("error")
+
+  const showMsg = (msg, type = "error") => {
+    setBannerMsg(msg);
+    setBannerType(type);
+  };
 
   useEffect(() => {
     getLocation()
@@ -23,14 +46,12 @@ const SelectOutlet = ({ onClose }) => {
     const R = 6371
     const dLat = (lat2 - lat1) * (Math.PI / 180)
     const dLon = (lon2 - lon1) * (Math.PI / 180)
-
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(lat1 * (Math.PI / 180)) *
       Math.cos(lat2 * (Math.PI / 180)) *
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2)
-
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     return R * c
   }
@@ -42,22 +63,13 @@ const SelectOutlet = ({ onClose }) => {
       const outletList = querySnapshot.docs.map((doc) => {
         const data = doc.data()
         const distance = calculateDistance(
-          userLocation.lat,
-          userLocation.lng,
-          data.lat,
-          data.lng
+          userLocation.lat, userLocation.lng,
+          data.lat, data.lng
         )
-        return {
-          id: doc.id,
-          ...data,
-          distance
-        }
+        return { id: doc.id, ...data, distance }
       })
-
-      // Sort nearest outlets
       outletList.sort((a, b) => a.distance - b.distance)
       setOutlets(outletList)
-
     } catch (error) {
       console.error("Error fetching outlets:", error)
     }
@@ -66,10 +78,9 @@ const SelectOutlet = ({ onClose }) => {
   // Get user GPS location
   const getLocation = () => {
     if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser")
+      showMsg("Geolocation is not supported by your browser.");
       return
     }
-
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const userLocation = {
@@ -81,67 +92,48 @@ const SelectOutlet = ({ onClose }) => {
       },
       (error) => {
         console.error(error)
-        alert("Unable to retrieve your location")
+        showMsg("Unable to retrieve your location. Please select an outlet manually.");
       }
     )
   }
 
-  // Handle dropdown selection
-  const handleOutletChange = (e) => {
-    setSelectedOutlet(e.target.value)
-  }
+  const handleOutletChange = (e) => { setSelectedOutlet(e.target.value); setBannerMsg(""); }
+  const handleTableChange  = (e) => { setTableNo(e.target.value); setBannerMsg(""); }
 
-  // Handle table change
-  const handleTableChange = (e) => {
-    setTableNo(e.target.value)
-  }
-
-  // Continue button logic
   const handleContinue = () => {
     if (!selectedOutlet) {
-      alert("Please select an outlet")
+      showMsg("Please select an outlet to continue.");
       return
     }
-
     if (!tableNo.trim()) {
-      alert("Please enter a Table Number")
+      showMsg("Please enter your table number.");
       return
     }
 
     const selectedObj = outlets.find(o => o.id === selectedOutlet);
-
-    // Save selected outlet and table using context
     if (selectedObj) {
       setGlobalOutlet(selectedObj.id, selectedObj.name);
     }
     setGlobalTable(tableNo)
 
-    // Close popup safely
-    if (onClose) {
-      onClose()
-    }
-
-    // Redirect to home
+    if (onClose) onClose()
     navigate("/home")
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#f3ede8] px-4">
-
       <div className="w-full max-w-md bg-white shadow-xl rounded-2xl p-8 text-center">
 
         <h2 className="text-2xl font-bold text-[#3e2723] mb-4">
-          Select Nearby Outlet & Table
+          Select Nearby Outlet &amp; Table
         </h2>
 
+        <Banner message={bannerMsg} type={bannerType} onClose={() => setBannerMsg("")} />
+
         {location ? (
-          <p className="text-sm text-green-600 mb-4">
-            Location detected successfully
-          </p>
+          <p className="text-sm text-green-600 mb-4">Location detected successfully</p>
         ) : (
-          <p className="text-sm text-gray-600 mb-4">
-            Detecting your location...
-          </p>
+          <p className="text-sm text-gray-600 mb-4">Detecting your location...</p>
         )}
 
         {/* OUTLET SELECT */}
@@ -175,7 +167,6 @@ const SelectOutlet = ({ onClose }) => {
         </button>
 
       </div>
-
     </div>
   )
 }
