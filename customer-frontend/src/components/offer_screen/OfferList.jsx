@@ -1,79 +1,128 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useMemo } from "react";
 import OfferCard from "./OfferCard";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { useOffers } from "../../context/OfferContext";
+import { isBirthday } from "../../lib/offerUtils";
 
 const OfferList = () => {
-  const [offers, setOffers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { offers, allValidOffers, fullUser } = useOffers();
+  const [selectedCategory, setSelectedCategory] = useState("All");
 
-  useEffect(() => {
-    const fetchOffers = async () => {
-      try {
-        console.log("Fetching offers...");
+  // ✅ FIX: Use `offers` (outlet-filtered) with isActive check — same as home page
+  // This ensures B1G1 and all offers show, matching home carousel behavior
+  const activeOffers = useMemo(() => {
+    if (!offers || !offers.length) return [];
+    return offers.filter(o => o.isActive);
+  }, [offers]);
 
-        const snapshot = await getDocs(collection(db, "offers"));
+  // ✅ Extract categories — show BIRTHDAY only on user's birthday
+  const isUserBirthday = fullUser?.dob && isBirthday(fullUser.dob);
+  const categories = useMemo(() => {
+    if (!activeOffers.length) return ["All"];
+    const cats = new Set();
+    activeOffers.forEach((o) => {
+      if (!o.category) return;
+      if (o.category === "BIRTHDAY" && !isUserBirthday) return;
+      cats.add(o.category);
+    });
+    return ["All", ...Array.from(cats)];
+  }, [activeOffers, isUserBirthday]);
 
-        const offersData = await Promise.all(
-          snapshot.docs.map(async (offerDoc) => {
-            const offerData = offerDoc.data();
+  // ✅ Filter offers by selected category only — no type filtering
+  const displayOffers = useMemo(() => {
+    if (selectedCategory === "All") return activeOffers;
+    return activeOffers.filter((o) => o.category === selectedCategory);
+  }, [activeOffers, selectedCategory]);
 
-            let products = [];
-
-            // ✅ Fetch products if applicableProductIds exists
-            if (offerData.applicableProductIds?.length > 0) {
-              const productPromises = offerData.applicableProductIds.map(
-                async (productId) => {
-                  const productRef = doc(db, "products", productId);
-                  const productSnap = await getDoc(productRef);
-
-                  if (productSnap.exists()) {
-                    return {
-                      id: productSnap.id,
-                      ...productSnap.data(),
-                    };
-                  }
-                  return null;
-                }
-              );
-
-              products = (await Promise.all(productPromises)).filter(Boolean);
-            }
-
-            return {
-              id: offerDoc.id,
-              ...offerData,
-              products, // ✅ attach fetched products
-            };
-          })
-        );
-
-        console.log("Offers with products:", offersData);
-
-        setOffers(offersData);
-      } catch (error) {
-        console.error("Firestore Error:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchOffers();
-  }, []);
-
-  if (loading) {
-    return <div className="text-center py-10">Loading offers...</div>;
+  if (!offers || !offers.length) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-3 border-[#AE7A65] border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-[#8B6F5E] font-medium">Loading offers...</p>
+        </div>
+      </div>
+    );
   }
 
-  if (offers.length === 0) {
-    return <div className="text-center py-10">No offers available</div>;
+  if (!displayOffers.length) {
+    return (
+      <div className="flex gap-0 min-h-[calc(100vh-120px)]">
+        {categories.length > 1 && (
+          <div className="w-[90px] shrink-0 bg-[#f0e6da] border-r border-[#e0d2c3] pt-2 pb-24 overflow-y-auto">
+            {categories.map((cat) => {
+              const isActive = selectedCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`
+                    w-full px-2 py-3.5 text-xs font-semibold text-center transition-all duration-200 relative
+                    ${isActive ? "bg-[#f7efe6] text-[#5C4033]" : "text-[#8B6F5E] hover:bg-[#f7efe6]/50"}
+                  `}
+                >
+                  {isActive && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-[#AE7A65] rounded-r-full" />
+                  )}
+                  {cat}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div className="flex-1 flex flex-col items-center justify-center py-16 px-6">
+          <div className="w-16 h-16 bg-[#f0e6da] rounded-full flex items-center justify-center mb-4">
+            <span className="text-3xl">🏷️</span>
+          </div>
+          <p className="text-base font-semibold text-[#5C4033] mb-1">No offers in this category</p>
+          <p className="text-sm text-[#8B6F5E] text-center">Try selecting a different category</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="px-4 space-y-5 pb-24">
-      {offers.map((offer) => (
-        <OfferCard key={offer.id} offer={offer} />
-      ))}
+    <div className="flex gap-0 min-h-[calc(100vh-120px)]">
+      
+      {/* LEFT PANEL: Categories */}
+      {categories.length > 1 && (
+        <div className="w-[90px] shrink-0 bg-[#f0e6da] border-r border-[#e0d2c3] pt-2 pb-24 overflow-y-auto">
+          {categories.map((cat) => {
+            const isActive = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`
+                  w-full px-2 py-3.5 text-xs font-semibold text-center transition-all duration-200 relative
+                  ${isActive ? "bg-[#f7efe6] text-[#5C4033]" : "text-[#8B6F5E] hover:bg-[#f7efe6]/50"}
+                `}
+              >
+                {isActive && (
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-[#AE7A65] rounded-r-full" />
+                )}
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* RIGHT PANEL: ALL active offers */}
+      <div className="flex-1 px-3 pt-2 pb-24 space-y-3 overflow-y-auto">
+        {displayOffers.map((offer) => (
+          <OfferCard
+            key={offer.id}
+            offer={offer}
+            badge={offer.display?.badge || ""}
+            isAutoApplied={
+              !!(offer.autoApply) || 
+              !!(offer.userRules?.firstOrderOnly) ||
+              offer.applicableFor === "new_user" ||
+              offer.type === "firstOrder"
+            }
+          />
+        ))}
+      </div>
     </div>
   );
 };

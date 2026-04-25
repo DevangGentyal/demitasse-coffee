@@ -1,12 +1,11 @@
-import { useState } from "react";
+import { useFilter } from "@/context/FilterContext";
 
-export default function VegFilter({ onChange }) {
-  const [vegOnly, setVegOnly] = useState(false);
+export default function VegFilter() {
+
+  const { vegOnly, setVegOnly } = useFilter();
 
   const toggle = () => {
-    const value = !vegOnly;
-    setVegOnly(value);
-    onChange(value);
+    setVegOnly(prev => !prev);
   };
 
   return (

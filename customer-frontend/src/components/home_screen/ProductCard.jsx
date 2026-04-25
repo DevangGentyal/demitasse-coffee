@@ -12,11 +12,20 @@ export default function ProductCard({
 
   return (
     <div className="bg-white rounded-3xl p-4 shadow-md">
-      <div className="bg-gray-100 rounded-2xl p-3 flex justify-center">
-        <img src={image} alt={name} className="h-36 object-contain" />
+
+      <div className="bg-gray-100 rounded-2xl flex items-center justify-center h-44 w-full overflow-hidden cursor-pointer" onClick={() => navigate(`/item/${id}`)}>
+        {image && !image.includes("placeholder") ? (
+          <img
+            src={image}
+            alt={name}
+            className="h-54 w-54 object-contain"
+            loading="lazy"
+          />
+        ) : null}
       </div>
 
       <h3 className="mt-3 font-bold text-lg">{name}</h3>
+
       <p className="text-sm text-gray-500">{desc}</p>
 
       <div className="flex items-center justify-between mt-3">
@@ -29,6 +38,7 @@ export default function ProductCard({
           <PlusIcon className="w-6 h-6 text-white" />
         </button>
       </div>
+
     </div>
   );
 }

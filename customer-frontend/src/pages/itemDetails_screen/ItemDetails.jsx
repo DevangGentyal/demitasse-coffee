@@ -1,26 +1,140 @@
+<<<<<<< HEAD
 import React, { useState } from "react";
 import HeaderBar from "../../components/itemDetails_screen/HeaderBar.jsx";
 import AddOnItem from "../../components/itemDetails_screen/AddOnItem.jsx";
 import cappuccino from "../../assets/home_screen/offer.png";
 import { useCart } from "../../context/CartContext.jsx";
+=======
+import { useParams } from "react-router-dom";
+import { useMenu } from "@/context/MenuContext";
+import { useCart } from "@/context/CartContext";
+import { useFilter } from "@/context/FilterContext";
+>>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
-const ItemDetails = () => {
-  const sizes = [
-    { name: "Small", price: 180 },
-    { name: "Medium", price: 220 },
-    { name: "Large", price: 260 },
-  ];
+import HeaderBar from "@/components/itemDetails_screen/HeaderBar";
+import ItemImage from "@/components/itemDetails_screen/ItemImage";
+import Variations from "@/components/itemDetails_screen/Variations";
+import AddOnGroup from "@/components/itemDetails_screen/AddOnGroup";
 
+<<<<<<< HEAD
   const { addToCart, updateQuantity, cart } = useCart();
   const [selectedSize, setSelectedSize] = useState(sizes[0]);
   const [extraShot1, setExtraShot1] = useState(0);
   const [extraShot2, setExtraShot2] = useState(0);
   const [cartQty, setCartQty] = useState(0);
+=======
+import { useState, useEffect } from "react";
+>>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
-  // ✅ PRICE CALCULATIONS
-  const basePrice = selectedSize.price; // for top display ONLY
-  const addOnPrice = (extraShot1 + extraShot2) * 40;
-  const cartPrice = basePrice + addOnPrice; // for Add to Cart ONLY
+export default function ItemDetails() {
+
+  const { id } = useParams();
+
+  const { products } = useMenu();
+  const { addToCart } = useCart();
+  const { vegOnly } = useFilter();
+
+  const product = products.find(p => p.id === id);
+
+  const [variation, setVariation] = useState({});
+  const [addons, setAddons] = useState({});
+  const [showSnack, setShowSnack] = useState(false);
+
+  // ✅ Set default variations
+  useEffect(() => {
+
+    if (!product) return;
+
+    const initial = {};
+
+    (product.variations || []).forEach((g, i) => {
+      if (g.options?.length) {
+        initial[i] = g.options[0].name;
+      }
+    });
+
+    setVariation(initial);
+
+  }, [product]);
+
+  // ✅ Remove invalid addons when veg filter is ON
+  useEffect(() => {
+
+    if (!vegOnly || !product) return;
+
+    setAddons(prev => {
+      const cleaned = {};
+
+      Object.entries(prev).forEach(([i, list]) => {
+
+        const group = product.customizations[i];
+
+        const valid = list.filter(name => {
+          const opt = group.options.find(o => o.name === name);
+          return opt?.isVeg;
+        });
+
+        if (valid.length) {
+          cleaned[i] = valid;
+        }
+
+      });
+
+      return cleaned;
+    });
+
+  }, [vegOnly, product]);
+
+  // ✅ safe return
+  if (!product) return null;
+
+  // ✅ Calculate price
+  let totalPrice = product.price;
+
+  // variations price
+  (product.variations || []).forEach((group, i) => {
+    const selected = variation[i];
+    const opt = group.options?.find(o => o.name === selected);
+    if (opt) totalPrice += opt.price;
+  });
+
+  // addons price (filtered)
+  Object.entries(addons || {}).forEach(([i, list]) => {
+
+    const group = product.customizations[i];
+
+    list.forEach(name => {
+
+      const opt = group.options.find(o => o.name === name);
+
+      if (!opt) return;
+
+      if (vegOnly && !opt.isVeg) return;
+
+      totalPrice += opt.price;
+
+    });
+
+  });
+
+  const handleAdd = () => {
+
+    addToCart({
+      id: product.id,
+      name: product.name,
+      price: totalPrice,
+      variation,
+      addons,
+      isVeg:product.isVeg
+    });
+
+    setShowSnack(true);
+    
+    setTimeout(() => {
+      setShowSnack(false);
+    }, 2000);
+
+  };
 
   const handleAddToCart = () => {
     addToCart({
@@ -41,68 +155,74 @@ const ItemDetails = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-6">
+
+    <div className="h-screen flex flex-col">
+
       <HeaderBar />
 
-      {/* IMAGE */}
-      <div className="flex justify-center mt-4">
-        <img
-          src={cappuccino}
-          alt="Cappuccino"
-          className="w-44 h-44 object-contain"
-        />
-      </div>
+      <ItemImage image={product.image} />
 
-      {/* DETAILS CARD */}
-      <div className="bg-white rounded-2xl p-4 mx-4 mt-4 shadow-md">
-        <div className="flex justify-between items-center">
-          <h2 className="text-lg font-semibold">Cappuccino</h2>
+      <div className="mx-4 mt-2 bg-white rounded-2xl p-4 max-h-[52vh] overflow-y-auto">
 
-          {/* ✅ THIS PRICE IS SIZE-BASED ONLY */}
-          <span className="text-lg font-semibold text-orange-600">
-            ₹{basePrice}
+        <div className="flex justify-between items-start">
+
+          <h1 className="text-lg font-bold">
+            {product.name}
+          </h1>
+
+          <span className="text-lg font-semibold">
+            ₹{product.price}
           </span>
+
         </div>
 
-        {/* SIZE */}
-        <p className="text-sm text-gray-500 mt-3">Coffee Size</p>
-        <div className="flex gap-3 mt-2">
-          {sizes.map((size) => (
-            <button
-              key={size.name}
-              onClick={() => setSelectedSize(size)}
-              className={`px-4 py-2 rounded-full border text-sm
-                ${
-                  selectedSize.name === size.name
-                    ? "bg-green-600 text-white"
-                    : "bg-gray-100 text-gray-700"
-                }`}
-            >
-              {size.name}
-            </button>
-          ))}
-        </div>
+        <p className="text-sm text-gray-600 mt-2">
+          {product.desc}
+        </p>
 
-        {/* ADD ONS */}
-        <p className="text-sm text-gray-500 mt-4">ADD-ON</p>
-
-        <div className="space-y-3 mt-2">
-          <AddOnItem
-            title="Extra Shot"
-            price={40}
-            count={extraShot1}
-            setCount={setExtraShot1}
+        {/* 🔹 Variations */}
+        {(product.variations || []).map((group, i) => (
+          <Variations
+            key={i}
+            group={group}
+            selected={variation[i]}
+            setSelected={(v) =>
+              setVariation(prev => ({ ...prev, [i]: v }))
+            }
           />
+        ))}
 
-          <AddOnItem
-            title="Extra Shot"
-            price={40}
-            count={extraShot2}
-            setCount={setExtraShot2}
-          />
-        </div>
+        {/* 🔹 Add-ons (with veg filter) */}
+        {(product.customizations || []).map((group, i) => {
+
+          let filteredGroup = group;
+
+          if (vegOnly) {
+            filteredGroup = {
+              ...group,
+              options: group.options.filter(opt => opt.isVeg)
+            };
+          }
+
+          // if no options → skip
+          if (!filteredGroup.options.length) return null;
+
+          return (
+            <AddOnGroup
+              key={i}
+              group={filteredGroup}
+              selected={addons[i] || []}
+              setSelected={(v) =>
+                setAddons(prev => ({ ...prev, [i]: v }))
+              }
+            />
+          );
+
+        })}
+
       </div>
 
+<<<<<<< HEAD
       {/* ADD TO CART */}
       <div className="px-4 mt-5">
         {cartQty === 0 ? (
@@ -120,11 +240,24 @@ const ItemDetails = () => {
             >
               −
             </button>
+=======
+      {/* 🔹 Add to cart button */}
+      <button
+        onClick={handleAdd}
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[65%] bg-green-700 text-white py-4 rounded-full font-semibold shadow-lg"
+      >
+        Add To Cart • ₹{totalPrice}
+      </button>
+>>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
-            <span className="font-semibold">
-              {cartQty} item • ₹{cartPrice * cartQty}
-            </span>
+      {/* 🔹 Snackbar */}
+      {showSnack && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-black text-white px-5 py-3 rounded-full text-sm shadow-lg z-50">
+          ✓ Added to cart
+        </div>
+      )}
 
+<<<<<<< HEAD
             <button
               onClick={() => handleUpdate(cartQty + 1)}
               className="text-xl font-bold"
@@ -134,8 +267,9 @@ const ItemDetails = () => {
           </div>
         )}
       </div>
+=======
+>>>>>>> d285cf7127bc244424a3601686f3f47350df882f
     </div>
-  );
-};
 
-export default ItemDetails;
+  );
+}
