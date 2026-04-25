@@ -7,126 +7,24 @@ import { Sidebar } from '@/app/components/Sidebar'
 import { OrderCard } from '@/app/components/OrderCard'
 import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { AddOrderModal } from '@/app/components/AddOrderModal'
-import { getOrdersByOutletId, getOutletIdForCurrentUser, type Order as DBOrder } from '@/lib/services/orderService'
-import { auth } from '@/lib/firebase/auth'
-import { Timestamp } from 'firebase/firestore'
 
 export default function OrdersPage() {
   const router = useRouter()
-  const { isLoggedIn, isLoading } = useAuth()
-  const { orders: localOrders, addOrder, updateOrder, deleteOrder, updateOrderItem } = useApp()
+  const { isLoggedIn, isLoading, outletId } = useAuth()
+  const { orders: liveOrders } = useApp()
   const [showAddOrder, setShowAddOrder] = useState(false)
-  const [dataLoading, setDataLoading] = useState(true)
-  const [orders, setOrders] = useState<(DBOrder & { tableId?: string; timeOfOrder: Date })[]>([])
-  const [outletId, setOutletId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
-  // Function to refetch orders from database
-  const refetchOrders = async () => {
-    try {
-      console.log('🔄 Refetching orders...')
-      if (!outletId) {
-        console.warn('Cannot refetch: outletId not set')
-        return
-      }
+  const orders = useMemo(() => {
+    const normalized = liveOrders.map((order) => ({
+      ...order,
+      orderStatus: (order as any).orderStatus || order.status || 'pending',
+      timeOfOrder: order.timeOfOrder instanceof Date ? order.timeOfOrder : new Date(order.timeOfOrder),
+    }))
 
-      const dbOrders = await getOrdersByOutletId(outletId)
-      console.log('✅ Refetch successful, got', dbOrders.length, 'orders')
-      
-      const processedOrders = dbOrders.map(order => {
-        let timeOfOrder = new Date()
-        if (order.timeOfOrder) {
-          if (order.timeOfOrder instanceof Date) {
-            timeOfOrder = order.timeOfOrder
-          } else if (order.timeOfOrder instanceof Timestamp) {
-            timeOfOrder = order.timeOfOrder.toDate()
-          } else if (typeof order.timeOfOrder === 'string' || typeof order.timeOfOrder === 'number') {
-            const parsed = new Date(order.timeOfOrder)
-            timeOfOrder = isNaN(parsed.getTime()) ? new Date() : parsed
-          }
-        }
-        return { ...order, timeOfOrder }
-      })
-      
-      setOrders(processedOrders)
-    } catch (err) {
-      console.error('❌ Error refetching orders:', err)
-      setError('Failed to refresh orders')
-    }
-  }
-
-  // Fetch orders from database
-  useEffect(() => {
-    if (isLoading || !isLoggedIn) {
-      if (isLoading === false && !isLoggedIn) {
-        setDataLoading(false)
-      }
-      return
-    }
-
-    const fetchData = async () => {
-      try {
-        setDataLoading(true)
-        setError(null)
-
-        // Get current user
-        const user = auth.currentUser
-        if (!user) {
-          throw new Error('User not authenticated')
-        }
-
-        // Fetch outlet ID from user document using service function
-        const fetchedOutletId = await getOutletIdForCurrentUser()
-        setOutletId(fetchedOutletId)
-        console.log('🔍 ORDERS PAGE - Fetched Outlet ID:', fetchedOutletId)
-
-        // Fetch orders from database
-        console.log('📡 Fetching orders for outlet:', fetchedOutletId)
-        const dbOrders = await getOrdersByOutletId(fetchedOutletId)
-        console.log('✅ Orders fetched:', dbOrders.length, 'orders found')
-        console.log('📦 Orders data:', dbOrders)
-        
-        // Log all statuses and timeOfOrder
-        dbOrders.forEach((order, idx) => {
-          console.log(`Order ${idx}:`, order.id, '| Status:', order.orderStatus, '| Customer:', order.customerName, '| TimeOfOrder type:', typeof order.timeOfOrder, '| Value:', order.timeOfOrder)
-        })
-        
-        // Convert Timestamp to Date and ensure proper type
-        const processedOrders = dbOrders.map(order => {
-          let timeOfOrder = new Date()
-          if (order.timeOfOrder) {
-            if (order.timeOfOrder instanceof Date) {
-              timeOfOrder = order.timeOfOrder
-            } else if (order.timeOfOrder instanceof Timestamp) {
-              timeOfOrder = order.timeOfOrder.toDate()
-            } else if (typeof order.timeOfOrder === 'string' || typeof order.timeOfOrder === 'number') {
-              const parsed = new Date(order.timeOfOrder)
-              timeOfOrder = isNaN(parsed.getTime()) ? new Date() : parsed
-            }
-          }
-          return {
-            ...order,
-            timeOfOrder,
-          }
-        })
-        
-        console.log('🎯 ORDERS PAGE - Final processed orders:', processedOrders.length)
-        console.log('Pending:', processedOrders.filter(o => o.orderStatus === 'pending').length)
-        console.log('In Progress:', processedOrders.filter(o => o.orderStatus === 'in-progress').length)
-        console.log('Ready:', processedOrders.filter(o => o.orderStatus === 'ready').length)
-        setOrders(processedOrders)
-      } catch (err) {
-        console.error('Failed to fetch orders:', err)
-        setError(err instanceof Error ? err.message : 'Failed to load orders. Please try again.')
-      } finally {
-        setDataLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [isLoading, isLoggedIn])
+    return normalized.sort((a, b) => b.timeOfOrder.getTime() - a.timeOfOrder.getTime())
+  }, [liveOrders])
 
   // Wait for auth to be checked before rendering
   if (isLoading) {
@@ -143,17 +41,6 @@ export default function OrdersPage() {
   if (!isLoggedIn) {
     router.push('/login')
     return null
-  }
-
-  if (dataLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading orders...</p>
-        </div>
-      </div>
-    )
   }
 
   if (!outletId) {
@@ -190,12 +77,6 @@ export default function OrdersPage() {
             </Button>
           </div>
 
-          {error && (
-            <div className="mb-4 p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
-              {error}
-            </div>
-          )}
-
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             {/* PENDING COLUMN */}
             <div className="lg:col-span-1 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-900 dark:to-slate-800 rounded-xl border-2 border-amber-200 dark:border-amber-900/30 p-5 shadow-sm">
@@ -213,7 +94,7 @@ export default function OrdersPage() {
                   <p className="text-sm text-muted-foreground text-center py-8">No pending orders</p>
                 ) : (
                   pendingOrders.map(order => (
-                    <OrderCard key={order.id} order={order} status={order.orderStatus} outletId={outletId} onOrderUpdated={refetchOrders} />
+                    <OrderCard key={order.id} order={order} status={order.orderStatus} outletId={outletId} />
                   ))
                 )}
               </div>
@@ -235,7 +116,7 @@ export default function OrdersPage() {
                   <p className="text-sm text-muted-foreground text-center py-8">No orders in progress</p>
                 ) : (
                   inProgressOrders.map(order => (
-                    <OrderCard key={order.id} order={order} status={order.orderStatus} outletId={outletId} onOrderUpdated={refetchOrders} />
+                    <OrderCard key={order.id} order={order} status={order.orderStatus} outletId={outletId} />
                   ))
                 )}
               </div>
@@ -257,7 +138,7 @@ export default function OrdersPage() {
                   <p className="text-sm text-muted-foreground text-center py-8">No ready orders</p>
                 ) : (
                   readyOrders.map(order => (
-                    <OrderCard key={order.id} order={order} status={order.orderStatus} outletId={outletId} onOrderUpdated={refetchOrders} />
+                    <OrderCard key={order.id} order={order} status={order.orderStatus} outletId={outletId} />
                   ))
                 )}
               </div>
@@ -278,7 +159,7 @@ export default function OrdersPage() {
         </div>
       </main>
 
-      <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} onOrderCreated={refetchOrders}  />
+      <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} />
     </div>
   )
 }
