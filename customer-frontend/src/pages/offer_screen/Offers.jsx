@@ -5,7 +5,7 @@ import BottomNav from "../../components/BottomNav";
 
 const Offers = () => {
   return (
-    <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-28">
+    <div className="min-h-screen bg-[#fdfbf9] max-w-[420px] mx-auto pb-28">
       <OfferHeader />
       <OfferList />
       <BottomNav />

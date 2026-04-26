@@ -76,6 +76,7 @@ const BillDetails = () => {
     appliedOffers = [],
     autoAppliedOffer = null,
     autoDiscount = 0,
+    offerDiscounts = {},
   } = state;
 
   // ✅ PLACE ORDER FUNCTION (WITH SECURITY CHECK)
@@ -517,9 +518,8 @@ const BillDetails = () => {
 
               if (matchedOffer.discountType === "COMBO") return null; // Already in item price
 
-              const discAmt = matchedOffer.discountType === "PERCENT"
-                ? Math.round((itemTotal * matchedOffer.discountValue) / 100)
-                : matchedOffer.discountValue;
+              const discAmt = offerDiscounts[o.offerId] || 0;
+              if (discAmt <= 0) return null;
 
               return (
                 <div key={i} className="flex justify-between text-sm text-green-600 font-medium">

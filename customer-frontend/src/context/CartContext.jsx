@@ -97,8 +97,8 @@ export function CartProvider({ children }) {
     if (regOffer && normalItemsCount > 0 && !user.hasPlacedFirstOrder) {
       setAutoAppliedOffer({
         offerId: regOffer.id,
-        offerType: regOffer.discountType || "PERCENT",
-        discountValue: regOffer.discountValue || 0,
+        offerType: regOffer.discountType || regOffer.discount?.discountType || regOffer.config?.discount?.discountType || regOffer.config?.discountType || "PERCENT",
+        discountValue: regOffer.discountValue ?? regOffer.discount?.discountValue ?? regOffer.config?.discount?.discountValue ?? regOffer.config?.discountValue ?? 0,
         autoApplied: true,
         title: regOffer.title || "First Order Offer"
       });
@@ -334,7 +334,8 @@ export function CartProvider({ children }) {
   const totalPrice = cart.reduce((total, item) => {
     if (item.isFree && !item.isManualB1G1) return total;
     if (item.isCombo || item.isManualB1G1 || item.isDiscount) return total + (item.price || 0);
-    return total + item.price * item.qty;
+    // Include add-ons cost in the subtotal for normal items
+    return total + (item.price + (item.addOnsCost || 0)) * item.qty;
   }, 0);
 
   const totalItems = cart.reduce((t, i) => t + (i.isFree ? 0 : i.qty), 0);

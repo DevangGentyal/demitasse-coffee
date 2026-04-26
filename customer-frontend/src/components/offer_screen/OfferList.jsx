@@ -8,7 +8,6 @@ const OfferList = () => {
   const [selectedCategory, setSelectedCategory] = useState("All");
 
   // ✅ FIX: Use `offers` (outlet-filtered) with isActive check — same as home page
-  // This ensures B1G1 and all offers show, matching home carousel behavior
   const activeOffers = useMemo(() => {
     if (!offers || !offers.length) return [];
     return offers.filter(o => o.isActive);
@@ -16,21 +15,66 @@ const OfferList = () => {
 
   // ✅ Extract categories — show BIRTHDAY only on user's birthday
   const isUserBirthday = fullUser?.dob && isBirthday(fullUser.dob);
+  
   const categories = useMemo(() => {
     if (!activeOffers.length) return ["All"];
     const cats = new Set();
+    
     activeOffers.forEach((o) => {
-      if (!o.category) return;
-      if (o.category === "BIRTHDAY" && !isUserBirthday) return;
-      cats.add(o.category);
+      const cat = o.category || o.subcategory || o.discount?.category || o.discount?.subcategory || o.config?.discount?.category || o.config?.discount?.subcategory;
+      if (cat) {
+        if (cat === "BIRTHDAY" && !isUserBirthday) return;
+        
+        // Only add specific allowed categories to the sidebar
+        const allowedCats = ["discount", "B1G1", "COMBOS", "BOGO"];
+        if (allowedCats.includes(cat)) {
+          cats.add(cat);
+        }
+      }
+      
+      // Always ensure 'discount' category exists if any discount-type offers are found
+      const isDiscountType = 
+        o.type === "DISCOUNT" || 
+        o.type === "CATEGORY" ||
+        o.discountType === "PERCENT" || 
+        o.discountType === "FLAT" || 
+        o.discount?.type === "CATEGORY" || 
+        o.config?.type === "CATEGORY" ||
+        o.config?.discount?.type === "CATEGORY";
+
+      if (isDiscountType) {
+        cats.add("discount");
+      }
     });
-    return ["All", ...Array.from(cats)];
+    
+    // Sort to ensure a consistent order: All, discount, B1G1, COMBOS
+    const sidebarOrder = ["discount", "B1G1", "COMBOS", "BOGO"];
+    const filteredCats = Array.from(cats).filter(c => sidebarOrder.includes(c));
+    filteredCats.sort((a, b) => sidebarOrder.indexOf(a) - sidebarOrder.indexOf(b));
+
+    return ["All", ...filteredCats];
   }, [activeOffers, isUserBirthday]);
 
-  // ✅ Filter offers by selected category only — no type filtering
   const displayOffers = useMemo(() => {
     if (selectedCategory === "All") return activeOffers;
-    return activeOffers.filter((o) => o.category === selectedCategory);
+    
+    return activeOffers.filter((o) => {
+      const cat = o.category || o.subcategory || o.discount?.category || o.discount?.subcategory || o.config?.discount?.category || o.config?.discount?.subcategory;
+      const isDiscountType = 
+        o.type === "DISCOUNT" || 
+        o.type === "CATEGORY" ||
+        o.discountType === "PERCENT" || 
+        o.discountType === "FLAT" || 
+        o.discount?.type === "CATEGORY" || 
+        o.config?.type === "CATEGORY" ||
+        o.config?.discount?.type === "CATEGORY";
+      
+      if (selectedCategory === "discount") {
+        return isDiscountType;
+      }
+      
+      return cat === selectedCategory;
+    });
   }, [activeOffers, selectedCategory]);
 
   if (!offers || !offers.length) {
@@ -85,7 +129,7 @@ const OfferList = () => {
       
       {/* LEFT PANEL: Categories */}
       {categories.length > 1 && (
-        <div className="w-[90px] shrink-0 bg-[#f0e6da] border-r border-[#e0d2c3] pt-2 pb-24 overflow-y-auto">
+        <div className="w-[85px] shrink-0 bg-[#f8f3ed] border-r border-[#e8dccf]/60 pt-2 pb-24 overflow-y-auto">
           {categories.map((cat) => {
             const isActive = selectedCategory === cat;
             return (
@@ -93,14 +137,16 @@ const OfferList = () => {
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
                 className={`
-                  w-full px-2 py-3.5 text-xs font-semibold text-center transition-all duration-200 relative
-                  ${isActive ? "bg-[#f7efe6] text-[#5C4033]" : "text-[#8B6F5E] hover:bg-[#f7efe6]/50"}
+                  w-full px-2 py-4 text-[11px] font-bold text-center transition-all duration-300 relative
+                  ${isActive 
+                    ? "text-[#ff7b12] bg-white rounded-l-2xl shadow-sm" 
+                    : "text-[#8B6F5E] hover:text-[#AE7A65]"}
                 `}
               >
                 {isActive && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-[#AE7A65] rounded-r-full" />
+                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#ff7b12] rounded-l-full" />
                 )}
-                {cat}
+                <span className="uppercase tracking-wider">{cat}</span>
               </button>
             );
           })}

@@ -27,60 +27,86 @@ const Cart = () => {
   // ✅ CORRECT DISCOUNT CALCULATION
   let calculatedDiscount = 0;
 
+  const offerDiscounts = {}; // Map of offerId -> calculated discount amount
+  
   appliedOffers.forEach((applied) => {
     const offer = offers.find((o) => o.id === applied.offerId);
     if (!offer) return;
 
-    const type = (offer.discountType || "").toUpperCase();
+    const normType = String(
+      offer.discountType || 
+      offer.discount?.discountType || 
+      offer.config?.discount?.discountType || 
+      offer.config?.discountType || 
+      ""
+    ).toUpperCase();
+    
+    let discAmt = 0;
+    const discountVal = 
+      offer.discountValue ?? 
+      offer.discount?.discountValue ?? 
+      offer.config?.discount?.discountValue ?? 
+      offer.config?.discountValue ?? 
+      0;
 
-    if (type === "PERCENT") {
+    if (normType === "PERCENT" || normType === "PERCENTAGE") {
       let base = totalPrice;
-      if (offer.products && offer.products.length > 0) {
-        const allowedIds = offer.products.map((p) => p.productId).filter(Boolean);
-        const allowedNames = offer.products.map((p) => p.name?.toLowerCase());
+      const targetCategory = offer.category || offer.discount?.category || offer.config?.discount?.category;
+
+      if ((offer.products && offer.products.length > 0) || targetCategory) {
+        const allowedIds = offer.products?.map((p) => p.productId).filter(Boolean) || [];
+        const allowedNames = offer.products?.map((p) => p.name?.toLowerCase()) || [];
+
         base = cart
           .filter(
             (item) =>
               !item.isFree &&
               !item.isCombo &&
-              (allowedIds.includes(item.id) ||
-                allowedNames.includes(item.name?.toLowerCase()))
+              (
+                (allowedIds.length > 0 && allowedIds.includes(item.id)) ||
+                (allowedNames.length > 0 && allowedNames.includes(item.name?.toLowerCase())) ||
+                (targetCategory && item.category === targetCategory)
+              )
           )
-          .reduce((sum, item) => sum + item.price * item.qty, 0);
+          .reduce((sum, item) => sum + (item.price + (item.addOnsCost || 0)) * item.qty, 0);
       }
-      calculatedDiscount += Math.round((base * offer.discountValue) / 100);
-    } else if (type !== "BOGO" && type !== "COMBO" && offer.discountValue > 0) {
-      // Handles FIXED, FLAT, flat, fixed, or any other named type — treat as fixed amount
-      calculatedDiscount += offer.discountValue;
+      discAmt = Math.round((base * discountVal) / 100);
+    } else if (normType !== "BOGO" && normType !== "COMBO") {
+      // Treat everything else as FLAT discount
+      discAmt = discountVal;
     }
-    // BOGO: free items already have price 0, no numeric discount shown
-    // COMBO: price already calculated correctly in cart item
+
+    if (discAmt > 0) {
+      offerDiscounts[offer.id] = discAmt;
+      calculatedDiscount += discAmt;
+    }
   });
 
   // ✅ AUTO REGISTRATION OFFER DISCOUNT (Calculates ONLY on normal items)
   let autoDiscount = 0;
   if (autoAppliedOffer) {
-    const discType = (autoAppliedOffer.offerType || "").toUpperCase();
+    const normType = String(autoAppliedOffer.offerType || "").toUpperCase();
     
     // Calculate on non-combo, non-B1G1, non-free item total
     const eligibleTotal = cart
       .filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1)
-      .reduce((sum, i) => sum + i.price * i.qty, 0);
+      .reduce((sum, i) => sum + (i.price + (i.addOnsCost || 0)) * i.qty, 0);
       
     if (eligibleTotal > 0) {
-      if (discType === "PERCENT") {
+      if (normType === "PERCENT" || normType === "PERCENTAGE") {
         autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
-      } else if (autoAppliedOffer.discountValue > 0) {
-        // If fixed, ensure it doesn't exceed the eligible total itself
+      } else {
+        // If flat, ensure it doesn't exceed the eligible total itself
         autoDiscount = Math.min(autoAppliedOffer.discountValue, eligibleTotal);
       }
     }
   }
 
   const totalDiscount = calculatedDiscount + autoDiscount;
-  const tax = 45;
-  // ✅ CORRECT: subtract discount from (items + tax)
-  const grandTotal = Math.max(0, totalPrice + tax - totalDiscount);
+  const subtotalAfterDiscount = Math.max(0, totalPrice - totalDiscount);
+  // ✅ 5% Tax calculation
+  const tax = Math.round(subtotalAfterDiscount * 0.05);
+  const grandTotal = subtotalAfterDiscount + tax;
 
   // Helper config string to detect remaining valid normal items for banner UI
   const hasEligibleItems = cart.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1).length > 0;
@@ -186,10 +212,8 @@ const Cart = () => {
 
               if (offer.discountType === "COMBO") return null; // Combo price already in item
 
-              const discAmt =
-                offer.discountType === "PERCENT"
-                  ? Math.round((totalPrice * offer.discountValue) / 100)
-                  : offer.discountValue;
+              const discAmt = offerDiscounts[offer.id] || 0;
+              if (discAmt <= 0) return null;
 
               return (
                 <div
@@ -235,6 +259,7 @@ const Cart = () => {
                     discount: totalDiscount,
                     grandTotal,
                     appliedOffers,
+                    offerDiscounts,
                     autoAppliedOffer: autoAppliedOffer && hasEligibleItems ? autoAppliedOffer : null,
                     autoDiscount,
                   },

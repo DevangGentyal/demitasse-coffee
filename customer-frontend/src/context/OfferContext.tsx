@@ -90,6 +90,11 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
 
     setOffers(outletFiltered);
 
+    // 🔍 DEBUG LOG: Check why offers might be missing
+    console.log("📍 Current Outlet:", selectedOutlet);
+    console.log("📦 Total Offers Fetched:", allOffers.length);
+    console.log("✅ Offers after Outlet Filter:", outletFiltered.length);
+
     // ✅ NEW: Set all valid offers (active + date-valid) for category-based filtering
     const validOffers = outletFiltered.filter(
       (offer) => offer.isActive && isValidDate(offer)

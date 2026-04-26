@@ -68,6 +68,7 @@ export interface Offer {
             maxSelection?: number;
         };
         applicableProductIds?: string[];
+        type?: string;
     };
     // ✅ NEW: User rules for auto-apply logic
     userRules?: {

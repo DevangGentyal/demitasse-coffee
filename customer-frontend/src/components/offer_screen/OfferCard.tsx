@@ -35,6 +35,7 @@ interface Offer {
   autoApply?: boolean;
   type?: string;
   category?: string;
+  subcategory?: string;
   display?: { badge?: string; highlightText?: string; };
   applicableProductIds?: string[];
   config?: { 
@@ -43,13 +44,21 @@ interface Offer {
     b1g1?: { applicableProductIds: string[] };
     discountValue?: number;
     selection?: { enabled?: boolean; maxSelection?: number; };
-    discount?: { type?: string; discountValue?: number; productIds?: string[]; };
+    discount?: { type?: string; discountType?: string; discountValue?: number; productIds?: string[]; category?: string; subcategory?: string; };
     reward?: { productIds?: string[]; maxSelection?: number; };
     applicableProductIds?: string[];
+    type?: string;
   };
   combo?: ComboGroup[]; // Fallback
   comboPrice?: number;   // Fallback
   userRules?: { firstOrderOnly?: boolean; birthdayOnly?: boolean; };
+  discount?: {
+    category?: string;
+    subcategory?: string;
+    discountType?: string;
+    discountValue?: number;
+    type?: string;
+  };
 }
 
 interface OfferCardProps {
@@ -125,10 +134,22 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const isB1G1 = offer?.discountType === "BOGO" || offer?.discountType === "B1G1" || offer?.type === "BOGO" || offer?.type === "B1G1";
 
   // ─── Interactive Discount detection ──────────────────────────────────────────
+  const resolvedType = String(offer?.discountType || offer?.discount?.discountType || offer?.config?.discount?.discountType || "").toUpperCase();
   const isInteractiveDiscount =
-    (offer?.type === "DISCOUNT" || offer?.discountType === "PERCENT" || offer?.discountType === "FLAT") &&
+    (offer?.type === "DISCOUNT" || 
+     resolvedType === "PERCENT" || 
+     resolvedType === "PERCENTAGE" ||
+     resolvedType === "FLAT") &&
     offer?.config?.selection?.enabled === true &&
     !isCombo && !isB1G1;
+
+  // ─── Category Offer detection ────────────────────────────────────────────────
+  const isCategoryOffer =
+    offer?.type === "CATEGORY" ||
+    offer?.config?.type === "CATEGORY" ||
+    offer?.discount?.type === "CATEGORY" ||
+    offer?.config?.discount?.type === "CATEGORY" ||
+    (!!(offer?.category || offer?.subcategory || offer?.discount?.category || offer?.discount?.subcategory || offer?.config?.discount?.category || offer?.config?.discount?.subcategory) && !isCombo && !isB1G1 && !isInteractiveDiscount);
 
   // ─── Birthday Offer detection ───────────────────────────────────────────
   const isBirthdayOffer = offer ? (
@@ -139,7 +160,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   ) : false;
 
   // ─── Discount badge text ────────────────────────────────────────────────────
-  const resolvedDiscountValue = offer?.discountValue || offer?.config?.discountValue || 0;
+  const resolvedDiscountValue = offer?.discountValue || offer?.discount?.discountValue || offer?.config?.discountValue || offer?.config?.discount?.discountValue || 0;
   const discountText = isCombo
     ? (comboPrice > 0 ? `₹${comboPrice} Only` : "Combo Deal")
     : isB1G1 ? "B1G1 FREE"
@@ -164,7 +185,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
       setShowComboModal(true);
     } else if (isB1G1) {
       setShowB1G1Modal(true);
-    } else if (isInteractiveDiscount) {
+    } else if (isInteractiveDiscount || isCategoryOffer) {
       setShowDiscountModal(true);
     } else if (isBirthdayOffer) {
       setShowBirthdayModal(true);
@@ -210,7 +231,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   try {
   return (
     <>
-      <div className="bg-[#f7efe6] rounded-3xl p-5 shadow-sm border border-[#e1d1c3] relative overflow-hidden">
+      <div className="bg-[#fdfbf9] rounded-[2rem] p-6 shadow-sm border border-[#e8dccf] relative overflow-hidden transition-all duration-300 hover:shadow-md">
 
         {/* ── Discount badge ──────────────────────────────────────────────── */}
         <div className="absolute top-0 right-0 bg-[#16a34a] text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl shadow uppercase tracking-wider">
@@ -219,7 +240,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
 
         {/* ── display.badge / prop badge ──────────────────────────────────── */}
         {(offer.display?.badge || badge) && (
-          <span className="inline-block bg-white text-[#AE7A65] text-[10px] px-2.5 py-0.5 rounded-md mb-2 font-bold border border-[#e8dccf] uppercase tracking-wide">
+          <span className="inline-block bg-[#AE7A65]/10 text-[#AE7A65] text-[11px] px-3 py-1 rounded-full mb-3 font-bold uppercase tracking-wider">
             {offer.display?.badge || badge}
           </span>
         )}
@@ -232,9 +253,11 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
 
         {/* ── display.highlightText ────────────────────────────────────────── */}
         {offer.display?.highlightText && (
-          <p className="inline-block text-[10px] font-bold text-[#16a34a] mt-2 bg-[#16a34a]/10 px-2 py-0.5 rounded-md">
-            {offer.display.highlightText}
-          </p>
+          <div className="mt-3">
+            <span className="inline-block text-[11px] font-bold text-[#16a34a] bg-[#16a34a]/10 px-2.5 py-1 rounded-lg uppercase tracking-wide">
+              {offer.display.highlightText}
+            </span>
+          </div>
         )}
 
         {/* ── Combo groups summary ─────────────────────────────────────────── */}
@@ -265,34 +288,34 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
         )}
 
         {/* ── Min order & Valid till ──────────────────────────────────────── */}
-        <div className="flex gap-4 mt-3 pt-3 border-t border-[#e8dccf]">
+        <div className="flex gap-6 mt-4 pt-4 border-t border-[#e8dccf]/60">
           {offer.minOrderValue != null && offer.minOrderValue > 0 && (
-            <div className="text-[10px]">
-              <span className="text-[#8B6F5E]">Min order</span>
-              <p className="font-bold text-[#5C4033]">₹{offer.minOrderValue}</p>
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-[#8B6F5E] uppercase font-semibold tracking-wider">Min order</span>
+              <p className="font-extrabold text-[#5C4033] text-sm">₹{offer.minOrderValue}</p>
             </div>
           )}
           {formattedDate && (
-            <div className="text-[10px]">
-              <span className="text-[#8B6F5E]">Valid till</span>
-              <p className="font-bold text-[#5C4033]">{formattedDate}</p>
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-[#8B6F5E] uppercase font-semibold tracking-wider">Valid till</span>
+              <p className="font-extrabold text-[#5C4033] text-sm">{formattedDate}</p>
             </div>
           )}
         </div>
 
         {/* ── CTA BUTTONS ──────────────────────────────────────────────────── */}
-        {(isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer) && (
-          <div className="mt-4 flex justify-center">
+        {(isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer || isCategoryOffer) && (
+          <div className="mt-5 flex justify-center">
             <button
               disabled={isAddedInCart}
               onClick={isAddedInCart ? undefined : handleCTAClick}
-              className={`w-full py-2.5 text-sm font-bold rounded-xl shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#16a34a]
-                ${isAddedInCart 
-                  ? "bg-[#16a34a]/80 text-white cursor-not-allowed shadow-none" 
-                  : "bg-[#16a34a] hover:bg-green-700 text-white active:scale-95"
+              className={`w-full py-3.5 text-sm font-extrabold rounded-2xl shadow-sm transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-offset-2 focus:ring-[#ff7b12]/20
+                ${isAddedInCart
+                  ? "bg-[#16a34a] text-white cursor-not-allowed shadow-none" 
+                  : "bg-[#ff7b12] hover:bg-[#ff8c33] text-white active:scale-95 shadow-lg shadow-[#ff7b12]/20"
                 }`}
             >
-              {isAddedInCart ? "Added ✅" : isCombo ? "Add Combo" : isInteractiveDiscount ? "Apply Offer" : isBirthdayOffer ? "Claim Free Item 🎂" : "Add Offer"}
+              {isAddedInCart ? "Added ✅" : isCombo ? "Add Combo" : (isInteractiveDiscount || isCategoryOffer) ? "Add Offer" : isBirthdayOffer ? "Claim Free Item 🎂" : "Add Offer"}
             </button>
           </div>
         )}
@@ -395,6 +418,11 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   // Customization state — same pattern as B1G1/Combo
   const [customization, setCustomization] = useState<{ variations: Record<number, string>; addons: Record<number, string[]> }>({ variations: {}, addons: {} });
   const [customizingProduct, setCustomizingProduct] = useState<boolean>(false);
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+
+  const toggleDescription = (id: string) => {
+    setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   // Extract the configured product IDs from config.reward.productIds
   // NOTE: Firestore keys may have leading spaces (e.g. " reward" instead of "reward")
@@ -562,7 +590,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
                       ${isSelected ? "border-pink-400 bg-pink-50 shadow-sm" : "border-gray-100 bg-white hover:border-pink-200"}`}
                   >
                     <div className="w-14 h-14 rounded-xl bg-[#f0e6da] overflow-hidden shrink-0">
-                      {p.image && <img src={p.image} className="w-full h-full object-cover" />}
+                      {(p.imageUrl || p.image) && <img src={p.imageUrl || p.image} className="w-full h-full object-cover" alt={p.name} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -578,12 +606,28 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
                         <span className="text-xs font-bold text-pink-500">FREE 🎂</span>
                         {productHasCustomizable && <span className="text-[9px] bg-pink-100 text-pink-500 px-1.5 py-0.5 rounded">Customizable</span>}
                       </div>
+                      {p.description && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleDescription(id);
+                          }}
+                          className="text-xs text-[#F97316] font-semibold mt-1"
+                        >
+                          {expandedItems[id] ? "Less Details" : "More Details"}
+                        </button>
+                      )}
                     </div>
                     <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center
                       ${isSelected ? "border-pink-400 bg-pink-400" : "border-gray-300"}`}>
                       {isSelected && <span className="text-white text-xs">✓</span>}
                     </div>
                   </div>
+                  {expandedItems[id] && (
+                    <div className="mt-1 px-3.5 pb-3.5 leading-relaxed">
+                      <p className="text-xs text-[#6B7280]">{p.description || "No description available"}</p>
+                    </div>
+                  )}
                   {/* Customize button — shown below the selected product card */}
                   {isSelected && productHasCustomizable && (
                     <button onClick={() => setCustomizingProduct(true)}
@@ -637,13 +681,20 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
   const [selections, setSelections] = useState<string[]>([]);
   const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
-  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  const [fullProducts, setFullProducts] = useState<Record<string, any>>({});
+
+  const toggleDescription = (id: string) => {
+    setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const maxSelection = offer.config?.selection?.maxSelection || 1;
 
-  // Get applicable product IDs from config.discount.productIds or applicableProductIds
   const applicableProducts = useMemo(() => {
     const discountConfig = offer.config?.discount || {};
+    const targetCategory = offer.category || offer.discount?.category || discountConfig.category;
+    const targetSubcategory = offer.subcategory || offer.discount?.subcategory || discountConfig.subcategory;
+
     let rawIds = discountConfig.productIds || offer.config?.applicableProductIds || offer.applicableProductIds || [];
     if (!Array.isArray(rawIds)) rawIds = [];
 
@@ -654,12 +705,70 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
     }).filter((id: string) => id.length > 0);
 
     const allProducts = Object.values(productsMap);
-    return allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
-  }, [offer, productsMap]);
+    
+    // If no specific IDs are provided, but a category/subcategory is mentioned, filter by category/subcategory
+    let filtered = [];
+    if (ids.length === 0 && (targetCategory || targetSubcategory)) {
+      filtered = allProducts.filter((p: any) => 
+        p && (
+          (targetCategory && p.category === targetCategory) || 
+          (targetSubcategory && p.subcategory === targetSubcategory)
+        )
+      );
+    } else {
+      filtered = allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
+    }
+
+    // Merge with fetched full products to get descriptions
+    return filtered.map((p: any) => fullProducts[p.id] ? { ...p, ...fullProducts[p.id] } : p);
+  }, [offer, productsMap, fullProducts]);
+
+  // Stable IDs for fetching full details
+  const applicableIds = useMemo(() => {
+    const discountConfig = offer.config?.discount || {};
+    let rawIds = discountConfig.productIds || offer.config?.applicableProductIds || offer.applicableProductIds || [];
+    if (!Array.isArray(rawIds)) rawIds = [];
+    return rawIds.map((item: any) => {
+      if (!item) return "";
+      if (typeof item === 'string') return String(item).trim();
+      return String(item.productId || item.id || "").trim();
+    }).filter((id: string) => id.length > 0);
+  }, [offer]);
+
+  // Fetch full details (descriptions) for applicable products
+  useEffect(() => {
+    if (applicableIds.length === 0) return;
+
+    let isMounted = true;
+    const fetchDetails = async () => {
+      const newFullProducts: Record<string, any> = {};
+      const missingIds = applicableIds.filter((id: string) => !fullProducts[id]);
+      
+      if (missingIds.length === 0) return;
+
+      for (const id of missingIds) {
+        try {
+          const snap = await getDoc(doc(db, "products", id));
+          if (snap.exists() && isMounted) {
+            newFullProducts[id] = snap.data();
+          }
+        } catch (err) {
+          console.error("DiscountBuilder: Failed to fetch description", id, err);
+        }
+      }
+      if (isMounted && Object.keys(newFullProducts).length > 0) {
+        setFullProducts(prev => ({ ...prev, ...newFullProducts }));
+      }
+    };
+
+    fetchDetails();
+    return () => { isMounted = false; };
+  }, [applicableIds]);
 
   // Discount config
-  const discountType = offer.config?.discount?.type || offer.discountType || "PERCENT";
-  const discountValue = offer.config?.discount?.discountValue || offer.discountValue || offer.config?.discountValue || 0;
+  const discountType = String(offer?.discountType || offer?.discount?.discountType || offer?.config?.discount?.discountType || offer?.config?.discountType || "FLAT").toUpperCase();
+  const discountValue = offer?.discountValue ?? offer?.discount?.discountValue ?? offer?.config?.discount?.discountValue ?? offer?.config?.discountValue ?? 0;
+  const isPercent = discountType === "PERCENT" || discountType === "PERCENTAGE";
 
   const handleSelect = (productId: string) => {
     if (selections.includes(productId)) {
@@ -710,11 +819,13 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
     return sum + calcAddOnsCost(product, cust.addons);
   }, 0);
 
-  const discountAmount = discountType === "PERCENT"
-    ? Math.round((basePrice * discountValue) / 100)
-    : Math.min(discountValue, basePrice);
+  const totalPriceForItem = basePrice + addOnsCost;
+  const normType = String(discountType || "").toUpperCase();
+  const discountAmount = (normType === "PERCENT" || normType === "PERCENTAGE")
+    ? Math.round((totalPriceForItem * discountValue) / 100)
+    : Math.min(discountValue, totalPriceForItem);
 
-  const finalPrice = Math.max(0, basePrice + addOnsCost - discountAmount);
+  const finalPrice = Math.max(0, totalPriceForItem - discountAmount);
 
   const handleAddToCart = () => {
     if (selections.length === 0) return;
@@ -790,12 +901,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
               const isVeg = p.isVeg === true;
               const isNonVeg = p.isVeg === false;
               const hasCustomizable = (p.variations?.length > 0) || (p.customizations?.length > 0);
-              const hasAddons = Array.isArray(p.customizations) && p.customizations.length > 0;
-              const canExpand =
-                typeof p.description === "string" &&
-                p.description.trim().length > 0 &&
-                !hasAddons;
-              const isExpanded = expandedItemId === id;
+              const isExpanded = !!expandedItems[id];
 
               return (
                 <div key={id} onClick={() => handleSelect(id)}
@@ -804,7 +910,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-14 h-14 rounded-xl bg-[#f0e6da] overflow-hidden shrink-0">
-                      {p.image && <img src={p.image} className="w-full h-full object-cover" />}
+                      {(p.imageUrl || p.image) && <img src={p.imageUrl || p.image} className="w-full h-full object-cover" alt={p.name} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -820,16 +926,16 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
                         {hasCustomizable && <span className="text-[9px] bg-[#16a34a]/10 text-[#16a34a] px-1.5 py-0.5 rounded">Customizable</span>}
                       </div>
 
-                      {canExpand && (
-                        <span
+                      {(fullProducts[id]?.description || p.description) && (
+                        <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setExpandedItemId(isExpanded ? null : id);
+                            toggleDescription(id);
                           }}
-                          className="text-[10px] text-[#AE7A65] hover:underline cursor-pointer inline-block mt-0.5"
+                          className="text-xs text-[#F97316] font-semibold mt-1"
                         >
-                          {isExpanded ? "Less" : "More Details"}
-                        </span>
+                          {expandedItems[id] ? "Less Details" : "More Details"}
+                        </button>
                       )}
                     </div>
                     <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center
@@ -838,9 +944,9 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
                     </div>
                   </div>
 
-                  {isExpanded && canExpand && (
-                    <div className="mt-2 pt-2 border-t border-gray-100">
-                      <p className="text-xs text-gray-500 whitespace-pre-wrap">{p.description}</p>
+                  {expandedItems[id] && (
+                    <div className="mt-1 pt-2 border-t border-gray-100 leading-relaxed">
+                      <p className="text-xs text-[#6B7280]">{p.description || "No description available"}</p>
                     </div>
                   )}
                 </div>
@@ -908,8 +1014,12 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
   const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
   
-  // Track which product description is expanded
-  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  const [fullProducts, setFullProducts] = useState<Record<string, any>>({});
+
+  const toggleDescription = (id: string) => {
+    setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const applicableProducts = useMemo(() => {
     // Handling a known typo in the database ("applicableProductIds:") as well
@@ -927,8 +1037,53 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
     }).filter((id: string) => id.length > 0);
 
     const allProducts = Object.values(productsMap);
-    return allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
-  }, [offer, productsMap]);
+    const filtered = allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
+
+    // Merge with fetched full products to get descriptions
+    return filtered.map((p: any) => fullProducts[p.id] ? { ...p, ...fullProducts[p.id] } : p);
+  }, [offer, productsMap, fullProducts]);
+
+  // Stable IDs for fetching full details
+  const applicableIds = useMemo(() => {
+    const b1g1Config = offer.config?.b1g1 || {};
+    let rawIds = b1g1Config.applicableProductIds || b1g1Config["applicableProductIds:"] || offer.applicableProductIds || [];
+    if (!Array.isArray(rawIds)) rawIds = [];
+    return rawIds.map((item: any) => {
+      if (!item) return "";
+      if (typeof item === 'string') return String(item).trim();
+      return String(item.productId || item.id || "").trim();
+    }).filter((id: string) => id.length > 0);
+  }, [offer]);
+
+  // Fetch full details (descriptions) for applicable products
+  useEffect(() => {
+    if (applicableIds.length === 0) return;
+
+    let isMounted = true;
+    const fetchDetails = async () => {
+      const newFullProducts: Record<string, any> = {};
+      const missingIds = applicableIds.filter((id: string) => !fullProducts[id]);
+
+      if (missingIds.length === 0) return;
+
+      for (const id of missingIds) {
+        try {
+          const snap = await getDoc(doc(db, "products", id));
+          if (snap.exists() && isMounted) {
+            newFullProducts[id] = snap.data();
+          }
+        } catch (err) {
+          console.error("B1G1Builder: Failed to fetch description", id, err);
+        }
+      }
+      if (isMounted && Object.keys(newFullProducts).length > 0) {
+        setFullProducts(prev => ({ ...prev, ...newFullProducts }));
+      }
+    };
+
+    fetchDetails();
+    return () => { isMounted = false; };
+  }, [applicableIds]);
   
   const handleSelect = (productId: string) => {
     if (selections.includes(productId)) {
@@ -1037,12 +1192,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
               const isVeg = p.isVeg === true;
               const isNonVeg = p.isVeg === false;
               
-              const hasAddons = Array.isArray(p.customizations) && p.customizations.length > 0;
-              const canExpand =
-                typeof p.description === "string" &&
-                p.description.trim().length > 0 &&
-                !hasAddons;
-              const isExpanded = expandedItemId === id;
+              const isExpanded = !!expandedItems[id];
 
               return (
                 <div key={id} onClick={() => handleSelect(id)}
@@ -1051,7 +1201,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-14 h-14 rounded-xl bg-[#f0e6da] overflow-hidden shrink-0">
-                      {p.image && <img src={p.image} className="w-full h-full object-cover" />}
+                      {(p.imageUrl || p.image) && <img src={p.imageUrl || p.image} className="w-full h-full object-cover" alt={p.name} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -1064,16 +1214,16 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
                       </div>
                       <p className="text-xs font-bold text-[#16a34a]">₹{p.price}</p>
                       
-                      {canExpand && (
-                        <span 
+                      {(fullProducts[id]?.description || p.description) && (
+                        <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setExpandedItemId(isExpanded ? null : id);
+                            toggleDescription(id);
                           }}
-                          className="text-[10px] text-[#AE7A65] hover:underline cursor-pointer inline-block mt-0.5"
+                          className="text-xs text-[#F97316] font-semibold mt-1"
                         >
-                          {isExpanded ? "Less" : "More Details"}
-                        </span>
+                          {expandedItems[id] ? "Less Details" : "More Details"}
+                        </button>
                       )}
                     </div>
                     <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center
@@ -1082,9 +1232,9 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
                     </div>
                   </div>
                   
-                  {isExpanded && canExpand && (
-                    <div className="mt-2 pt-2 border-t border-gray-100">
-                      <p className="text-xs text-gray-500 whitespace-pre-wrap">{p.description}</p>
+                  {expandedItems[id] && (
+                    <div className="mt-1 leading-relaxed">
+                      <p className="text-xs text-[#6B7280]">{p.description || "No description available"}</p>
                     </div>
                   )}
                 </div>
@@ -1128,9 +1278,12 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
   const [selections, setSelections]         = useState<Record<number, string>>({});
   const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  const [fullProducts, setFullProducts] = useState<Record<string, any>>({});
 
-  // Track which product description is expanded
-  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const toggleDescription = (id: string) => {
+    setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const totalGroups     = comboGroups.length;
   const selectedCount   = Object.keys(selections).length;
@@ -1155,6 +1308,46 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
   }, [customizations, selections, productsMap]);
 
   const grandTotal = comboPrice + addOnsTotal;
+
+  // Fetch full details (descriptions) for all products in combo groups
+  useEffect(() => {
+    const allProductIds: string[] = [];
+    comboGroups.forEach(group => {
+      if (group && Array.isArray(group.items)) {
+        group.items.forEach(item => {
+          if (item && item.productId) allProductIds.push(item.productId);
+        });
+      }
+    });
+
+    if (allProductIds.length === 0) return;
+
+    let isMounted = true;
+    const fetchDetails = async () => {
+      const newFullProducts: Record<string, any> = {};
+      const uniqueIds = Array.from(new Set(allProductIds));
+      const missingIds = uniqueIds.filter((id: string) => !fullProducts[id]);
+      
+      if (missingIds.length === 0) return;
+
+      for (const id of missingIds) {
+        try {
+          const snap = await getDoc(doc(db, "products", id));
+          if (snap.exists() && isMounted) {
+            newFullProducts[id] = snap.data();
+          }
+        } catch (err) {
+          console.error("ComboBuilder: Failed to fetch description", id, err);
+        }
+      }
+      if (isMounted && Object.keys(newFullProducts).length > 0) {
+        setFullProducts(prev => ({ ...prev, ...newFullProducts }));
+      }
+    };
+
+    fetchDetails();
+    return () => { isMounted = false; };
+  }, [comboGroups]);
 
   const handleSelect = (groupIndex: number, productId: string) => {
     setSelections(prev => ({ ...prev, [groupIndex]: productId }));
@@ -1277,13 +1470,8 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
 
                     return groupProducts.map((product: any) => {
                       const isSelected = selectedProductId === product.id;
+                      const isExpanded = !!expandedItems[product.id];
                       const hasCustomizable = (product.variations?.length > 0) || (product.customizations?.length > 0);
-                      const hasAddons = Array.isArray(product.customizations) && product.customizations.length > 0;
-                      const canExpand =
-                        typeof product.description === "string" &&
-                        product.description.trim().length > 0 &&
-                        !hasAddons;
-                      const isExpanded = expandedItemId === product.id;
                       const isVeg = product.isVeg === true;
                       const isNonVeg = product.isVeg === false;
 
@@ -1294,7 +1482,7 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
                         >
                           <div className="flex items-center gap-3">
                             <div className="w-14 h-14 rounded-xl bg-[#f0e6da] overflow-hidden shrink-0">
-                              {product.image && <img src={product.image} className="w-full h-full object-cover" />}
+                              {(product.imageUrl || product.image) && <img src={product.imageUrl || product.image} className="w-full h-full object-cover" alt={product.name} />}
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 mb-0.5">
@@ -1312,27 +1500,29 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
                                 {hasCustomizable && <span className="text-[9px] bg-[#16a34a]/10 text-[#16a34a] px-1.5 py-0.5 rounded">Customizable</span>}
                               </div>
 
-                              {canExpand && (
-                                <span 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setExpandedItemId(isExpanded ? null : product.id);
-                                  }}
-                                  className="text-[10px] text-[#AE7A65] hover:underline cursor-pointer inline-block mt-0.5"
-                                >
-                                  {isExpanded ? "Less" : "More Details"}
-                                </span>
-                              )}
-                            </div>
+                                {(fullProducts[product.id]?.description || product.description) && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleDescription(product.id);
+                                    }}
+                                    className="text-xs text-[#F97316] font-semibold mt-1"
+                                  >
+                                    {expandedItems[product.id] ? "Less Details" : "More Details"}
+                                  </button>
+                                )}
+                              </div>
                             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center
                               ${isSelected ? "border-[#16a34a] bg-[#16a34a]" : "border-gray-300"}`}>
                               {isSelected && <span className="text-white text-[10px]">✓</span>}
                             </div>
                           </div>
 
-                          {isExpanded && canExpand && (
-                            <div className="mt-2 pt-2 border-t border-gray-100">
-                              <p className="text-xs text-gray-500 whitespace-pre-wrap">{product.description}</p>
+                          {expandedItems[product.id] && (
+                            <div className="mt-1 pt-2 border-t border-gray-100 leading-relaxed">
+                              <p className="text-xs text-[#6B7280]">
+                                {fullProducts[product.id]?.description || product.description || "No description available"}
+                              </p>
                             </div>
                           )}
                         </div>

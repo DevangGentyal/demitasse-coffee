@@ -109,7 +109,8 @@ export default function ItemDetails() {
       price: totalPrice,
       variation,
       addons,
-      isVeg:product.isVeg
+      isVeg: product.isVeg,
+      category: product.category
     });
 
     setShowSnack(true);
