@@ -39,11 +39,11 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
     const existingData = offerSnap.data();
 
     // ✅ Type validation (if updating)
-    const validTypes = ["discount", "bogo", "freebie"];
+    const validTypes = ["COMBO", "B1G1", "DISCOUNT", "BIRTHDAY", "NEW_USER"];
     if (data.type && !validTypes.includes(data.type)) {
       res.status(400).json({
         success: false,
-        message: "Invalid offer type",
+        message: "Invalid offer type. Must be one of: " + validTypes.join(", "),
       });
       return;
     }
@@ -51,22 +51,27 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
     const finalType = data.type || existingData?.type;
 
     // ✅ Discount validation
-    if (finalType === "discount") {
-      const discountValue =
-        data.discountValue !== undefined
-          ? data.discountValue
-          : existingData?.discountValue;
-
-      if (
-        typeof discountValue !== "number" ||
-        discountValue <= 0 ||
-        discountValue > 100
-      ) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid discount value",
-        });
+    if (finalType === "DISCOUNT") {
+      const discount = data.config?.discount !== undefined ? data.config.discount : existingData?.config?.discount;
+      if (!discount) {
+        res.status(400).json({ success: false, message: "DISCOUNT requires config.discount object" });
         return;
+      }
+      const discVal = discount.discountValue;
+      if (typeof discVal !== "number" || discVal <= 0 || discVal > 100) {
+        res.status(400).json({ success: false, message: "DISCOUNT requires config.discount.discountValue > 0 and <= 100" });
+        return;
+      }
+      if (discount.type === "PRODUCT") {
+        if (!Array.isArray(discount.productIds) || discount.productIds.length === 0) {
+          res.status(400).json({ success: false, message: "DISCOUNT of type PRODUCT requires productIds" });
+          return;
+        }
+      } else if (discount.type === "CATEGORY") {
+        if (!discount.category) {
+          res.status(400).json({ success: false, message: "DISCOUNT of type CATEGORY requires a category" });
+          return;
+        }
       }
     }
 
@@ -87,26 +92,47 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
       return;
     }
 
-    // ✅ Arrays validation
-    if (data.applicableItems !== undefined && !Array.isArray(data.applicableItems)) {
-      res.status(400).json({ success: false, message: "applicableItems must be an array" });
-      return;
-    }
-    if (data.rewardItems !== undefined && !Array.isArray(data.rewardItems)) {
-      res.status(400).json({ success: false, message: "rewardItems must be an array" });
-      return;
-    }
+    // ✅ B1G1 validation
+    if (finalType === "B1G1") {
+      const productIds = data.config?.b1g1?.applicableProductIds !== undefined
+        ? data.config.b1g1.applicableProductIds
+        : existingData?.config?.b1g1?.applicableProductIds;
 
-    // ✅ BOGO validation
-    if (finalType === "bogo") {
-      const appItems = data.applicableItems !== undefined ? data.applicableItems : existingData?.applicableItems;
-      const rewItems = data.rewardItems !== undefined ? data.rewardItems : existingData?.rewardItems;
-      if (!Array.isArray(appItems) || appItems.length === 0) {
-        res.status(400).json({ success: false, message: "BOGO requires applicableItems" });
+      if (!Array.isArray(productIds) || productIds.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "B1G1 requires config.b1g1.applicableProductIds with at least 1 product",
+        });
         return;
       }
-      if (!Array.isArray(rewItems) || rewItems.length === 0) {
-        res.status(400).json({ success: false, message: "BOGO requires rewardItems" });
+    }
+
+    // ✅ COMBO validation
+    if (finalType === "COMBO") {
+      const combo = data.config?.combo !== undefined ? data.config.combo : existingData?.config?.combo;
+      if (!Array.isArray(combo) || combo.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "COMBO requires config.combo array with at least 1 group",
+        });
+        return;
+      }
+      for (const group of combo) {
+        if (!Array.isArray(group.items) || group.items.length === 0) {
+          res.status(400).json({
+            success: false,
+            message: "Each COMBO group must have at least 1 item",
+          });
+          return;
+        }
+      }
+      
+      const comboPrice = data.config?.comboPrice !== undefined ? data.config.comboPrice : existingData?.config?.comboPrice;
+      if (typeof comboPrice !== "number" || comboPrice < 0) {
+        res.status(400).json({
+          success: false,
+          message: "COMBO requires config.comboPrice >= 0",
+        });
         return;
       }
     }
@@ -119,20 +145,6 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
       }
     }
 
-    // ✅ usageLimit / perUserLimit validation
-    if (data.usageLimit !== undefined && data.usageLimit !== null) {
-      if (typeof data.usageLimit !== "number" || data.usageLimit < 1) {
-        res.status(400).json({ success: false, message: "usageLimit must be >= 1" });
-        return;
-      }
-    }
-    if (data.perUserLimit !== undefined && data.perUserLimit !== null) {
-      if (typeof data.perUserLimit !== "number" || data.perUserLimit < 1) {
-        res.status(400).json({ success: false, message: "perUserLimit must be >= 1" });
-        return;
-      }
-    }
-
     // ✅ Prepare update object
     const updateData: any = {
       updatedAt: new Date(),
@@ -140,40 +152,135 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
 
     if (data.title !== undefined) updateData.title = data.title.trim();
     if (data.description !== undefined) updateData.description = data.description;
-
     if (data.type !== undefined) updateData.type = data.type;
-
-    if (data.discountValue !== undefined) {
-      updateData.discountValue =
-        finalType === "discount" ? data.discountValue : null;
-    }
-
-    if (data.couponCode !== undefined)
-      updateData.couponCode = data.couponCode || null;
-
-    if (data.applicableFor !== undefined)
-      updateData.applicableFor = data.applicableFor;
-
-    if (data.applicableItems !== undefined) updateData.applicableItems = data.applicableItems;
-    if (data.rewardItems !== undefined) updateData.rewardItems = data.rewardItems;
-    if (data.applicableCategory !== undefined) updateData.applicableCategory = data.applicableCategory;
-
-    if (data.minOrderValue !== undefined) updateData.minOrderValue = data.minOrderValue;
-    if (data.perUserLimit !== undefined) updateData.perUserLimit = data.perUserLimit;
-    if (data.isStackable !== undefined) updateData.isStackable = data.isStackable;
+    if (data.category !== undefined) updateData.category = data.category;
 
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
-    if (data.isTrending !== undefined) updateData.isTrending = data.isTrending;
     if (data.autoApply !== undefined) updateData.autoApply = data.autoApply;
+    if (data.isStackable !== undefined) updateData.isStackable = data.isStackable;
     if (data.priority !== undefined) updateData.priority = data.priority;
 
     if (data.startDate !== undefined) updateData.startDate = new Date(data.startDate);
     if (data.endDate !== undefined) updateData.endDate = new Date(data.endDate);
 
-    if (data.usageLimit !== undefined)
-      updateData.usageLimit = data.usageLimit || null;
+    if (data.minOrderValue !== undefined) updateData.minOrderValue = data.minOrderValue;
 
-    // ❌ DO NOT update usedCount manually
+    // ✅ Enforce isCustomizable safety for COMBO
+    if (finalType === "COMBO" && data.config?.combo && Array.isArray(data.config.combo)) {
+      try {
+        const productRefs: { group: any; item: any }[] = [];
+        data.config.combo.forEach((group: any) => {
+          if (Array.isArray(group.items)) {
+            group.items.forEach((item: any) => {
+              if (item.isCustomizable && item.productId) {
+                productRefs.push({ group, item });
+              }
+            });
+          }
+        });
+
+        if (productRefs.length > 0) {
+          const productDocs = await Promise.all(
+            productRefs.map(p => db.collection("products").doc(p.item.productId).get())
+          );
+          productDocs.forEach((doc, idx) => {
+            const category = doc.data()?.category?.toLowerCase();
+            if (!doc.exists || category !== "coffee") {
+              productRefs[idx].item.isCustomizable = false;
+            }
+          });
+        }
+      } catch (e) {
+        console.error("Error validating product categories for customization", e);
+      }
+    }
+
+    // ✅ Full nested config — merge with existing if partial update
+    if (data.config !== undefined) {
+      const existingConfig = existingData?.config || {};
+      updateData.config = {
+        combo: Array.isArray(data.config.combo)
+          ? data.config.combo.map((group: any) => ({
+              groupName: group.groupName || "Combo Group",
+              isFree: !!group.isFree,
+              selectionType: group.selectionType === "MULTIPLE" ? "MULTIPLE" : "ONE",
+              items: Array.isArray(group.items) ? group.items.map((item: any) => ({
+                productId: item.productId,
+                isCustomizable: !!item.isCustomizable,
+              })) : [],
+            }))
+          : (existingConfig.combo || null),
+        comboPrice: data.config.comboPrice !== undefined
+          ? (typeof data.config.comboPrice === "number" ? data.config.comboPrice : 0)
+          : (existingConfig.comboPrice ?? 0),
+        b1g1: data.config.b1g1 !== undefined
+          ? {
+              applicableProductIds: Array.isArray(data.config.b1g1.applicableProductIds)
+                ? data.config.b1g1.applicableProductIds
+                : [],
+              type: data.config.b1g1.type || "CHEAPEST_FREE",
+            }
+          : (existingConfig.b1g1 || null),
+        discount: data.config.discount !== undefined
+          ? {
+              type: data.config.discount.type || (existingConfig.discount?.type || 'PRODUCT'),
+              productIds: Array.isArray(data.config.discount.productIds) 
+                ? data.config.discount.productIds 
+                : (existingConfig.discount?.productIds || []),
+              category: data.config.discount.category !== undefined 
+                ? data.config.discount.category 
+                : (existingConfig.discount?.category || null),
+              discountValue: typeof data.config.discount.discountValue === "number"
+                ? data.config.discount.discountValue
+                : (existingConfig.discount?.discountValue ?? 0),
+              discountType: "PERCENT",
+            }
+          : (existingConfig.discount || null),
+        selection: data.config.selection !== undefined
+          ? {
+              enabled: data.config.selection.enabled !== undefined ? !!data.config.selection.enabled : (existingConfig.selection?.enabled ?? false),
+              ...(typeof data.config.selection.maxSelection === "number" ? { maxSelection: data.config.selection.maxSelection } : (existingConfig.selection?.maxSelection ? { maxSelection: existingConfig.selection.maxSelection } : {})),
+            }
+          : (existingConfig.selection || null),
+        freeItem: data.config.freeItem !== undefined
+          ? data.config.freeItem
+          : (existingConfig.freeItem || null),
+        loyalty: data.config.loyalty !== undefined
+          ? data.config.loyalty
+          : (existingConfig.loyalty || null),
+      };
+    }
+
+    // ✅ Full nested userRules — merge with existing if partial update
+    if (data.userRules !== undefined) {
+      const existingRules = existingData?.userRules || {};
+      updateData.userRules = {
+        birthdayOnly: data.userRules.birthdayOnly ?? (existingRules.birthdayOnly ?? false),
+        firstOrderOnly: data.userRules.firstOrderOnly ?? (existingRules.firstOrderOnly ?? false),
+        inactivityDays: typeof data.userRules.inactivityDays === "number"
+          ? data.userRules.inactivityDays
+          : (existingRules.inactivityDays ?? 0),
+        minOrdersRequired: typeof data.userRules.minOrdersRequired === "number"
+          ? data.userRules.minOrdersRequired
+          : (existingRules.minOrdersRequired ?? 0),
+        usageLimit: typeof data.userRules.usageLimit === "number"
+          ? data.userRules.usageLimit
+          : (existingRules.usageLimit ?? 0),
+      };
+    }
+
+    // ✅ Full nested display — merge with existing if partial update
+    if (data.display !== undefined) {
+      const existingDisplay = existingData?.display || {};
+      updateData.display = {
+        badge: data.display.badge !== undefined
+          ? data.display.badge
+          : (existingDisplay.badge || null),
+        highlightText: data.display.highlightText !== undefined
+          ? data.display.highlightText
+          : (existingDisplay.highlightText || null),
+      };
+    }
 
     await offerRef.update(updateData);
 

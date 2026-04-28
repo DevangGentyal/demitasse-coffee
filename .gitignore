@@ -3,3 +3,4 @@
 *.next
 firebase-debug.log
 **/firebase-debug.log
+serviceAccountKey.json.json

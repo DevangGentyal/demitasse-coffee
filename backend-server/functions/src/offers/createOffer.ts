@@ -32,26 +32,38 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
     }
 
     // ✅ Type validation
-    const validTypes = ["discount", "bogo", "freebie"];
+    const validTypes = ["COMBO", "B1G1", "DISCOUNT", "BIRTHDAY", "NEW_USER"];
     if (!validTypes.includes(data.type)) {
       res.status(400).json({
         success: false,
-        message: "Invalid offer type",
+        message: "Invalid offer type. Must be one of: " + validTypes.join(", "),
       });
       return;
     }
 
     // ✅ Discount validation
-    if (data.type === "discount") {
-      if (
-        typeof data.discountValue !== "number" ||
-        data.discountValue <= 0 ||
-        data.discountValue > 100
-      ) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid discount value",
-        });
+    if (data.type === "DISCOUNT") {
+      const discount = data.config?.discount;
+      if (!discount) {
+        res.status(400).json({ success: false, message: "DISCOUNT requires config.discount object" });
+        return;
+      }
+      if (typeof discount.discountValue !== "number" || discount.discountValue <= 0 || discount.discountValue > 100) {
+        res.status(400).json({ success: false, message: "DISCOUNT requires config.discount.discountValue > 0 and <= 100" });
+        return;
+      }
+      if (discount.type === "PRODUCT") {
+        if (!Array.isArray(discount.productIds) || discount.productIds.length === 0) {
+          res.status(400).json({ success: false, message: "DISCOUNT of type PRODUCT requires productIds" });
+          return;
+        }
+      } else if (discount.type === "CATEGORY") {
+        if (!discount.category) {
+          res.status(400).json({ success: false, message: "DISCOUNT of type CATEGORY requires a category" });
+          return;
+        }
+      } else {
+        res.status(400).json({ success: false, message: "Invalid discount type. Must be PRODUCT or CATEGORY" });
         return;
       }
     }
@@ -68,24 +80,42 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
       return;
     }
 
-    // ✅ Arrays validation
-    if (data.applicableItems !== undefined && !Array.isArray(data.applicableItems)) {
-      res.status(400).json({ success: false, message: "applicableItems must be an array" });
-      return;
-    }
-    if (data.rewardItems !== undefined && !Array.isArray(data.rewardItems)) {
-      res.status(400).json({ success: false, message: "rewardItems must be an array" });
-      return;
-    }
-
-    // ✅ BOGO validation
-    if (data.type === "bogo") {
-      if (!Array.isArray(data.applicableItems) || data.applicableItems.length === 0) {
-        res.status(400).json({ success: false, message: "BOGO requires applicableItems" });
+    // ✅ B1G1 validation
+    if (data.type === "B1G1") {
+      const productIds = data.config?.b1g1?.applicableProductIds;
+      if (!Array.isArray(productIds) || productIds.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "B1G1 requires config.b1g1.applicableProductIds with at least 1 product",
+        });
         return;
       }
-      if (!Array.isArray(data.rewardItems) || data.rewardItems.length === 0) {
-        res.status(400).json({ success: false, message: "BOGO requires rewardItems" });
+    }
+
+    // ✅ COMBO validation
+    if (data.type === "COMBO") {
+      const combo = data.config?.combo;
+      if (!Array.isArray(combo) || combo.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "COMBO requires config.combo array with at least 1 group",
+        });
+        return;
+      }
+      for (const group of combo) {
+        if (!Array.isArray(group.items) || group.items.length === 0) {
+          res.status(400).json({
+            success: false,
+            message: "Each COMBO group must have at least 1 item",
+          });
+          return;
+        }
+      }
+      if (typeof data.config?.comboPrice !== "number" || data.config.comboPrice < 0) {
+        res.status(400).json({
+          success: false,
+          message: "COMBO requires config.comboPrice >= 0",
+        });
         return;
       }
     }
@@ -98,53 +128,121 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
       }
     }
 
-    // ✅ usageLimit / perUserLimit validation
-    if (data.usageLimit !== undefined && data.usageLimit !== null) {
-      if (typeof data.usageLimit !== "number" || data.usageLimit < 1) {
-        res.status(400).json({ success: false, message: "usageLimit must be >= 1" });
-        return;
+    // ✅ Enforce isCustomizable safety for COMBO
+    if (data.type === "COMBO" && Array.isArray(data.config?.combo)) {
+      try {
+        const productRefs: { group: any; item: any }[] = [];
+        data.config.combo.forEach((group: any) => {
+          if (Array.isArray(group.items)) {
+            group.items.forEach((item: any) => {
+              if (item.isCustomizable && item.productId) {
+                productRefs.push({ group, item });
+              }
+            });
+          }
+        });
+
+        if (productRefs.length > 0) {
+          const productDocs = await Promise.all(
+            productRefs.map(p => db.collection("products").doc(p.item.productId).get())
+          );
+          productDocs.forEach((doc, idx) => {
+            const category = doc.data()?.category?.toLowerCase();
+            if (!doc.exists || category !== "coffee") {
+              productRefs[idx].item.isCustomizable = false;
+            }
+          });
+        }
+      } catch (e) {
+        console.error("Error validating product categories for customization", e);
       }
     }
-    if (data.perUserLimit !== undefined && data.perUserLimit !== null) {
-      if (typeof data.perUserLimit !== "number" || data.perUserLimit < 1) {
-        res.status(400).json({ success: false, message: "perUserLimit must be >= 1" });
-        return;
-      }
-    }
+
+    // ✅ Build full nested config object
+    const config = {
+      combo: Array.isArray(data.config?.combo)
+        ? data.config.combo.map((group: any) => ({
+            groupName: group.groupName || "Combo Group",
+            isFree: !!group.isFree,
+            selectionType: group.selectionType === "MULTIPLE" ? "MULTIPLE" : "ONE",
+            items: Array.isArray(group.items) ? group.items.map((item: any) => ({
+              productId: item.productId,
+              isCustomizable: !!item.isCustomizable,
+            })) : [],
+          }))
+        : null,
+      comboPrice: typeof data.config?.comboPrice === "number" ? data.config.comboPrice : 0,
+      b1g1: data.config?.b1g1
+        ? {
+            applicableProductIds: Array.isArray(data.config.b1g1.applicableProductIds)
+              ? data.config.b1g1.applicableProductIds
+              : [],
+            type: data.config.b1g1.type || "CHEAPEST_FREE",
+          }
+        : null,
+      discount: data.config?.discount
+        ? {
+            type: data.config.discount.type,
+            productIds: Array.isArray(data.config.discount.productIds) ? data.config.discount.productIds : [],
+            category: data.config.discount.category || null,
+            discountValue: typeof data.config.discount.discountValue === "number" ? data.config.discount.discountValue : 0,
+            discountType: "PERCENT",
+          }
+        : null,
+      selection: data.config?.selection
+        ? {
+            enabled: !!data.config.selection.enabled,
+            ...(typeof data.config.selection.maxSelection === "number" ? { maxSelection: data.config.selection.maxSelection } : {}),
+          }
+        : null,
+      freeItem: data.config?.freeItem || null,
+      loyalty: data.config?.loyalty || null,
+    };
+
+    // ✅ Build full nested userRules object
+    const userRules = {
+      birthdayOnly: data.userRules?.birthdayOnly ?? false,
+      firstOrderOnly: data.userRules?.firstOrderOnly ?? false,
+      inactivityDays: typeof data.userRules?.inactivityDays === "number"
+        ? data.userRules.inactivityDays
+        : 0,
+      minOrdersRequired: typeof data.userRules?.minOrdersRequired === "number"
+        ? data.userRules.minOrdersRequired
+        : 0,
+      usageLimit: typeof data.userRules?.usageLimit === "number"
+        ? data.userRules.usageLimit
+        : 0,
+    };
+
+    // ✅ Build full nested display object
+    const display = {
+      badge: data.display?.badge || null,
+      highlightText: data.display?.highlightText || null,
+    };
 
     // ✅ Create document
     const offerRef = db.collection("offers").doc();
 
     const offerData = {
-      outletId: data.outletId,
       title: data.title.trim(),
       description: data.description || "",
-
       type: data.type,
-      discountValue:
-        data.type === "discount" ? data.discountValue : null,
+      category: data.category || null,
 
-      couponCode: data.couponCode || null,
-      applicableFor: data.applicableFor || "all",
-
-      applicableItems: Array.isArray(data.applicableItems) ? data.applicableItems : [],
-      rewardItems: Array.isArray(data.rewardItems) ? data.rewardItems : [],
-      applicableCategory: data.applicableCategory || null,
-
-      minOrderValue: typeof data.minOrderValue === "number" ? data.minOrderValue : 0,
-      perUserLimit: data.perUserLimit ?? null,
-      isStackable: data.isStackable ?? false,
-
+      outletId: data.outletId,
       isActive: data.isActive ?? true,
-      isTrending: data.isTrending ?? false,
       autoApply: data.autoApply ?? false,
+      isStackable: data.isStackable ?? false,
       priority: data.priority ?? 0,
 
       startDate: startDate,
       endDate: endDate,
 
-      usageLimit: data.usageLimit || null,
-      usedCount: 0,
+      minOrderValue: typeof data.minOrderValue === "number" ? data.minOrderValue : 0,
+
+      config,
+      userRules,
+      display,
 
       createdAt: new Date(),
       updatedAt: new Date(),

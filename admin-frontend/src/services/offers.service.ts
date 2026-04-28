@@ -9,23 +9,30 @@ import {
 
 export interface Offer {
   id: string
-  outletId: string
   title: string
   description: string
   type: string
+  category?: string | null
+
+  outletId: string
   isActive: boolean
-  startDate: any
-  endDate: any
-  priority?: number
-  minOrderValue?: number
   autoApply?: boolean
   isStackable?: boolean
+  priority?: number
+
+  startDate: any
+  endDate: any
+
+  minOrderValue?: number
 
   config?: {
     combo?: {
-      items: { productId: string; quantity: number }[]
-      comboPrice: number
-    } | null
+      groupName: string
+      isFree: boolean
+      selectionType: "ONE" | "MULTIPLE"
+      items: { productId: string; isCustomizable: boolean }[]
+    }[] | null
+    comboPrice?: number
     b1g1?: {
       applicableProductIds: string[]
       type: string
@@ -41,16 +48,16 @@ export interface Offer {
   }
 
   userRules?: {
-    birthdayOnly: boolean
-    firstOrderOnly: boolean
-    inactivityDays: number
-    minOrdersRequired: number
-    usageLimit: number
+    birthdayOnly?: boolean
+    firstOrderOnly?: boolean
+    inactivityDays?: number
+    minOrdersRequired?: number
+    usageLimit?: number
   }
 
   display?: {
-    badge: string | null
-    highlightText: string | null
+    badge?: string | null
+    highlightText?: string | null
   }
 
   createdAt?: any
@@ -95,7 +102,6 @@ export const createOffer = async (outletId: string, data: any): Promise<string> 
     body: JSON.stringify({
       outletId,
       ...data,
-      discountValue: Number(data.discountValue),
     }),
   })
 
