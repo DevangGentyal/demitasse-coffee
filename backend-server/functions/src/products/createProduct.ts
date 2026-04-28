@@ -83,7 +83,6 @@ export const createProduct = functions.https.onRequest(
         category: data.category,
         subcategory: data.subcategory || null,
         price: data.price,
-        priceRaw: String(data.price),
         taxPercent: data.taxPercent,
         isVeg: data.isVeg ?? true,
         isAvailable: true,

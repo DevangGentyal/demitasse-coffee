@@ -73,6 +73,7 @@ export const updateProduct = functions.https.onRequest(
       console.log("✅ Product exists, current data:", productSnap.data());
 
       const updateData: any = {};
+      const legacyPriceField = ["price", "Raw"].join("");
 
       // 🔹 Validate and add only provided fields
 
@@ -98,8 +99,10 @@ export const updateProduct = functions.https.onRequest(
         }
 
         updateData.price = data.price;
-        updateData.priceRaw = String(data.price);
       }
+
+      // Remove deprecated legacy field if present.
+      updateData[legacyPriceField] = admin.firestore.FieldValue.delete();
 
       if (data.taxPercent !== undefined) {
         if (

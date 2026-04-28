@@ -3,6 +3,7 @@ import {
   HeartIcon,
   ShoppingCartIcon,
   GiftIcon,
+  ClipboardDocumentListIcon,
 } from "@heroicons/react/24/outline";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -24,6 +25,11 @@ export default function BottomNav() {
         {/* CART */}
         <NavItem label="Cart" to="/cart">
           <ShoppingCartIcon className="w-7 h-7" />
+        </NavItem>
+
+        {/* ORDERS */}
+        <NavItem label="Orders" to="/orders">
+          <ClipboardDocumentListIcon className="w-7 h-7" />
         </NavItem>
       </div>
     </div>

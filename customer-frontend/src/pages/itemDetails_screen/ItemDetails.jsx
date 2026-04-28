@@ -1,30 +1,14 @@
-<<<<<<< HEAD
-import React, { useState } from "react";
-import HeaderBar from "../../components/itemDetails_screen/HeaderBar.jsx";
-import AddOnItem from "../../components/itemDetails_screen/AddOnItem.jsx";
-import cappuccino from "../../assets/home_screen/offer.png";
-import { useCart } from "../../context/CartContext.jsx";
-=======
 import { useParams } from "react-router-dom";
 import { useMenu } from "@/context/MenuContext";
 import { useCart } from "@/context/CartContext";
 import { useFilter } from "@/context/FilterContext";
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
 import HeaderBar from "@/components/itemDetails_screen/HeaderBar";
 import ItemImage from "@/components/itemDetails_screen/ItemImage";
 import Variations from "@/components/itemDetails_screen/Variations";
 import AddOnGroup from "@/components/itemDetails_screen/AddOnGroup";
 
-<<<<<<< HEAD
-  const { addToCart, updateQuantity, cart } = useCart();
-  const [selectedSize, setSelectedSize] = useState(sizes[0]);
-  const [extraShot1, setExtraShot1] = useState(0);
-  const [extraShot2, setExtraShot2] = useState(0);
-  const [cartQty, setCartQty] = useState(0);
-=======
 import { useState, useEffect } from "react";
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
 export default function ItemDetails() {
 
@@ -136,24 +120,6 @@ export default function ItemDetails() {
 
   };
 
-  const handleAddToCart = () => {
-    addToCart({
-      id: "cappuccino-item", // Mock dynamic ID since we're hardcoding this page's product
-      name: "Cappuccino",
-      price: cartPrice,
-      desc: `${selectedSize.name} / ${extraShot1 + extraShot2} Extra Shots`,
-      type: "veg",
-      category: "coffee", // Required for free pizza loyalty logic
-      qty: 1
-    });
-    setCartQty(1);
-  };
-
-  const handleUpdate = (amt) => {
-    setCartQty(amt);
-    updateQuantity("cappuccino-item", amt);
-  };
-
   return (
 
     <div className="h-screen flex flex-col">
@@ -222,25 +188,6 @@ export default function ItemDetails() {
 
       </div>
 
-<<<<<<< HEAD
-      {/* ADD TO CART */}
-      <div className="px-4 mt-5">
-        {cartQty === 0 ? (
-          <button
-            onClick={handleAddToCart}
-            className="w-full bg-green-700 text-white py-3 rounded-full font-semibold"
-          >
-            Add to cart • ₹{cartPrice}
-          </button>
-        ) : (
-          <div className="flex items-center justify-between bg-green-700 text-white px-6 py-3 rounded-full">
-            <button
-              onClick={() => handleUpdate(Math.max(0, cartQty - 1))}
-              className="text-xl font-bold"
-            >
-              −
-            </button>
-=======
       {/* 🔹 Add to cart button */}
       <button
         onClick={handleAdd}
@@ -248,7 +195,6 @@ export default function ItemDetails() {
       >
         Add To Cart • ₹{totalPrice}
       </button>
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
       {/* 🔹 Snackbar */}
       {showSnack && (
@@ -257,18 +203,6 @@ export default function ItemDetails() {
         </div>
       )}
 
-<<<<<<< HEAD
-            <button
-              onClick={() => handleUpdate(cartQty + 1)}
-              className="text-xl font-bold"
-            >
-              +
-            </button>
-          </div>
-        )}
-      </div>
-=======
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
     </div>
 
   );

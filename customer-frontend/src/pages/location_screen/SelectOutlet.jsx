@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react"
-import { collection, getDocs } from "firebase/firestore"
+import { collection, getDocs, query, where, doc, runTransaction, serverTimestamp } from "firebase/firestore"
 import { db } from "../../lib/firebase"
 import { useNavigate } from "react-router-dom"
 import { useLocationContext } from "../../context/LocationContext"
+import { useAuth } from "../../context/AuthContext"
+
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1"
 
 // ── Inline banner ─────────────────────────────────────────────────────────────
 const Banner = ({ message, type = "error", onClose }) => {
@@ -23,12 +26,15 @@ const Banner = ({ message, type = "error", onClose }) => {
 const SelectOutlet = ({ onClose }) => {
 
   const navigate = useNavigate()
-  const { setOutlet: setGlobalOutlet, setTableNumber: setGlobalTable } = useLocationContext()
+  const { setOutlet: setGlobalOutlet, setTableSelection } = useLocationContext()
+  const { user } = useAuth()
 
   const [location, setLocation] = useState(null)
   const [outlets, setOutlets] = useState([])
+  const [tables, setTables] = useState([])
+  const [tablesLoading, setTablesLoading] = useState(false)
   const [selectedOutlet, setSelectedOutlet] = useState("")
-  const [tableNo, setTableNo] = useState("")
+  const [selectedTableId, setSelectedTableId] = useState("")
   const [bannerMsg, setBannerMsg] = useState("")
   const [bannerType, setBannerType] = useState("error")
 
@@ -40,6 +46,16 @@ const SelectOutlet = ({ onClose }) => {
   useEffect(() => {
     getLocation()
   }, [])
+
+  useEffect(() => {
+    if (!selectedOutlet) {
+      setTables([])
+      setSelectedTableId("")
+      return
+    }
+
+    fetchTablesByOutlet(selectedOutlet)
+  }, [selectedOutlet])
 
   // Distance calculation
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -75,6 +91,33 @@ const SelectOutlet = ({ onClose }) => {
     }
   }
 
+  // Fetch tables for selected outlet
+  const fetchTablesByOutlet = async (outletId) => {
+    try {
+      setTablesLoading(true)
+      const tableQuery = query(collection(db, "tables"), where("outletId", "==", outletId))
+      const tableSnapshot = await getDocs(tableQuery)
+      const tableList = tableSnapshot.docs
+        .map((tableDoc) => {
+          const data = tableDoc.data()
+          return {
+            id: tableDoc.id,
+            name: data.name || "",
+            owner: data.owner || "",
+          }
+        })
+        .filter((table) => Boolean(table.name))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
+
+      setTables(tableList)
+    } catch (error) {
+      console.error("Error fetching tables:", error)
+      showMsg("Failed to load tables for the selected outlet.")
+    } finally {
+      setTablesLoading(false)
+    }
+  }
+
   // Get user GPS location
   const getLocation = () => {
     if (!navigator.geolocation) {
@@ -97,16 +140,47 @@ const SelectOutlet = ({ onClose }) => {
     )
   }
 
-  const handleOutletChange = (e) => { setSelectedOutlet(e.target.value); setBannerMsg(""); }
-  const handleTableChange  = (e) => { setTableNo(e.target.value); setBannerMsg(""); }
+  const handleOutletChange = (e) => {
+    setSelectedOutlet(e.target.value)
+    setSelectedTableId("")
+    setBannerMsg("")
+  }
+  const handleTableChange  = (e) => { setSelectedTableId(e.target.value); setBannerMsg(""); }
 
-  const handleContinue = () => {
+  const claimTableOwnerIfMissing = async (tableId) => {
+    if (!user?.uid) return ""
+
+    const tableRef = doc(db, "tables", tableId)
+    let resolvedOwnerId = user.uid
+
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(tableRef)
+      if (!snap.exists()) return
+
+      const tableData = snap.data() || {}
+      if (tableData.owner) {
+        resolvedOwnerId = tableData.owner
+        return
+      }
+
+      resolvedOwnerId = user.uid
+      tx.update(tableRef, {
+        owner: user.uid,
+        ownerAssignedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    })
+
+    return resolvedOwnerId
+  }
+
+  const handleContinue = async () => {
     if (!selectedOutlet) {
       showMsg("Please select an outlet to continue.");
       return
     }
-    if (!tableNo.trim()) {
-      showMsg("Please enter your table number.");
+    if (!selectedTableId.trim()) {
+      showMsg("Please select a table.");
       return
     }
 
@@ -114,7 +188,40 @@ const SelectOutlet = ({ onClose }) => {
     if (selectedObj) {
       setGlobalOutlet(selectedObj.id, selectedObj.name);
     }
-    setGlobalTable(tableNo)
+    const selectedTable = tables.find((table) => table.id === selectedTableId)
+    if (!selectedTable) {
+      showMsg("Selected table was not found. Please choose again.")
+      return
+    }
+
+    try {
+      const ownerId = await claimTableOwnerIfMissing(selectedTable.id)
+      if (!ownerId) {
+        showMsg("Unable to identify the table owner. Please reselect the table.")
+        return
+      }
+
+      const sessionResponse = await fetch(`${API_BASE}/customerOpenSession`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          outletId: selectedOutlet,
+          tableId: selectedTable.id,
+          userId: user?.uid || "",
+        }),
+      })
+
+      const sessionPayload = await sessionResponse.json().catch(() => ({}))
+      if (!sessionResponse.ok || !sessionPayload?.success || !sessionPayload?.sessionId) {
+        throw new Error(sessionPayload?.message || "Failed to initialize session")
+      }
+
+      setTableSelection(selectedTable.id, selectedTable.name, ownerId, String(sessionPayload.sessionId))
+    } catch (error) {
+      console.error("Failed to initialize table session:", error)
+      showMsg(error?.message || "Unable to reserve table ownership right now. Please try again.")
+      return
+    }
 
     if (onClose) onClose()
     navigate("/home")
@@ -145,19 +252,31 @@ const SelectOutlet = ({ onClose }) => {
           <option value="">Select Outlet</option>
           {outlets.map((outlet) => (
             <option key={outlet.id} value={outlet.id}>
-              {outlet.name} ({outlet.distance.toFixed(2)} km)
+              {outlet.name} 
             </option>
           ))}
         </select>
 
-        {/* TABLE NUMBER INPUT */}
-        <input
-          type="text"
-          placeholder="Enter Table Number (e.g. 5)"
+        {/* TABLE SELECT */}
+        <select
           className="w-full border rounded-md p-2 mb-4 outline-none focus:ring-1 focus:ring-brown-500"
-          value={tableNo}
+          value={selectedTableId}
           onChange={handleTableChange}
-        />
+          disabled={!selectedOutlet || tablesLoading}
+        >
+          <option value="">
+            {!selectedOutlet ? "Select outlet first" : tablesLoading ? "Loading tables..." : "Select Table"}
+          </option>
+          {tables.map((table) => (
+            <option key={table.id} value={table.id}>
+              {table.name}
+            </option>
+          ))}
+        </select>
+
+        {selectedOutlet && !tablesLoading && tables.length === 0 && (
+          <p className="text-xs text-red-600 mb-4 text-left">No tables found for this outlet.</p>
+        )}
 
         <button
           className="bg-[#6B4F4F] text-white w-full py-2 rounded-lg font-medium"

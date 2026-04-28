@@ -16,12 +16,13 @@ export interface Wall {
 
 export interface TableData {
   id?: string
-  name: string
+  name?: string
   capacity: number
   x: number
   y: number
   color: string
   outletId: string
+  autoGenerateName?: boolean
 }
 
 export interface TablePosition {

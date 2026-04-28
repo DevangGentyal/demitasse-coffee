@@ -6,6 +6,10 @@ import { earnPoints } from "../loyalty/earnPoints";
 
 const db = admin.firestore();
 
+const resolvePlacedBy = (value: unknown): "billing" | "customer" => {
+  return value === "customer" ? "customer" : "billing";
+};
+
 export const createOrder = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
     // Set CORS headers
@@ -39,6 +43,7 @@ export const createOrder = functions.https.onRequest(
         customerName,
         customerId,
         customerPhone,
+        placedBy,
         tableId,
         items,
         totalAmount,
@@ -111,7 +116,9 @@ export const createOrder = functions.https.onRequest(
       const orderData = {
         outletId,
         customerName: customerName.trim(),
+        customerId: customerId ? String(customerId).trim() : null,
         customerPhone: customerPhone ? String(customerPhone).trim() : "",
+        placedBy: resolvePlacedBy(placedBy),
         tableId: tableId || null,
         sessionId: activeSessionId,
         items: items.map((item: any) => ({

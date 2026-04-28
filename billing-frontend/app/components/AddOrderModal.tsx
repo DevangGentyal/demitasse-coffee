@@ -203,6 +203,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       const orderId = await createOrderService(outletId, {
         customerName: resolvedCustomerName,
         customerPhone: resolvedCustomerPhone,
+        placedBy: 'billing',
         tableId: initialTableId || undefined,
         items,
         orderStatus: 'pending',
@@ -215,6 +216,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       const newOrder = {
         id: orderId,
         outletId,
+        placedBy: 'billing' as const,
         customerName: resolvedCustomerName,
         customerPhone: resolvedCustomerPhone,
         items: items.map(item => ({

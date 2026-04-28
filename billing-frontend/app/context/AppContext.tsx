@@ -25,7 +25,7 @@ export interface OrderItem {
   id: string
   name: string
   quantity: number
-  status?: 'pending' | 'in-progress' | 'ready'
+  status?: 'pending' | 'in-progress' | 'ready' | 'completed'
   addOns?: string
   notes?: string
   price?: number
@@ -35,6 +35,7 @@ export interface Order {
   id: string
   tableId?: string
   sessionId?: string
+  placedBy?: 'billing' | 'customer'
   customerName: string
   customerPhone?: string
   items: OrderItem[]
@@ -61,6 +62,26 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : fallback
+}
+
+const toDate = (value: unknown): Date | null => {
+  if (!value) return null
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+  if (value instanceof Timestamp) {
+    return value.toDate()
+  }
+  if (typeof (value as { toDate?: unknown }).toDate === 'function') {
+    try {
+      const converted = (value as { toDate: () => Date }).toDate()
+      return Number.isNaN(converted.getTime()) ? null : converted
+    } catch {
+      return null
+    }
+  }
+  const parsed = new Date(value as string | number)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -102,11 +123,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       const ordersList = snapshot.docs.map(doc => {
         const data = doc.data()
+        const resolvedTime =
+          toDate(data.timeOfOrder) ||
+          toDate(data.createdAt) ||
+          toDate(data.updatedAt) ||
+          new Date()
+
+        const resolvedStatus =
+          (typeof data.orderStatus === 'string' && data.orderStatus) ||
+          (typeof data.status === 'string' && data.status) ||
+          'pending'
+
         return {
           ...data,
           id: doc.id,
-          timeOfOrder: data.timeOfOrder instanceof Timestamp ? data.timeOfOrder.toDate() : new Date(data.timeOfOrder),
-          status: data.orderStatus || 'pending'
+          timeOfOrder: resolvedTime,
+          status: resolvedStatus,
+          orderStatus: resolvedStatus,
         } as unknown as Order
       })
       setOrders(ordersList)

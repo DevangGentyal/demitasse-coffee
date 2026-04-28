@@ -7,6 +7,8 @@ import { useOffers } from "../../context/OfferContext";
 import { useCart } from "../../context/CartContext";
 import { revalidateCart } from "../../lib/offerUtils";
 
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
+
 // ── Inline banner ──────────────────────────────────────────────────────────────
 const Banner = ({ message, type = "error", onClose }) => {
   if (!message) return null;
@@ -26,7 +28,7 @@ const Banner = ({ message, type = "error", onClose }) => {
 const BillDetails = () => {
   const navigate = useNavigate();
   const { state } = useLocation();
-  const { tableNumber, selectedOutlet } = useLocationContext();
+  const { tableNumber, selectedOutlet, selectedTableId, selectedTableOwnerId, selectedSessionId, setTableSelection } = useLocationContext();
   const { offers, fullUser } = useOffers();
   const { clearCart } = useCart();
 
@@ -161,9 +163,34 @@ const BillDetails = () => {
         }
       }
 
+      const resolvedOwnerId = selectedTableOwnerId || auth.currentUser?.uid || null;
+      let activeSessionId = selectedSessionId || null;
+
+      if (!activeSessionId && selectedOutlet && selectedTableId && auth.currentUser?.uid) {
+        const sessionResponse = await fetch(`${API_BASE}/customerOpenSession`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            outletId: selectedOutlet,
+            tableId: selectedTableId,
+            userId: auth.currentUser.uid,
+          }),
+        });
+        const sessionPayload = await sessionResponse.json().catch(() => ({}));
+        if (!sessionResponse.ok || !sessionPayload?.success || !sessionPayload?.sessionId) {
+          throw new Error(sessionPayload?.message || "Failed to initialize active session");
+        }
+        activeSessionId = String(sessionPayload.sessionId);
+        setTableSelection(selectedTableId, tableNumber || selectedTableId, resolvedOwnerId || "", activeSessionId);
+      }
+
       const orderData = {
-        tableNumber: tableNumber || null,
+        tableId: selectedTableId || null,
         outletId: selectedOutlet || null,
+        ownerId: resolvedOwnerId,
+        userId: resolvedOwnerId,
+        sessionId: activeSessionId,
+        placedBy: "customer",
         items,
         itemTotal,
         tax,
@@ -173,6 +200,11 @@ const BillDetails = () => {
         createdAt: new Date(),
         appliedOffers: appliedOffers.map(o => ({ offerId: o.offerId, type: o.type }))
       };
+
+      // If a primary offer is present, include `offerId` for backend finalize validation
+      if (appliedOffers && appliedOffers.length > 0) {
+        orderData.offerId = appliedOffers[0].offerId;
+      }
 
       // ✅ Include auto-applied offer in order data
       if (autoAppliedOffer) {
@@ -204,6 +236,14 @@ const BillDetails = () => {
       // Record Order
       const orderRef = await addDoc(collection(db, "orders"), orderData);
 
+      if (selectedTableId) {
+        await updateDoc(doc(db, "tables", selectedTableId), {
+          isOccupied: true,
+          occupied: true,
+          updatedAt: new Date(),
+        });
+      }
+
       // ✅ Update User Flags (First Order / Birthday Used)
       if (userType !== "guest" && auth.currentUser) {
         const userRef = doc(db, "users", auth.currentUser.uid);
@@ -216,7 +256,7 @@ const BillDetails = () => {
         
         // Check if a birthday offer was used (via appliedOffers or cart items)
         const birthdayUsed = appliedOffers.some(o => o.type === "birthday") ||
-          cart.some(item => item.isBirthday);
+          items.some(item => item.isBirthday);
         if (birthdayUsed) {
           updates.hasUsedBirthdayOffer = true;
           updates.lastBirthdayOfferYear = new Date().getFullYear();

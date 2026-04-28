@@ -8,18 +8,8 @@ import {
   useLocation,
 } from "react-router-dom";
 
-<<<<<<< HEAD
-import Home from "@/pages/home_screen/Home";
-import Menu from "@/pages/menu_screen/Menu";
-import Offers from "@/pages/offer_screen/Offers";
-import Cart from "@/pages/cart_screen/Cart";
-import ItemDetails from "@/pages/itemDetails_screen/ItemDetails";
-import BillDetails from "@/pages/cart_screen/BillDetails";
-import LoyaltyPage from "@/pages/LoyaltyPage";
-import RedeemPage from "@/pages/RedeemPage";
-=======
 import { useAuth } from "./context/AuthContext";
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
+import { useLocationContext } from "./context/LocationContext";
 
 // Pages
 import Login from "./pages/auth_screen/Login";
@@ -29,6 +19,7 @@ import Menu from "./pages/menu_screen/Menu";
 import Cart from "./pages/cart_screen/Cart";
 import BillDetails from "./pages/cart_screen/BillDetails";
 import ItemDetails from "./pages/itemDetails_screen/ItemDetails";
+import Orders from "./pages/orders_screen/Orders";
 import Offers from "./pages/offer_screen/Offers";
 import OfferDetails from "./pages/offer_screen/offerDetails";
 import SelectOutlet from "./pages/location_screen/SelectOutlet";
@@ -47,6 +38,7 @@ import { LocationProvider } from "@/context/LocationContext"; // ✅ Added Locat
 
 // ✅ NEW WRAPPER (VERY IMPORTANT)
 function AppContent() {
+  
   const { user: currentUser } = useAuth();
 
   return (
@@ -158,6 +150,14 @@ function Layout() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/orders"
+          element={
+            <ProtectedRoute>
+              <Orders />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
 
       {!hideNav && <BottomNav />}
@@ -167,36 +167,24 @@ function Layout() {
 
 function AuthRedirect() {
   const { user } = useAuth();
+  const { selectedOutlet, selectedTableId } = useLocationContext();
   const userType = localStorage.getItem("userType");
-  return user || userType === "guest" ? <Navigate to="/home" /> : <Navigate to="/login" />;
+
+  if (!user && userType !== "guest") {
+    return <Navigate to="/login" />;
+  }
+
+  if (!selectedOutlet || !selectedTableId) {
+    return <Navigate to="/select-outlet" />;
+  }
+
+  return <Navigate to="/home" />;
 }
 
 export default function App() {
   return (
     <BrowserRouter>
-<<<<<<< HEAD
-      <CartProvider>
-        <div className="min-h-screen bg-[#f4efe9] max-w-md mx-auto pb-24">
-          
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/home" element={<Home />} />
-            <Route path="/menu" element={<Menu />} />
-            <Route path="/offers" element={<Offers />} />
-            <Route path="/item/:id" element={<ItemDetails />} />
-            <Route path="/cart" element={<Cart />} />
-            <Route path="/bill" element={<BillDetails />} />
-            <Route path="/loyalty" element={<LoyaltyPage />} />
-            <Route path="/redeem" element={<RedeemPage />} />
-          </Routes>
-
-          {/* Persistent Bottom Nav */}
-          <BottomNav />
-        </div>
-      </CartProvider>
-=======
       <AppContent /> {/* ✅ FIXED */}
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
     </BrowserRouter>
   );
 }

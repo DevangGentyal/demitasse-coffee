@@ -1,9 +1,9 @@
 import * as admin from "firebase-admin";
 admin.initializeApp();
 
-export { openSession } from "./tableSessions/openSession";
+export { openSession } from "./admin/sessions.admin";
 
-export { closeSession } from "./tableSessions/closeSession";
+export { closeSession } from "./admin/sessions.admin";
 
 export { createProduct } from "./products/createProduct";
 
@@ -11,10 +11,15 @@ export { updateProduct } from "./products/updateProduct";
 
 export { deleteProduct } from "./products/deleteProduct";
 
-export { createOrder } from "./orders/createOrder";
-export { syncOrderCreated } from "./orders/syncOrderCreated";
-export { updateOrder } from "./orders/updateOrder";
-export { deleteOrder } from "./orders/deleteOrder";
+export { createOrder } from "./admin/orders.admin";
+export { syncOrderCreated } from "./admin/orders.admin";
+export { updateOrder } from "./admin/orders.admin";
+export { deleteOrder } from "./admin/orders.admin";
+
+export { openSession as customerOpenSession } from "./customer/sessions.customer";
+export { addItemsToOrder } from "./customer/orders.customer";
+export { generateBill } from "./customer/billing.customer";
+export { closeSession as closeCustomerSession } from "./customer/billing.customer";
 
 export { checkRewards } from "./loyalty/checkRewards";
 

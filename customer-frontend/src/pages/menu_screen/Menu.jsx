@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useCart } from "@/context/CartContext";
 
 import Header from "@/components/home_screen/Header";
 import SearchBar from "@/components/home_screen/SearchBar";
@@ -20,22 +19,12 @@ export default function Menu() {
   const [activeCategory, setActiveCategory] = useState(null);
   const [activeSubcategory, setActiveSubcategory] = useState(null);
   const [search, setSearch] = useState("");
-<<<<<<< HEAD
-  const [vegOnly, setVegOnly] = useState(false);
-  const { addToCart } = useCart();
-
-  const handleAdd = (product) => {
-    console.log("Added to cart:", product);
-    addToCart(product);
-  };
-=======
 
   if (loading) {
     return <div className="p-6">Loading menu...</div>;
   }
 
   const categories = [...new Set(products.map(p => p.category))];
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
   const subcategories = activeCategory
     ? [

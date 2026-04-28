@@ -17,13 +17,39 @@ export default function OrdersPage() {
   const [showAddOrder, setShowAddOrder] = useState(false)
 
   const orders = useMemo(() => {
+    const toMillis = (value: unknown): number => {
+      if (!value) return 0
+      if (value instanceof Date) {
+        const ts = value.getTime()
+        return Number.isNaN(ts) ? 0 : ts
+      }
+      if (typeof (value as { toDate?: unknown }).toDate === 'function') {
+        try {
+          const ts = (value as { toDate: () => Date }).toDate().getTime()
+          return Number.isNaN(ts) ? 0 : ts
+        } catch {
+          return 0
+        }
+      }
+      const ts = new Date(value as string | number).getTime()
+      return Number.isNaN(ts) ? 0 : ts
+    }
+
     const normalized = liveOrders.map((order) => ({
       ...order,
       orderStatus: (order as any).orderStatus || order.status || 'pending',
-      timeOfOrder: order.timeOfOrder instanceof Date ? order.timeOfOrder : new Date(order.timeOfOrder),
+      timeOfOrder: new Date(
+        toMillis((order as any).timeOfOrder) ||
+        toMillis((order as any).createdAt) ||
+        Date.now()
+      ),
     }))
 
-    return normalized.sort((a, b) => b.timeOfOrder.getTime() - a.timeOfOrder.getTime())
+    return normalized.sort((a, b) => {
+      const delta = b.timeOfOrder.getTime() - a.timeOfOrder.getTime()
+      if (delta !== 0) return delta
+      return String(b.id).localeCompare(String(a.id))
+    })
   }, [liveOrders])
 
   // Wait for auth to be checked before rendering

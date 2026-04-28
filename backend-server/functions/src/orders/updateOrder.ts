@@ -5,6 +5,24 @@ import { FieldValue } from "firebase-admin/firestore";
 
 const db = admin.firestore();
 
+const normalizeOrderStatus = (value: unknown): "pending" | "in-progress" | "ready" | "completed" => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "in-progress" || raw === "in progress" || raw === "working" || raw === "preparing") {
+    return "in-progress";
+  }
+  if (raw === "ready") {
+    return "ready";
+  }
+  if (raw === "completed" || raw === "complete" || raw === "delivered" || raw === "finalized") {
+    return "completed";
+  }
+  return "pending";
+};
+
+const normalizeItemStatus = (value: unknown): "pending" | "in-progress" | "ready" | "completed" => {
+  return normalizeOrderStatus(value);
+};
+
 export const updateOrder = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
     // Set CORS headers
@@ -75,21 +93,47 @@ export const updateOrder = functions.https.onRequest(
         updatedAt: FieldValue.serverTimestamp(),
       };
 
+      const normalizedOrderStatus = normalizeOrderStatus(orderStatus);
       if (orderStatus) {
-        updateData.orderStatus = orderStatus;
-        console.log("📝 Updating status to:", orderStatus);
+        updateData.orderStatus = normalizedOrderStatus;
+        updateData.status = normalizedOrderStatus;
+        console.log("📝 Updating status to:", normalizedOrderStatus);
       }
 
+      let normalizedItems: any[] | null = null;
       if (items && Array.isArray(items)) {
-        updateData.items = items.map((item: any) => ({
+        normalizedItems = items.map((item: any) => ({
           id: item.id || Math.random().toString(36).substr(2, 9),
           name: item.name,
           quantity: item.quantity || 1,
-          status: item.status || "pending",
+          status: normalizeItemStatus(item.status),
           price: item.price || 0,
           addOns: item.addOns || "",
           notes: item.notes || "",
         }));
+        updateData.items = normalizedItems;
+      } else if (orderStatus && Array.isArray(orderData?.items)) {
+        // Keep item-level status in sync when order-level status is changed without explicit items.
+        normalizedItems = orderData.items.map((item: any) => {
+          const currentStatus = normalizeItemStatus(item?.status);
+          let nextStatus = currentStatus;
+
+          if (normalizedOrderStatus === "completed") {
+            nextStatus = "completed";
+          } else if (normalizedOrderStatus === "ready" && currentStatus !== "completed") {
+            nextStatus = "ready";
+          } else if (normalizedOrderStatus === "in-progress" && currentStatus === "pending") {
+            nextStatus = "in-progress";
+          } else if (normalizedOrderStatus === "pending") {
+            nextStatus = "pending";
+          }
+
+          return {
+            ...item,
+            status: nextStatus,
+          };
+        });
+        updateData.items = normalizedItems;
       }
 
       if (totalAmount !== undefined) {

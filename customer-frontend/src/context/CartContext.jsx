@@ -13,35 +13,6 @@ export function CartProvider({ children }) {
   const [couponCodes, setCouponCodes] = useState([]); 
   const [autoAppliedOffer, setAutoAppliedOffer] = useState(null); // ✅ NEW: Track auto-applied registration offer
 
-<<<<<<< HEAD
-  const addToCart = (product) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.id === product.id ? { ...item, qty: item.qty + (product.qty || 1) } : item
-        );
-      }
-      return [...prev, { ...product, qty: product.qty || 1 }];
-    });
-  };
-
-  const updateQuantity = (id, amount) => {
-    setCart((prev) => 
-      prev.map((item) => {
-        if (item.id === id) {
-          return { ...item, qty: Math.max(0, amount) };
-        }
-        return item;
-      }).filter((item) => item.qty > 0)
-    );
-  };
-
-  const clearCart = () => setCart([]);
-
-  return (
-    <CartContext.Provider value={{ cart, addToCart, updateQuantity, clearCart }}>
-=======
   const offerContext = useOffers();
   const menuContext = useMenu();
   
@@ -390,7 +361,6 @@ export function CartProvider({ children }) {
         revalidate
       }}
     >
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
       {children}
     </CartContext.Provider>
   );

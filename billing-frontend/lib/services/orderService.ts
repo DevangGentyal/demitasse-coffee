@@ -14,7 +14,7 @@ export interface OrderItem {
   id: string
   name: string
   quantity: number
-  status?: 'pending' | 'in-progress' | 'ready'
+  status?: 'pending' | 'in-progress' | 'ready' | 'completed'
   price?: number
   addOns?: string
   notes?: string
@@ -25,6 +25,7 @@ export interface Order {
   outletId: string
   customerName: string
   customerPhone?: string
+  placedBy?: 'billing' | 'customer'
   tableId?: string
   items: OrderItem[]
   timeOfOrder: Timestamp | Date
@@ -146,6 +147,7 @@ export const createOrder = async (
       outletId,
       customerName: orderData.customerName,
       customerPhone: orderData.customerPhone || '',
+      placedBy: orderData.placedBy || 'billing',
       tableId: orderData.tableId || null,
       items: orderData.items.map(item => ({
         id: item.id || Math.random().toString(36).substr(2, 9),

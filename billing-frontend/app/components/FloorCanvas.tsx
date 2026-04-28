@@ -43,6 +43,24 @@ interface TableOrder {
   createdAt: Date
 }
 
+const toSafeNumber = (value: unknown, fallback = 0): number => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+const getItemQuantity = (item: { quantity?: unknown; qty?: unknown }): number =>
+  toSafeNumber(item.quantity ?? item.qty, 0)
+
+const getItemPrice = (item: { price?: unknown }): number =>
+  toSafeNumber(item.price, 0)
+
+const parseTableNumber = (name: string): number | null => {
+  const match = name.trim().match(/^table\s*(\d+)$/i)
+  if (!match) return null
+  const parsed = Number(match[1])
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
 // ─── Order View Modal ─────────────────────────────────────────────────────────
 
 function OrderViewModal({
@@ -220,6 +238,7 @@ export function FloorCanvas() {
   const [showOrderView, setShowOrderView] = useState(false)
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [activeTableId, setActiveTableId] = useState<string | null>(null)
+  const [printerMenuTableId, setPrinterMenuTableId] = useState<string | null>(null)
 
   // Walls
   const [walls, setWalls] = useState<IWall[]>([])
@@ -287,9 +306,11 @@ export function FloorCanvas() {
   const tableSessionOrders = useMemo(() => {
     const map: Record<string, Order[]> = {}
     tables.forEach(t => {
-      if (t.activeSessionId) {
-        map[t.id] = orders.filter(o => o.sessionId === t.activeSessionId)
-      }
+      map[t.id] = orders.filter(o => {
+        if (o.tableId === t.id) return true
+        if (t.activeSessionId && o.sessionId === t.activeSessionId) return true
+        return false
+      })
     })
     return map
   }, [tables, orders])
@@ -358,10 +379,9 @@ export function FloorCanvas() {
       toast.error('Cannot add table: Outlet information not found')
       return
     }
-    const newIdNum = Math.floor(Math.random() * 1000)
     const newTable: Table = {
-      id: `temp-${Date.now()}-${newIdNum}`,
-      name: `T${newIdNum}`,
+      id: `temp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: 'Table (Auto)',
       capacity: 2,
       x: 150 + (tables.length % 5) * 130,
       y: 150 + Math.floor(tables.length / 5) * 120,
@@ -374,6 +394,65 @@ export function FloorCanvas() {
     }
     setTables([...tables, newTable])
     toast.success('Table added to draft layout')
+  }
+
+  const editTableName = (table: Table) => {
+    if (!isEditMode) {
+      toast.warning('Enable Edit Layout mode to rename tables.')
+      return
+    }
+
+    const currentName = String(table.name || '').trim()
+    const nextNameRaw = window.prompt('Enter table name', currentName)
+    if (nextNameRaw === null) return
+
+    const nextName = nextNameRaw.trim()
+    if (!nextName) {
+      toast.error('Table name cannot be empty')
+      return
+    }
+
+    const duplicate = tables.some(
+      (candidate) => candidate.id !== table.id && String(candidate.name || '').trim().toLowerCase() === nextName.toLowerCase()
+    )
+    if (duplicate) {
+      toast.error('A table with this name already exists')
+      return
+    }
+
+    updateTable(table.id, { name: nextName }, true)
+    toast.success(`Renamed to ${nextName}`)
+  }
+
+  const autoRenumberTables = () => {
+    if (!isEditMode) {
+      toast.warning('Enable Edit Layout mode to renumber tables.')
+      return
+    }
+
+    const sorted = [...tables].sort((a, b) => {
+      const aName = String(a.name || '')
+      const bName = String(b.name || '')
+      const aNum = parseTableNumber(aName)
+      const bNum = parseTableNumber(bName)
+
+      if (aNum !== null && bNum !== null) return aNum - bNum
+      if (aNum !== null) return -1
+      if (bNum !== null) return 1
+      return aName.localeCompare(bName, undefined, { numeric: true, sensitivity: 'base' })
+    })
+
+    const nextById = new Map<string, string>()
+    sorted.forEach((table, index) => {
+      nextById.set(table.id, `Table ${index + 1}`)
+    })
+
+    setTables((prev) => prev.map((table) => {
+      const nextName = nextById.get(table.id)
+      return nextName ? { ...table, name: nextName } : table
+    }))
+
+    toast.success('Table names renumbered from Table 1')
   }
 
   const deleteTable = (tableId: string) => {
@@ -402,13 +481,16 @@ export function FloorCanvas() {
       const tempToRealId = new Map<string, string>()
 
       for (const table of tablesToCreate) {
+        const draftedName = String(table.name || '').trim()
+        const shouldAutoGenerateName = !draftedName || /^table\s*\(auto\)$/i.test(draftedName)
+
         const createResult = await floorMapService.addTable({
-          name: table.name,
           capacity: table.capacity,
           x: toFiniteNumber(table.x, 100),
           y: toFiniteNumber(table.y, 100),
           color: table.color,
           outletId,
+          ...(shouldAutoGenerateName ? { autoGenerateName: true } : { name: draftedName, autoGenerateName: false }),
         })
 
         if (createResult?.id) {
@@ -633,13 +715,37 @@ export function FloorCanvas() {
   }
 
   const closeSession = async (table: Table) => {
-    if (!table.activeSessionId) return
+    const activeSessionId = table.activeSessionId
+
+    const confirmed = window.confirm(
+      `Close session for ${table.name}?\n\n` +
+      'This will mark the table as available, end the active table session, and finalize billing records.'
+    )
+    if (!confirmed) return
+
     try {
-      await tableSessionService.closeSession(table.activeSessionId)
-      toast.success('Session closed and table freed')
+      const response = await tableSessionService.closeSession(
+        {
+          sessionId: activeSessionId || undefined,
+          tableId: table.id,
+        }
+      )
+      toast.success(response?.message || 'Session closed and table freed')
     } catch (err) {
-      toast.error('Failed to close session')
+      const message = err instanceof Error ? err.message : 'Failed to close session'
+      toast.error(message)
     }
+  }
+
+  const openGenerateBill = (table: Table) => {
+    const hasOrders = (tableSessionOrders[table.id] || []).length > 0
+    if (!hasOrders) {
+      toast.warning('No orders found for this table to generate bill.')
+      return
+    }
+    setActiveTableId(table.id)
+    setShowOrderView(true)
+    toast.success(`Bill generated for ${table.name}`)
   }
 
   const printKOT = (table: Table) => {
@@ -685,6 +791,9 @@ export function FloorCanvas() {
               <Button onClick={addNewTable} variant="outline" className="flex items-center gap-2 text-sm bg-transparent">
                 <Plus size={16} />
                 Add Table
+              </Button>
+              <Button onClick={autoRenumberTables} variant="outline" className="flex items-center gap-2 text-sm bg-transparent">
+                Renumber Tables
               </Button>
             </>
           )}
@@ -813,6 +922,18 @@ export function FloorCanvas() {
           )}
 
           {tables.map(table => {
+            const relatedOrders = tableSessionOrders[table.id] || []
+            const hasLiveOrders = relatedOrders.length > 0
+            const isTableActive = Boolean(table.occupied || table.isOccupied || hasLiveOrders)
+            const tableBillAmount = relatedOrders.reduce((sum, o) => {
+              const orderTotal = (o.items || []).reduce((itemSum, item) => {
+                const unitPrice = getItemPrice(item as { price?: unknown })
+                const quantity = getItemQuantity(item as { quantity?: unknown; qty?: unknown })
+                return itemSum + (unitPrice * quantity)
+              }, 0)
+              return sum + orderTotal
+            }, 0)
+
             return (
               <div
                 key={table.id}
@@ -828,15 +949,15 @@ export function FloorCanvas() {
                 <div
                   className={`
                     w-full h-full rounded-xl border bg-white flex flex-col justify-between p-2.5 gap-1.5
-                    ${table.occupied
+                    ${isTableActive
                         ? 'border-emerald-300 shadow-[0_1px_8px_rgba(16,185,129,0.18)]'
                         : 'border-gray-300 shadow-sm'
                     }
                   `}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-medium text-gray-500">{table.occupied ? 'Occupied' : 'Available'}</span>
-                    <span className={`h-2 w-2 rounded-full ${table.occupied ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                    <span className="text-[10px] font-medium text-gray-500">{isTableActive ? 'Occupied' : 'Available'}</span>
+                    <span className={`h-2 w-2 rounded-full ${isTableActive ? 'bg-emerald-500' : 'bg-gray-300'}`} />
                   </div>
 
                   <div className="text-center leading-tight py-0.5">
@@ -845,18 +966,49 @@ export function FloorCanvas() {
                     </div>
                     <div className="text-[10px] text-gray-500 mt-0.5">Bill</div>
                     <div className="text-sm font-semibold text-gray-900 mt-0.5">
-                      ₹{(tableSessionOrders[table.id]?.reduce((sum, o) => sum + (o.totalAmount || 0), 0) || 0).toFixed(0)}
+                      ₹{tableBillAmount.toFixed(0)}
                     </div>
                   </div>
 
                   <div className="flex items-center justify-center gap-1.5 pt-0.5">
-                    <button
-                      onClick={(e) => { e.stopPropagation() }}
-                      className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
-                      title="Print"
-                    >
-                      <Printer size={13} />
-                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPrinterMenuTableId((prev) => (prev === table.id ? null : table.id))
+                        }}
+                        className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
+                        title="Print options"
+                      >
+                        <Printer size={13} />
+                      </button>
+
+                      {printerMenuTableId === table.id && (
+                        <div
+                          className="absolute bottom-9 left-0 z-20 w-36 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            className="w-full px-3 py-2 text-left text-xs font-medium text-gray-700 hover:bg-gray-50"
+                            onClick={() => {
+                              openGenerateBill(table)
+                              setPrinterMenuTableId(null)
+                            }}
+                          >
+                            Generate Bill
+                          </button>
+                          <button
+                            className="w-full px-3 py-2 text-left text-xs font-medium text-gray-700 hover:bg-gray-50"
+                            onClick={() => {
+                              printKOT(table)
+                              setPrinterMenuTableId(null)
+                            }}
+                          >
+                            Print KOT
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     <button
                       onClick={(e) => handleEyeClick(e, table.id)}
@@ -876,13 +1028,23 @@ export function FloorCanvas() {
                       </button>
                     )}
 
-                    {!isEditMode && table.occupied && (
+                    {!isEditMode && isTableActive && (
                       <button
                         onClick={(e) => { e.stopPropagation(); closeSession(table) }}
                         className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
-                        title="Close Session"
+                        title="Close table session"
                       >
                         <Power size={13} />
+                      </button>
+                    )}
+
+                    {isEditMode && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); editTableName(table) }}
+                        className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
+                        title="Edit table name"
+                      >
+                        <Edit2 size={13} />
                       </button>
                     )}
 
@@ -912,8 +1074,8 @@ export function FloorCanvas() {
             items: tableSessionOrders[activeTable.id].flatMap(o => o.items.map(i => ({
               id: i.id,
               name: i.name,
-              qty: i.quantity,
-              price: i.price || 0
+              qty: getItemQuantity(i as { quantity?: unknown; qty?: unknown }),
+              price: getItemPrice(i as { price?: unknown })
             }))),
             createdAt: new Date()
           } : undefined}

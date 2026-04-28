@@ -1,14 +1,5 @@
-<<<<<<< HEAD
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useCart } from "../../context/CartContext.jsx";
-
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
-
-=======
 import { useCart } from "../../context/CartContext";
 import { useNavigate } from "react-router-dom";
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
 import CartHeader from "../../components/cart_screen/CartHeader.jsx";
 import CartItem from "../../components/cart_screen/CartItem.jsx";
@@ -16,17 +7,6 @@ import CartItem from "../../components/cart_screen/CartItem.jsx";
 import { useOffers } from "../../context/OfferContext";
 
 const Cart = () => {
-<<<<<<< HEAD
-  const { cart, updateQuantity, clearCart } = useCart();
-  const navigate = useNavigate();
-  const [placing, setPlacing] = useState(false);
-
-  const items = cart;
-
-  const handleQtyChange = (id, qty) => {
-    updateQuantity(id, qty);
-  };
-=======
   const navigate = useNavigate();
 
   const {
@@ -43,7 +23,6 @@ const Cart = () => {
 
   // ✅ Check if combo is in cart (for priority logic)
   const hasComboInCart = cart.some(item => item.isCombo);
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
 
   // ✅ CORRECT DISCOUNT CALCULATION
   let calculatedDiscount = 0;
@@ -105,42 +84,6 @@ const Cart = () => {
 
   // Helper config string to detect remaining valid normal items for banner UI
   const hasEligibleItems = cart.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1).length > 0;
-
-  const handlePlaceOrder = async () => {
-    if (items.length === 0) {
-      alert("Cart is empty");
-      return;
-    }
-    setPlacing(true);
-    try {
-      const payload = {
-        outletId: "demo-outlet",
-        customerName: "Dummy Customer",
-        customerId: "customer-123", // Map directly to our initialized loyalty user
-        items: items,
-        totalAmount: grandTotal,
-      };
-
-      const res = await fetch(`${API_BASE}/createOrder`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      
-      const result = await res.json();
-      if (result.success) {
-        clearCart();
-        navigate("/loyalty");
-      } else {
-        alert("Error placing order: " + result.message);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Network error.");
-    } finally {
-      setPlacing(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-28">
@@ -305,25 +248,17 @@ const Cart = () => {
         )}
 
         <div className="flex gap-4">
-<<<<<<< HEAD
-          <button 
-             onClick={() => clearCart()}
-             className="flex-1 bg-red-500 text-white py-3 rounded-full"
-          >
-            Clear
-          </button>
-          <button 
-             onClick={handlePlaceOrder}
-             disabled={placing}
-             className="flex-1 bg-green-500 text-white py-3 rounded-full disabled:bg-gray-400"
-          >
-            {placing ? "Placing..." : "Place Order"}
-=======
           <button
             onClick={() => navigate("/menu")}
             className="flex-1 bg-red-500 text-white py-3 rounded-full font-semibold"
           >
             Cancel
+          </button>
+          <button
+            onClick={() => navigate("/offers")}
+            className="flex-1 bg-blue-600 text-white py-3 rounded-full font-semibold"
+          >
+            Apply Offer
           </button>
 
           <button
@@ -345,7 +280,6 @@ const Cart = () => {
             className="flex-1 bg-green-500 text-white py-3 rounded-full font-semibold disabled:opacity-50"
           >
             Place Order ({totalItems})
->>>>>>> d285cf7127bc244424a3601686f3f47350df882f
           </button>
         </div>
       </div>

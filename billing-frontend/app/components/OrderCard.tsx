@@ -20,6 +20,30 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
   const [expandedItems, setExpandedItems] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
 
+  const normalizeItemStatus = (value?: string): 'pending' | 'in-progress' | 'ready' | 'completed' => {
+    const raw = String(value || '').trim().toLowerCase()
+    if (raw === 'in-progress' || raw === 'in progress' || raw === 'preparing' || raw === 'working') return 'in-progress'
+    if (raw === 'ready') return 'ready'
+    if (raw === 'completed' || raw === 'complete' || raw === 'delivered' || raw === 'finalized') return 'completed'
+    return 'pending'
+  }
+
+  const deriveOrderStatusFromItems = (items: any[]): 'pending' | 'in-progress' | 'ready' | 'completed' => {
+    if (!Array.isArray(items) || items.length === 0) return 'pending'
+
+    const statuses = items.map((item) => normalizeItemStatus(item?.status))
+    const allCompleted = statuses.every((itemStatus) => itemStatus === 'completed')
+    if (allCompleted) return 'completed'
+
+    const allReadyOrCompleted = statuses.every((itemStatus) => itemStatus === 'ready' || itemStatus === 'completed')
+    if (allReadyOrCompleted) return 'ready'
+
+    const hasWorkStarted = statuses.some((itemStatus) => itemStatus === 'in-progress' || itemStatus === 'ready' || itemStatus === 'completed')
+    if (hasWorkStarted) return 'in-progress'
+
+    return 'pending'
+  }
+
   const handleStatusChange = async () => {
     const statusFlow: Record<string, string> = {
       pending: 'in-progress',
@@ -28,13 +52,32 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       completed: 'pending',
     }
     const newStatus = statusFlow[status]
+    const syncedItems = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
+      const currentStatus = normalizeItemStatus(item?.status)
+      if (newStatus === 'completed') {
+        return { ...item, status: 'completed' }
+      }
+      if (newStatus === 'ready' && currentStatus !== 'completed') {
+        return { ...item, status: 'ready' }
+      }
+      if (newStatus === 'in-progress' && currentStatus === 'pending') {
+        return { ...item, status: 'in-progress' }
+      }
+      if (newStatus === 'pending') {
+        return { ...item, status: 'pending' }
+      }
+      return { ...item, status: currentStatus }
+    })
     
     setIsUpdating(true)
     try {
       // Update via cloud function if outletId is available
       if (outletId) {
         console.log('📤 Updating order status via cloud function')
-        await updateOrderService(outletId, order.id, { orderStatus: newStatus as any })
+        await updateOrderService(outletId, order.id, {
+          orderStatus: newStatus as any,
+          items: syncedItems,
+        })
       }
       
       // Update in local context for immediate UI update
@@ -52,14 +95,42 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
     }
   }
 
-  const handleItemStatusToggle = (itemId: string, currentStatus?: string) => {
+  const handleItemStatusToggle = async (itemId: string, currentStatus?: string) => {
     const statusFlow: Record<string, string> = {
       pending: 'in-progress',
       'in-progress': 'ready',
-      ready: 'pending',
+      ready: 'completed',
+      completed: 'pending',
     }
-    const nextStatus = statusFlow[currentStatus || 'pending']
-    updateOrderItem(order.id, itemId, { status: nextStatus as any })
+    const resolvedCurrentStatus = normalizeItemStatus(currentStatus)
+    const nextStatus = statusFlow[resolvedCurrentStatus] || 'pending'
+
+    const updatedItems = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
+      if (item.id !== itemId) {
+        return { ...item, status: normalizeItemStatus(item?.status) }
+      }
+      return { ...item, status: nextStatus }
+    })
+
+    const nextOrderStatus = deriveOrderStatusFromItems(updatedItems)
+
+    setIsUpdating(true)
+    try {
+      if (outletId) {
+        await updateOrderService(outletId, order.id, {
+          items: updatedItems,
+          orderStatus: nextOrderStatus as any,
+        })
+      }
+      updateOrderItem(order.id, itemId, { status: nextStatus as any })
+      if (onOrderUpdated) {
+        onOrderUpdated()
+      }
+    } catch (error) {
+      console.error('❌ Error updating item status:', error)
+    } finally {
+      setIsUpdating(false)
+    }
   }
 
   const handleDelete = async () => {
@@ -89,12 +160,14 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
   }
 
   const getItemStatusColor = (itemStatus?: string) => {
-    if (!itemStatus) itemStatus = 'pending'
-    switch (itemStatus) {
+    const normalized = normalizeItemStatus(itemStatus)
+    switch (normalized) {
       case 'in-progress':
         return 'bg-info/10 text-info border-info'
       case 'ready':
         return 'bg-success/10 text-success border-success'
+      case 'completed':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-500'
       default:
         return 'bg-warning/10 text-warning border-warning'
     }
@@ -176,10 +249,10 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                     <div className="flex-1 min-w-0">
                       <span className="font-bold text-sm">{item.quantity}x</span>
                       <span className="ml-2 truncate text-sm font-semibold">{item.name}</span>
-                      {item.status === 'ready' && <Check size={14} className="inline ml-2 text-success" />}
+                      {(normalizeItemStatus(item.status) === 'ready' || normalizeItemStatus(item.status) === 'completed') && <Check size={14} className="inline ml-2 text-success" />}
                     </div>
                     <span className="text-xs font-medium opacity-70 flex-shrink-0">
-                      {item.status || 'pending'}
+                      {normalizeItemStatus(item.status)}
                     </span>
                   </div>
                 </button>
