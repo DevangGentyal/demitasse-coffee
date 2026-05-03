@@ -14,7 +14,7 @@ export interface OrderItem {
   id: string
   name: string
   quantity: number
-  status?: 'pending' | 'in-progress' | 'ready' | 'completed'
+  status?: 'in-progress' | 'ready' | 'completed'
   price?: number
   addOns?: string
   notes?: string
@@ -29,7 +29,7 @@ export interface Order {
   tableId?: string
   items: OrderItem[]
   timeOfOrder: Timestamp | Date
-  orderStatus: 'pending' | 'in-progress' | 'ready' | 'completed'
+  orderStatus: 'in-progress' | 'ready' | 'completed'
   totalAmount?: number
 }
 
@@ -153,7 +153,7 @@ export const createOrder = async (
         id: item.id || Math.random().toString(36).substr(2, 9),
         name: item.name,
         quantity: item.quantity || 1,
-        status: item.status || 'pending',
+        status: item.status || 'in-progress',
         price: item.price || 0,
         addOns: item.addOns || '',
         notes: item.notes || '',

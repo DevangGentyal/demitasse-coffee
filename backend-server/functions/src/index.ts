@@ -20,6 +20,8 @@ export { openSession as customerOpenSession } from "./customer/sessions.customer
 export { addItemsToOrder } from "./customer/orders.customer";
 export { generateBill } from "./customer/billing.customer";
 export { closeSession as closeCustomerSession } from "./customer/billing.customer";
+export { validateAndCalculateBill } from "./customer/billing.customer";
+export { finalizeAndClose } from "./customer/billing.customer";
 
 export { checkRewards } from "./loyalty/checkRewards";
 

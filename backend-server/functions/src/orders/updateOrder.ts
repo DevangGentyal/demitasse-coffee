@@ -108,7 +108,11 @@ export const updateOrder = functions.https.onRequest(
           quantity: item.quantity || 1,
           status: normalizeItemStatus(item.status),
           price: item.price || 0,
-          addOns: item.addOns || "",
+          addOns: Array.isArray(item.addons) ? item.addons : (Array.isArray(item.addOns) ? item.addOns : []),
+          items: Array.isArray(item.items) ? item.items.map((sub: any) => ({
+            ...sub,
+            addOns: Array.isArray(sub.addons) ? sub.addons : (Array.isArray(sub.addOns) ? sub.addOns : [])
+          })) : undefined,
           notes: item.notes || "",
         }));
         updateData.items = normalizedItems;

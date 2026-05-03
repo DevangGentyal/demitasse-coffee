@@ -38,16 +38,14 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
 
     const existingData = offerSnap.data();
 
-    // ✅ Type validation (if updating)
-    const validTypes = ["discount", "bogo", "freebie"];
-    if (data.type && !validTypes.includes(data.type)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid offer type",
-      });
-      return;
+    // ✅ Type validation
+    if (data.type) {
+      const validTypes = ["discount", "bogo", "freebie", "CATEGORY_DISCOUNT"];
+      if (!validTypes.includes(data.type)) {
+        res.status(400).json({ success: false, message: "Invalid offer type" });
+        return;
+      }
     }
-
     const finalType = data.type || existingData?.type;
 
     // ✅ Discount validation

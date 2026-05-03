@@ -32,30 +32,23 @@ export function MenuProvider({ children }) {
       const snapshot = await getDocs(q);
 
       const menu = snapshot.docs.map(doc=>{
-
         const data = doc.data();
+        console.log("FIRESTORE PRODUCT:", data);
 
-        return {
+        const product = {
           id:doc.id,
-          name:data.name,
+          ...data,
           desc:data.description || "",
-          price:data.price,
-          category:data.category,
-          subcategory:data.subcategory,
-          isVeg:data.isVeg,
           image:data.imageUrl,
-
-          variations: Array.isArray(data.variations)
-            ? data.variations
-            : [],
-
-          customizations: Array.isArray(data.customizations)
-            ? data.customizations
-            : [],
-
+          variations: Array.isArray(data.variations) ? data.variations : [],
+          customizations: Array.isArray(data.customizations) ? data.customizations : [],
           sortOrder:data.sortOrder || 0
         };
 
+        // FORCE NORMALIZATION
+        product.isAvailable = product.isAvailable === false ? false : true;
+
+        return product;
       });
 
       menu.sort((a,b)=>a.sortOrder-b.sortOrder);

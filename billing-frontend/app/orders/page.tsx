@@ -37,7 +37,7 @@ export default function OrdersPage() {
 
     const normalized = liveOrders.map((order) => ({
       ...order,
-      orderStatus: (order as any).orderStatus || order.status || 'pending',
+      orderStatus: (order as any).orderStatus || order.status || 'in-progress',
       timeOfOrder: new Date(
         toMillis((order as any).timeOfOrder) ||
         toMillis((order as any).createdAt) ||
@@ -80,7 +80,6 @@ export default function OrdersPage() {
     )
   }
 
-  const pendingOrders = orders.filter(o => o.orderStatus === 'pending')
   const inProgressOrders = orders.filter(o => o.orderStatus === 'in-progress')
   const readyOrders = orders.filter(o => o.orderStatus === 'ready')
 
@@ -103,28 +102,8 @@ export default function OrdersPage() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            {/* PENDING COLUMN */}
-            <div className="lg:col-span-1 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-900 dark:to-slate-800 rounded-xl border-2 border-amber-200 dark:border-amber-900/30 p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full bg-amber-500" />
-                  <h3 className="font-bold text-foreground text-lg">Pending</h3>
-                </div>
-                <span className="bg-amber-500 text-white text-xs font-bold px-3 py-1 rounded-full">
-                  {pendingOrders.length}
-                </span>
-              </div>
-              <div className="space-y-3 max-h-[calc(100vh-280px)] overflow-y-auto pr-2">
-                {pendingOrders.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">No pending orders</p>
-                ) : (
-                  pendingOrders.map(order => (
-                    <OrderCard key={order.id} order={order} status={order.orderStatus} outletId={outletId} />
-                  ))
-                )}
-              </div>
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
 
             {/* IN PROGRESS COLUMN */}
             <div className="lg:col-span-1 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-slate-900 dark:to-slate-800 rounded-xl border-2 border-blue-200 dark:border-blue-900/30 p-5 shadow-sm">

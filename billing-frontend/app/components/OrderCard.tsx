@@ -20,16 +20,15 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
   const [expandedItems, setExpandedItems] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
 
-  const normalizeItemStatus = (value?: string): 'pending' | 'in-progress' | 'ready' | 'completed' => {
+  const normalizeItemStatus = (value?: string): 'in-progress' | 'ready' | 'completed' => {
     const raw = String(value || '').trim().toLowerCase()
-    if (raw === 'in-progress' || raw === 'in progress' || raw === 'preparing' || raw === 'working') return 'in-progress'
     if (raw === 'ready') return 'ready'
     if (raw === 'completed' || raw === 'complete' || raw === 'delivered' || raw === 'finalized') return 'completed'
-    return 'pending'
+    return 'in-progress'
   }
 
-  const deriveOrderStatusFromItems = (items: any[]): 'pending' | 'in-progress' | 'ready' | 'completed' => {
-    if (!Array.isArray(items) || items.length === 0) return 'pending'
+  const deriveOrderStatusFromItems = (items: any[]): 'in-progress' | 'ready' | 'completed' => {
+    if (!Array.isArray(items) || items.length === 0) return 'in-progress'
 
     const statuses = items.map((item) => normalizeItemStatus(item?.status))
     const allCompleted = statuses.every((itemStatus) => itemStatus === 'completed')
@@ -38,20 +37,16 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
     const allReadyOrCompleted = statuses.every((itemStatus) => itemStatus === 'ready' || itemStatus === 'completed')
     if (allReadyOrCompleted) return 'ready'
 
-    const hasWorkStarted = statuses.some((itemStatus) => itemStatus === 'in-progress' || itemStatus === 'ready' || itemStatus === 'completed')
-    if (hasWorkStarted) return 'in-progress'
-
-    return 'pending'
+    return 'in-progress'
   }
 
   const handleStatusChange = async () => {
     const statusFlow: Record<string, string> = {
-      pending: 'in-progress',
       'in-progress': 'ready',
       ready: 'completed',
-      completed: 'pending',
+      completed: 'in-progress',
     }
-    const newStatus = statusFlow[status]
+    const newStatus = statusFlow[status] || 'ready'
     const syncedItems = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
       const currentStatus = normalizeItemStatus(item?.status)
       if (newStatus === 'completed') {
@@ -60,11 +55,8 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       if (newStatus === 'ready' && currentStatus !== 'completed') {
         return { ...item, status: 'ready' }
       }
-      if (newStatus === 'in-progress' && currentStatus === 'pending') {
+      if (newStatus === 'in-progress') {
         return { ...item, status: 'in-progress' }
-      }
-      if (newStatus === 'pending') {
-        return { ...item, status: 'pending' }
       }
       return { ...item, status: currentStatus }
     })
@@ -97,13 +89,12 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
 
   const handleItemStatusToggle = async (itemId: string, currentStatus?: string) => {
     const statusFlow: Record<string, string> = {
-      pending: 'in-progress',
       'in-progress': 'ready',
       ready: 'completed',
-      completed: 'pending',
+      completed: 'in-progress',
     }
     const resolvedCurrentStatus = normalizeItemStatus(currentStatus)
-    const nextStatus = statusFlow[resolvedCurrentStatus] || 'pending'
+    const nextStatus = statusFlow[resolvedCurrentStatus] || 'in-progress'
 
     const updatedItems = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
       if (item.id !== itemId) {
@@ -191,7 +182,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
   return (
     <Card className="p-4 border-l-4 bg-card hover:shadow-lg transition-all duration-200 cursor-pointer group"
       style={{
-        borderLeftColor: status === 'pending' ? '#f59e0b' : status === 'in-progress' ? '#3b82f6' : '#10b981'
+        borderLeftColor: status === 'in-progress' ? '#3b82f6' : '#10b981'
       }}>
       <div className="space-y-3">
         {/* Header with customer name and order ID */}
@@ -220,12 +211,11 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
         {/* Status badge */}
         <div className="inline-flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full" style={{
-            backgroundColor: status === 'pending' ? '#f59e0b' : status === 'in-progress' ? '#3b82f6' : '#10b981'
+            backgroundColor: status === 'in-progress' ? '#3b82f6' : '#10b981'
           }} />
           <span className="text-xs font-semibold uppercase tracking-wide" style={{
-            color: status === 'pending' ? '#b45309' : status === 'in-progress' ? '#1e40af' : '#065f46'
+            color: status === 'in-progress' ? '#1e40af' : '#065f46'
           }}>
-            {status === 'pending' && 'Pending'}
             {status === 'in-progress' && 'In Progress'}
             {status === 'ready' && 'Ready'}
           </span>
@@ -245,13 +235,68 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                   onClick={() => handleItemStatusToggle(item.id, item.status)}
                   className={`w-full text-left p-3 rounded-md border transition-all ${getItemStatusColor(item.status)}`}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <span className="font-bold text-sm">{item.quantity}x</span>
-                      <span className="ml-2 truncate text-sm font-semibold">{item.name}</span>
-                      {(normalizeItemStatus(item.status) === 'ready' || normalizeItemStatus(item.status) === 'completed') && <Check size={14} className="inline ml-2 text-success" />}
+                      <div className="flex items-center">
+                        <span className="font-bold text-sm">{item.quantity || item.qty || 1}x</span>
+                        <span className="ml-2 truncate text-sm font-semibold">{item.name}</span>
+                        {(normalizeItemStatus(item.status) === 'ready' || normalizeItemStatus(item.status) === 'completed') && <Check size={14} className="inline ml-2 text-success" />}
+                      </div>
+
+                      {/* Add-ons and Customizations */}
+                      {(() => {
+                        const directCustomizations = Array.isArray(item.customizations) ? item.customizations : []
+                        const directSelected = directCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
+                        
+                        const subItems = Array.isArray(item.items) ? item.items : []
+                        
+                        const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
+                        
+                        if (!hasVariations && directSelected.length === 0 && subItems.length === 0) return null
+
+                        return (
+                          <div className="text-xs opacity-80 ml-6 mt-1 flex flex-col gap-0.5">
+                            {/* Variations */}
+                            {Array.isArray(item.variations) && item.variations.map((v: any, i: number) => (
+                              <span key={`var-${i}`}>+ {v.name || v.option || v.type} {v.price ? `(+₹${v.price})` : ''}</span>
+                            ))}
+
+                            {/* Add-ons */}
+                            {Array.isArray(item.addOns) && item.addOns.map((addon: any, i: number) => (
+                              <span key={`addon-${i}`}>+ {addon.name} (+₹{addon.price})</span>
+                            ))}
+
+                            {/* Direct Customizations */}
+                            {directSelected.map((opt: any, i: number) => (
+                              <span key={`dcust-${i}`}>+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
+                            ))}
+
+                            {/* Sub items (e.g. B1G1 / Combo) */}
+                            {subItems.map((sub: any, i: number) => {
+                              const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : []
+                              const subSelected = subCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
+                              
+                              return (
+                                <div key={`sub-${i}`} className="flex flex-col gap-0.5">
+                                  <span>- {sub.name}</span>
+                                  {subSelected.map((opt: any, j: number) => (
+                                    <span key={`subcust-${i}-${j}`} className="ml-2 opacity-80">+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
+                                  ))}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      })()}
+
+                      {/* Offer Display */}
+                      {item.offerTitle && (
+                        <div className="text-xs font-semibold text-blue-700 dark:text-blue-400 ml-6 mt-1">
+                          Offer: {item.offerTitle}
+                        </div>
+                      )}
                     </div>
-                    <span className="text-xs font-medium opacity-70 flex-shrink-0">
+                    <span className="text-xs font-medium opacity-70 flex-shrink-0 mt-0.5">
                       {normalizeItemStatus(item.status)}
                     </span>
                   </div>
@@ -260,11 +305,66 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
             </>
           ) : (
             <>
-              <div className="space-y-1.5">
+              <div className="space-y-3">
                 {order.items.slice(0, 2).map((item: any, idx: number) => (
-                  <div key={item.id || `item-${idx}`} className="flex items-center gap-2 text-sm text-foreground">
-                    <span className="font-bold min-w-fit">{item.quantity}x</span>
-                    <span className="truncate font-semibold">{item.name}</span>
+                  <div key={item.id || `item-${idx}`} className="flex flex-col text-sm text-foreground">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold min-w-fit">{item.quantity || item.qty || 1}x</span>
+                      <span className="truncate font-semibold">{item.name}</span>
+                    </div>
+
+                    {/* Add-ons and Customizations */}
+                    {(() => {
+                      const directCustomizations = Array.isArray(item.customizations) ? item.customizations : []
+                      const directSelected = directCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
+                      
+                      const subItems = Array.isArray(item.items) ? item.items : []
+                      
+                      const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
+                      
+                      if (!hasVariations && directSelected.length === 0 && subItems.length === 0) return null
+
+                      return (
+                        <div className="text-xs text-muted-foreground ml-6 mt-0.5 flex flex-col gap-0.5">
+                          {/* Variations */}
+                          {Array.isArray(item.variations) && item.variations.map((v: any, i: number) => (
+                            <span key={`var-${i}`}>+ {v.name || v.option || v.type} {v.price ? `(+₹${v.price})` : ''}</span>
+                          ))}
+
+                          {/* Add-ons */}
+                          {Array.isArray(item.addOns) && item.addOns.map((addon: any, i: number) => (
+                            <span key={`addon-${i}`}>+ {addon.name} (+₹{addon.price})</span>
+                          ))}
+
+                          {/* Direct Customizations */}
+                          {directSelected.map((opt: any, i: number) => (
+                            <span key={`dcust-${i}`}>+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
+                          ))}
+
+                          {/* Sub items (e.g. B1G1 / Combo) */}
+                          {subItems.map((sub: any, i: number) => {
+                            const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : []
+                            const subSelected = subCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
+                            
+                            return (
+                              <div key={`sub-${i}`} className="flex flex-col gap-0.5">
+                                <span>- {sub.name}</span>
+                                {subSelected.map((opt: any, j: number) => (
+                                  <span key={`subcust-${i}-${j}`} className="ml-2 opacity-80">+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
+                                ))}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
+
+                    {/* Offer Display */}
+                    {item.offerTitle && (
+                      <div className="text-xs font-medium text-blue-600 dark:text-blue-400 ml-6 mt-0.5">
+                        Offer: {item.offerTitle}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -293,7 +393,6 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
           >
             {isUpdating ? 'Updating...' : (
               <>
-                {status === 'pending' && 'Start Cooking'}
                 {status === 'in-progress' && 'Mark Ready'}
                 {status === 'ready' && 'Complete'}
                 <ChevronRight size={16} />

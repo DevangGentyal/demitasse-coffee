@@ -25,7 +25,7 @@ export interface OrderItem {
   id: string
   name: string
   quantity: number
-  status?: 'pending' | 'in-progress' | 'ready' | 'completed'
+  status?: 'in-progress' | 'ready' | 'completed'
   addOns?: string
   notes?: string
   price?: number
@@ -40,7 +40,7 @@ export interface Order {
   customerPhone?: string
   items: OrderItem[]
   timeOfOrder: Date
-  status: 'pending' | 'in-progress' | 'ready' | 'completed'
+  status: 'in-progress' | 'ready' | 'completed'
   totalAmount?: number
   outletId: string
 }
@@ -131,8 +131,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         const resolvedStatus =
           (typeof data.orderStatus === 'string' && data.orderStatus) ||
-          (typeof data.status === 'string' && data.status) ||
-          'pending'
+          'in-progress'
 
         return {
           ...data,

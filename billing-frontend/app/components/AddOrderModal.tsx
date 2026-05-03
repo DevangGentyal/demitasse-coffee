@@ -24,7 +24,7 @@ interface OrderItem {
   name: string
   quantity: number
   price: number
-  status: 'pending' | 'in-progress' | 'ready'
+  status: 'in-progress' | 'ready'
   addOns?: string
   notes?: string
 }
@@ -158,7 +158,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
           name: product.name,
           quantity: 1,
           price: product.price,
-          status: 'pending',
+          status: 'in-progress',
           addOns: '',
           notes: '',
         },
@@ -182,7 +182,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
     const resolvedCustomerName = customerName.trim() || reusableCustomerName.trim()
     const resolvedCustomerPhone = customerPhone.trim() || reusableCustomerPhone.trim()
 
-    if (!resolvedCustomerName || items.length === 0) return
+    if (items.length === 0) return
     if (!outletId) {
       setError('Outlet ID not found')
       return
@@ -201,12 +201,12 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
 
       // Create order via cloud function
       const orderId = await createOrderService(outletId, {
-        customerName: resolvedCustomerName,
+        customerName: resolvedCustomerName || 'Walk-in Customer',
         customerPhone: resolvedCustomerPhone,
         placedBy: 'billing',
         tableId: initialTableId || undefined,
         items,
-        orderStatus: 'pending',
+        orderStatus: 'in-progress',
         totalAmount,
       })
 
@@ -223,10 +223,10 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
           id: item.id,
           name: item.name,
           quantity: item.quantity,
-          status: 'pending' as const,
+          status: 'in-progress' as const,
         })),
         timeOfOrder: new Date(),
-        status: 'pending' as const,
+        status: 'in-progress' as const,
       }
 
       addOrder(newOrder)
@@ -296,7 +296,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                 {/* Customer Name */}
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">
-                    Customer Name *
+                    Customer Name (Optional)
                   </label>
                   <Input
                     placeholder="e.g., John Doe"
@@ -310,7 +310,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                 {/* Customer Phone */}
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">
-                    Customer Number *
+                    Customer Number (Optional)
                   </label>
                   <Input
                     type="tel"
@@ -436,7 +436,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
             <div className="flex gap-2 pt-4">
               <Button
                 onClick={handleCreateOrder}
-                disabled={(!isContinuingBill && (!customerName.trim() || !customerPhone.trim())) || items.length === 0 || isSaving || isLoading}
+                disabled={items.length === 0 || isSaving || isLoading}
                 className="flex-1 bg-black hover:bg-gray-800 text-white disabled:opacity-50"
               >
                 {isSaving ? 'Creating...' : isContinuingBill ? 'Add to Bill' : 'Place Order'}

@@ -33,32 +33,34 @@ const normalizeStatus = (value) => {
   if (["completed", "complete", "finalized", "delivered"].includes(raw)) return "completed";
   if (raw === "ready") return "ready";
   if (["in-progress", "in progress", "working", "preparing", "active"].includes(raw)) return "in-progress";
-  return "pending";
+  return "in-progress";
 };
 
 const resolveStatus = (order) => {
   const normalized = normalizeStatus(order.orderStatus || order.status);
   if (normalized === "completed") return "Delivered";
   if (normalized === "ready") return "Ready";
-  if (normalized === "in-progress") return "Working";
-  return "Pending";
+  if (normalized === "in-progress") return "In Progress";
+  return "In Progress";
 };
 
 const isBillReadyOrder = (order) => normalizeStatus(order.orderStatus || order.status) === "completed";
 
 const getOrderTotal = (order) => {
-  const pricingTotal = Number(order?.pricing?.total);
-  if (Number.isFinite(pricingTotal) && pricingTotal > 0) return pricingTotal;
-
-  const directTotal = Number(order.totalAmount ?? order.grandTotal ?? order.itemTotal ?? 0);
-  if (Number.isFinite(directTotal) && directTotal > 0) return directTotal;
-
+  // Always compute from raw item prices to keep green cards showing original order values.
+  // Never use order.pricing.total — that may contain bill-calculated values (with discount/tax).
   const items = Array.isArray(order.items) ? order.items : [];
-  return items.reduce((sum, item) => {
-    const quantity = Number(item.quantity ?? item.qty ?? 1) || 1;
-    const price = Number(item.price ?? item.totalPrice ?? 0) || 0;
-    return sum + quantity * price;
-  }, 0);
+  if (items.length > 0) {
+    return items.reduce((sum, item) => {
+      const quantity = Number(item.quantity ?? item.qty ?? 1) || 1;
+      const price = Number(item.price ?? item.totalPrice ?? 0) || 0;
+      return sum + quantity * price;
+    }, 0);
+  }
+
+  // Fallback for history orders that may not have items array
+  const directTotal = Number(order.totalAmount ?? order.grandTotal ?? order.itemTotal ?? 0);
+  return Number.isFinite(directTotal) ? directTotal : 0;
 };
 
 const getOrderItemCount = (order) => {
@@ -123,7 +125,7 @@ function OrderCard({ order, accent = "green" }) {
           const orderStatus = normalizeStatus(order.orderStatus || order.status);
           const itemStatus = normalizeStatus(item.status || order.orderStatus || order.status);
 
-          let label = "Pending";
+          let label = "In Progress";
           if (orderStatus === "completed") {
             label = "Delivered";
           } else if (itemStatus === "completed") {
@@ -131,7 +133,7 @@ function OrderCard({ order, accent = "green" }) {
           } else if (itemStatus === "ready") {
             label = "Ready";
           } else if (itemStatus === "in-progress") {
-            label = "Working";
+            label = "In Progress";
           }
 
           const labelClass =
@@ -139,23 +141,48 @@ function OrderCard({ order, accent = "green" }) {
               ? "bg-emerald-100 text-emerald-700"
               : label === "Ready"
                 ? "bg-blue-100 text-blue-700"
-                : label === "Working"
+                : label === "In Progress"
                   ? "bg-amber-100 text-amber-800"
                   : "bg-gray-100 text-gray-700";
 
-          // For offer items (combo, B1G1, discount), display offer title first, then sub-items
           const isOfferItem = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday;
-          const displayName = isOfferItem && item.offerTitle ? item.offerTitle : item.name;
-          const subItemsDisplay = isOfferItem && Array.isArray(item.items)
-            ? item.items.map(i => i.name).join(" + ")
-            : null;
+          const displayName = item.name || "Item";
+          
+          const directCustomizations = Array.isArray(item.customizations) ? item.customizations : [];
+          const directSelected = directCustomizations.flatMap(g => (g.options || []).filter(o => o.isSelected));
 
           return (
             <div key={`${order.id}-${index}`} className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-gray-900">{displayName}</p>
-                {subItemsDisplay && <p className="text-xs text-gray-600 truncate">{subItemsDisplay}</p>}
-                <p className="text-xs text-gray-500">Qty {item.quantity ?? item.qty ?? 1}</p>
+                <p className="truncate font-medium text-gray-900">{displayName} (x{item.quantity ?? item.qty ?? 1})</p>
+                
+                {/* Variations */}
+                {Array.isArray(item.variations) && item.variations.map((v, i) => (
+                  <p key={`var-${i}`} className="text-xs text-gray-600">• {v.name || v.option || v.type} {v.price ? `(+₹${v.price})` : ''}</p>
+                ))}
+
+                {/* Direct Customizations */}
+                {directSelected.map((opt, i) => (
+                  <p key={`dcust-${i}`} className="text-xs text-gray-600">• {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</p>
+                ))}
+
+                {/* Sub items */}
+                {Array.isArray(item.items) && item.items.map((sub, i) => {
+                  const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : [];
+                  const subSelected = subCustomizations.flatMap(g => (g.options || []).filter(o => o.isSelected));
+                  return (
+                    <div key={`sub-${i}`}>
+                      <p className="text-xs text-gray-600 mt-0.5">- {sub.name}</p>
+                      {subSelected.map((opt, j) => (
+                        <p key={`subcust-${j}`} className="text-[11px] text-gray-500 ml-2">• {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</p>
+                      ))}
+                    </div>
+                  );
+                })}
+
+                {isOfferItem && item.offerTitle && (
+                  <p className="text-[11px] font-semibold text-blue-600 mt-1">Offer: {item.offerTitle}</p>
+                )}
               </div>
               <span className={`ml-3 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${labelClass}`}>
                 {label}
@@ -254,6 +281,8 @@ export default function Orders() {
       sessionId: String(value.sessionId || ""),
       createdAt: toDate(value.generatedAt || value.createdAt || value.updatedAt),
       paymentStatus: String(value.paymentStatus || "PENDING_COUNTER"),
+      items: Array.isArray(value.items) ? value.items : [],
+      appliedOffers: Array.isArray(value.appliedOffers) ? value.appliedOffers : [],
       pricing: {
         subtotal: Number(value?.pricing?.subtotal || 0),
         discount: Number(value?.pricing?.discount || 0),
@@ -305,13 +334,7 @@ export default function Orders() {
 
       const normalizedBill = toBillDetails(result);
       setBillDetails(normalizedBill);
-      setBanner({
-        type: "success",
-        text: normalizedBill?.noteToCustomer || "Bill generated. Please pay at the counter.",
-      });
-
-      setShowPayOverlay(true);
-      setOverlayCountdown(10);
+      // No more auto-countdown overlay, we use the detailed Bill Overlay
     } catch (error) {
       setBanner({
         type: "error",
@@ -390,42 +413,9 @@ export default function Orders() {
   }, [showHistory, viewerId]);
 
   useEffect(() => {
-    if (!selectedTableId) {
-      setBillDetails(null);
-      return;
-    }
-
-    let isMounted = true;
-    const loadExistingBill = async () => {
-      try {
-        const paymentQuery = query(
-          collection(db, "payments"),
-          where("tableId", "==", selectedTableId)
-        );
-        const snapshot = await getDocs(paymentQuery);
-        if (!isMounted || snapshot.empty) return;
-
-        const rows = snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((row) => {
-            if (!viewerId) return true;
-            return String(row.ownerId || "") === viewerId;
-          })
-          .sort((a, b) => toDate(b.updatedAt || b.generatedAt || b.createdAt).getTime() - toDate(a.updatedAt || a.generatedAt || a.createdAt).getTime());
-
-        if (rows.length > 0) {
-          setBillDetails(toBillDetails(rows[0]));
-        }
-      } catch (error) {
-        console.error("Failed to load payment details:", error);
-      }
-    };
-
-    loadExistingBill();
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedTableId, viewerId]);
+    // We no longer persist or show old bills on the Orders page
+    setBillDetails(null);
+  }, [selectedTableId]);
 
   useEffect(() => {
     if (!isCurrentOwner && liveOrders.length > 0) {
@@ -466,6 +456,14 @@ export default function Orders() {
     () => visibleLiveOrders.reduce((sum, order) => sum + Number(order.total || 0), 0),
     [visibleLiveOrders]
   );
+
+  const isBillOutdated = useMemo(() => {
+    if (!billDetails || visibleLiveOrders.length === 0) return false;
+    const billTime = toDate(billDetails.createdAt).getTime();
+    // If any live order is newer than the bill, it's outdated
+    return visibleLiveOrders.some(order => toDate(order.createdAt).getTime() > billTime + 1000);
+  }, [billDetails, visibleLiveOrders]);
+
   const hasLiveOrders = visibleLiveOrders.length > 0;
 
   const lifetimeTotal = useMemo(
@@ -549,6 +547,10 @@ export default function Orders() {
                   <p className="text-lg font-bold text-gray-900">{currency.format(ongoingTotal)}</p>
                 </div>
               </div>
+              
+              <div className="mt-2 text-[11px] text-emerald-700 bg-white/40 rounded-lg px-2 py-1 inline-block border border-emerald-200">
+                💡 Generate bill after completing all orders
+              </div>
 
               {activeOrder && isCurrentOwner && (
                 <div className="mt-4 rounded-2xl border border-emerald-200 bg-white/80 p-3">
@@ -558,7 +560,7 @@ export default function Orders() {
                       disabled={isGeneratingBill}
                       className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-emerald-300"
                     >
-                      {isGeneratingBill ? "Generating..." : "Generate Bill (Close Ordering)"}
+                      {isGeneratingBill ? "Generating..." : "Generate Bill"}
                     </button>
                   </div>
                 </div>
@@ -574,48 +576,122 @@ export default function Orders() {
             </div>
           )}
 
-          {billDetails && (hasLiveOrders || (billDetails.sessionId && billDetails.sessionId === selectedSessionId)) && (
-            <div className="mt-4 rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50 to-white p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-bold text-blue-900">Bill Details</h3>
-                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
-                  {billDetails.paymentStatus.replaceAll("_", " ")}
-                </span>
+        </section>
+
+        {/* ✅ BILL OVERLAY (Detailed Modal) */}
+        {billDetails && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4">
+            <div className="w-full max-w-[420px] rounded-t-[2.5rem] bg-white shadow-2xl animate-in slide-in-from-bottom duration-300 sm:rounded-[2.5rem]">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 pt-8 pb-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Secure Billing</p>
+                  <h3 className="text-xl font-bold text-gray-900">Final Bill</h3>
+                </div>
+                <button 
+                  onClick={() => setBillDetails(null)}
+                  className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+                >
+                  ✕
+                </button>
               </div>
 
-              <div className="mt-3 space-y-1.5 text-sm">
-                <div className="flex items-center justify-between text-gray-700">
-                  <span>Order</span>
-                  <span className="font-medium">{billDetails.orderId.slice(0, 8) || "-"}</span>
-                </div>
-                <div className="flex items-center justify-between text-gray-700">
-                  <span>Payment Ref</span>
-                  <span className="font-medium">{billDetails.paymentId.slice(0, 8) || "-"}</span>
-                </div>
-                <div className="flex items-center justify-between text-gray-700">
-                  <span>Subtotal</span>
-                  <span className="font-medium">{currency.format(billDetails.pricing.subtotal || 0)}</span>
-                </div>
-                <div className="flex items-center justify-between text-gray-700">
-                  <span>Discount</span>
-                  <span className="font-medium">- {currency.format(billDetails.pricing.discount || 0)}</span>
-                </div>
-                <div className="flex items-center justify-between text-gray-700">
-                  <span>Tax</span>
-                  <span className="font-medium">{currency.format(billDetails.pricing.tax || 0)}</span>
-                </div>
-                <div className="mt-2 flex items-center justify-between border-t border-blue-200 pt-2 text-[15px] font-bold text-gray-900">
-                  <span>Total Payable</span>
-                  <span>{currency.format(billDetails.pricing.total || 0)}</span>
+              {/* Bill Body */}
+              <div className="px-6 py-2 max-h-[60vh] overflow-y-auto">
+                <div className="space-y-4">
+                  {/* Items List */}
+                  <div className="space-y-3">
+                    {billDetails.items.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-start text-sm">
+                        <div className="flex-1 pr-4">
+                          <p className="font-semibold text-gray-800">{item.name}</p>
+                          <p className="text-xs text-gray-500">Qty: {item.qty} × {currency.format(item.finalUnitPrice || item.price || 0)}</p>
+                        </div>
+                        <p className="font-bold text-gray-900">{currency.format(item.totalPrice || 0)}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="h-px bg-gray-100 my-4" />
+
+                  {/* Pricing Breakdown */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>Subtotal</span>
+                      <span>{currency.format(billDetails.pricing.subtotal)}</span>
+                    </div>
+
+                    {billDetails.appliedOffers.map((offer, idx) => (
+                      <div key={idx} className="flex justify-between text-sm text-green-600 font-medium">
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-[10px] bg-green-100 px-1.5 py-0.5 rounded uppercase">{offer.type || "Offer"}</span>
+                          {offer.title}
+                        </span>
+                        <span>-{currency.format(offer.amount)}</span>
+                      </div>
+                    ))}
+
+                    {billDetails.pricing.discount > 0 && billDetails.appliedOffers.length === 0 && (
+                      <div className="flex justify-between text-sm text-green-600 font-medium">
+                        <span>Total Discount</span>
+                        <span>-{currency.format(billDetails.pricing.discount)}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>Tax (5% GST)</span>
+                      <span>{currency.format(billDetails.pricing.tax)}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-3 border-t border-gray-100 mt-2">
+                      <span className="text-base font-bold text-gray-900">Total Payable</span>
+                      <span className="text-2xl font-black text-blue-600 tracking-tight">
+                        {currency.format(billDetails.pricing.total)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Ref info */}
+                  <div className="bg-gray-50 rounded-2xl p-4 mt-6 flex flex-col gap-1.5">
+                    <div className="flex justify-between text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                      <span>Order Ref</span>
+                      <span>{billDetails.orderId.slice(0, 12)}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                      <span>Payment Ref</span>
+                      <span>{billDetails.paymentId.slice(0, 12)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                {billDetails.noteToCustomer || "Please pay at the counter. Billing admin will close your session after payment."}
+              {/* Action */}
+              <div className="p-6">
+                <button
+                  disabled={isClosingAfterBill}
+                  onClick={async () => {
+                    setIsClosingAfterBill(true);
+                    try {
+                      await resetSessionAndTable();
+                      setBillDetails(null);
+                      setBanner({ type: "success", text: "Please pay at counter. Redirecting..." });
+                      setTimeout(() => navigate("/select-outlet"), 2000);
+                    } catch (err) {
+                      setBanner({ type: "error", text: "Failed to close ordering session." });
+                      setIsClosingAfterBill(false);
+                    }
+                  }}
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-200 active:scale-[0.98] transition-all disabled:opacity-50"
+                >
+                  {isClosingAfterBill ? "Processing..." : "Close Ordering"}
+                </button>
+                <p className="text-[10px] text-center text-gray-400 mt-4 font-medium italic">
+                  Once closed, you cannot add more items to this session.
+                </p>
               </div>
             </div>
-          )}
-        </section>
+          </div>
+        )}
 
         <button
           onClick={() => setShowHistory((value) => !value)}

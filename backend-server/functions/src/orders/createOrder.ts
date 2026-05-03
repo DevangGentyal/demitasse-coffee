@@ -52,11 +52,11 @@ export const createOrder = functions.https.onRequest(
       console.log("🔍 Validating:", { outletId, customerName, itemCount: items?.length });
 
       // Validate required fields
-      if (!outletId || !customerName || !items || !Array.isArray(items)) {
+      if (!outletId || !items || !Array.isArray(items)) {
         console.error("❌ Missing required fields");
         res.status(400).json({
           success: false,
-          message: "outletId, customerName, and items array are required",
+          message: "outletId and items array are required",
         });
         return;
       }
@@ -87,7 +87,7 @@ export const createOrder = functions.https.onRequest(
             const sessionRef = db.collection("sessions").doc();
             activeSessionId = sessionRef.id;
             console.log(`🆕 Starting new session: ${activeSessionId}`);
-            
+
             await db.runTransaction(async (tx) => {
               tx.set(sessionRef, {
                 outletId,
@@ -115,7 +115,7 @@ export const createOrder = functions.https.onRequest(
 
       const orderData = {
         outletId,
-        customerName: customerName.trim(),
+        customerName: (customerName || "Walk-in Customer").trim(),
         customerId: customerId ? String(customerId).trim() : null,
         customerPhone: customerPhone ? String(customerPhone).trim() : "",
         placedBy: resolvePlacedBy(placedBy),
@@ -128,7 +128,11 @@ export const createOrder = functions.https.onRequest(
           quantity: item.quantity || 1,
           status: item.status || "pending",
           price: item.price || 0,
-          addOns: item.addOns || "",
+          addOns: Array.isArray(item.addons) ? item.addons : (Array.isArray(item.addOns) ? item.addOns : []),
+          items: Array.isArray(item.items) ? item.items.map((sub: any) => ({
+            ...sub,
+            addOns: Array.isArray(sub.addons) ? sub.addons : (Array.isArray(sub.addOns) ? sub.addOns : [])
+          })) : undefined,
           notes: item.notes || "",
         })),
         orderStatus: "pending",

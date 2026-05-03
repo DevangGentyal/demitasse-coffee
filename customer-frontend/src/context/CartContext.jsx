@@ -108,15 +108,21 @@ export function CartProvider({ children }) {
   }, [cart, couponCodes, offers, fullUser, products, appliedOffers, revalidate]);
 
   // ✅ ADD TO CART
-  const addToCart = (item) => {
+  const addToCart = (product) => {
+    if (product.isAvailable !== true) {
+      console.error("BLOCKED:", product.name, product.isAvailable);
+      return;
+    }
+    console.log("FINAL PRODUCT BEFORE CART:", product);
+
     setCart(prev => {
-      const existingIndex = prev.findIndex(i => isSameItem(i, item));
+      const existingIndex = prev.findIndex(i => isSameItem(i, product));
       let updated;
       if (existingIndex !== -1) {
         updated = [...prev];
         updated[existingIndex].qty += 1;
       } else {
-        updated = [...prev, { ...item, qty: 1 }];
+        updated = [...prev, { ...product, qty: 1 }];
       }
       return updated;
     });

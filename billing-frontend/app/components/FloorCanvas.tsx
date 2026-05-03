@@ -67,20 +67,32 @@ function OrderViewModal({
   table,
   orders,
   onClose,
+  billData,
 }: {
   table: Table
   orders: TableOrder | undefined
   onClose: () => void
+  billData?: {
+    pricing: { subtotal: number; discount: number; tax: number; total: number }
+    appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }>
+  } | null
 }) {
   const items = orders?.items ?? []
-  const total = items.reduce((s, i) => s + i.qty * i.price, 0)
+  const rawTotal = items.reduce((s, i) => s + i.qty * i.price, 0)
+
+  // Use bill data if available, otherwise just show raw total
+  const hasBill = !!billData?.pricing
+  const pricing = billData?.pricing ?? { subtotal: rawTotal, discount: 0, tax: 0, total: rawTotal }
+  const appliedOffers = billData?.appliedOffers ?? []
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-xl border border-gray-200 shadow-xl w-[520px] max-h-[90vh] flex flex-col overflow-hidden">
         <div className="px-6 py-4 flex items-center justify-between border-b border-gray-200">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Table Orders</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              {hasBill ? 'Bill Summary' : 'Table Orders'}
+            </p>
             <h2 className="text-lg font-semibold text-gray-900">{table.name}</h2>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-800 transition-colors p-1">
@@ -113,10 +125,41 @@ function OrderViewModal({
           )}
         </div>
 
-        <div className="border-t border-gray-200 px-6 py-4 bg-gray-50">
-          <div className="flex justify-between items-center">
-            <span className="text-sm font-medium text-gray-600">Total</span>
-            <span className="text-2xl font-bold text-gray-900">₹{total.toFixed(2)}</span>
+        <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 space-y-2">
+          <div className="flex justify-between items-center text-sm text-gray-600">
+            <span>Subtotal</span>
+            <span>₹{pricing.subtotal.toFixed(2)}</span>
+          </div>
+
+          {appliedOffers.map((offer, idx) => (
+            <div key={idx} className="flex justify-between items-center text-sm text-green-600 font-medium">
+              <span className="flex items-center gap-1.5">
+                <span className="text-[10px] bg-green-100 px-1.5 py-0.5 rounded uppercase">{offer.type || 'Offer'}</span>
+                {offer.title}
+              </span>
+              <span>-₹{offer.amount.toFixed(2)}</span>
+            </div>
+          ))}
+
+          {pricing.discount > 0 && appliedOffers.length === 0 && (
+            <div className="flex justify-between items-center text-sm text-green-600 font-medium">
+              <span>Discount</span>
+              <span>-₹{pricing.discount.toFixed(2)}</span>
+            </div>
+          )}
+
+          {hasBill && (
+            <div className="flex justify-between items-center text-sm text-gray-600">
+              <span>Tax (5% GST)</span>
+              <span>₹{pricing.tax.toFixed(2)}</span>
+            </div>
+          )}
+
+          <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+            <span className="text-base font-semibold text-gray-700">
+              {hasBill ? 'Total Payable' : 'Total'}
+            </span>
+            <span className="text-2xl font-bold text-gray-900">₹{pricing.total.toFixed(2)}</span>
           </div>
         </div>
       </div>
@@ -239,6 +282,10 @@ export function FloorCanvas() {
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [activeTableId, setActiveTableId] = useState<string | null>(null)
   const [printerMenuTableId, setPrinterMenuTableId] = useState<string | null>(null)
+  const [billData, setBillData] = useState<{
+    pricing: { subtotal: number; discount: number; tax: number; total: number }
+    appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }>
+  } | null>(null)
 
   // Walls
   const [walls, setWalls] = useState<IWall[]>([])
@@ -704,6 +751,7 @@ export function FloorCanvas() {
   const handleEyeClick = (e: React.MouseEvent, tableId: string) => {
     e.stopPropagation()
     setActiveTableId(tableId)
+    setBillData(null) // View orders without bill calculation
     setShowOrderView(true)
   }
 
@@ -737,15 +785,40 @@ export function FloorCanvas() {
     }
   }
 
-  const openGenerateBill = (table: Table) => {
+  const openGenerateBill = async (table: Table) => {
     const hasOrders = (tableSessionOrders[table.id] || []).length > 0
     if (!hasOrders) {
       toast.warning('No orders found for this table to generate bill.')
       return
     }
-    setActiveTableId(table.id)
-    setShowOrderView(true)
-    toast.success(`Bill generated for ${table.name}`)
+
+    try {
+      const API_BASE = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
+      const response = await fetch(`${API_BASE}/generateBill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: table.activeSessionId || undefined,
+          tableId: table.id,
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Failed to generate bill')
+      }
+
+      setBillData({
+        pricing: result.pricing || { subtotal: 0, discount: 0, tax: 0, total: 0 },
+        appliedOffers: Array.isArray(result.appliedOffers) ? result.appliedOffers : [],
+      })
+      setActiveTableId(table.id)
+      setShowOrderView(true)
+      toast.success(`Bill generated for ${table.name}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate bill'
+      toast.error(message)
+    }
   }
 
   const printKOT = (table: Table) => {
@@ -1079,7 +1152,8 @@ export function FloorCanvas() {
             }))),
             createdAt: new Date()
           } : undefined}
-          onClose={() => { setShowOrderView(false); setActiveTableId(null) }}
+          billData={billData}
+          onClose={() => { setShowOrderView(false); setActiveTableId(null); setBillData(null) }}
         />
       )}
 

@@ -85,11 +85,9 @@ const OfferDetails = () => {
                         <span className="font-medium">Discount: </span>
                         {isCombo
                             ? <span className="font-bold text-[#AE7A65]">Combo at ₹{offer.config.comboPrice}</span>
-                            : offer.discountType === "PERCENT"
-                                ? <span className="font-bold text-green-600">{offer.discountValue}% OFF</span>
-                                : offer.discountType === "BOGO"
-                                    ? <span className="font-bold text-green-600">Buy 1 Get 1 FREE</span>
-                                    : <span className="font-bold text-green-600">₹{offer.discountValue} OFF</span>
+                            : offer.discountType === "BOGO"
+                                ? <span className="font-bold text-green-600">Buy 1 Get 1 FREE</span>
+                                : <span className="font-bold text-green-600">{offer.discountValue}% OFF</span>
                         }
                     </div>
 

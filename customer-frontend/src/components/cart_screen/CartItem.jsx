@@ -214,7 +214,7 @@ export default function CartItem({ item, onQtyChange }) {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs bg-[#16a34a]/15 text-[#16a34a] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide">
-                {item.discountType === "PERCENT" ? `${item.discountValue}% OFF` : `₹${item.discountValue} OFF`}
+                {`${item.discountValue}% OFF`}
               </span>
               <h3 className="font-semibold text-[#5C4033]">{item.offerTitle || item.name}</h3>
             </div>
@@ -265,7 +265,7 @@ export default function CartItem({ item, onQtyChange }) {
           )}
           {item.discountAmount > 0 && (
             <div className="flex justify-between text-xs text-green-600 font-medium">
-              <span>Discount ({item.discountType === "PERCENT" ? `${item.discountValue}%` : `₹${item.discountValue}`})</span>
+              <span>Discount ({item.discountValue}%)</span>
               <span>-₹{item.discountAmount}</span>
             </div>
           )}

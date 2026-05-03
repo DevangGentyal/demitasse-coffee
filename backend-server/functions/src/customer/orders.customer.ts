@@ -13,6 +13,7 @@ interface InputItem {
   qty: number;
   variations?: unknown[];
   customizations?: unknown[];
+  offerId?: string;
 }
 
 interface PersistedOrderItem {
@@ -31,6 +32,7 @@ interface PersistedOrderItem {
   totalPrice: number;
   createdBy: string;
   addedAt: unknown;
+  offerId?: string | null;
 }
 
 const setCors = (res: Response): void => {
@@ -71,6 +73,41 @@ const sanitizeQty = (qty: unknown): number => {
   const value = Number(qty);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 };
+
+const toDateSafe = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof (value as any)?.toDate === "function") {
+    try { return (value as any).toDate(); } catch { return null; }
+  }
+  const parsed = new Date(value as string);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const readNumber = (value: unknown, fallback = 0): number => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const getOfferLimit = (offerData: any, key: string): number => {
+  return readNumber(offerData[key], readNumber(offerData.userRules?.[key], 0));
+};
+
+const isOfferCurrentlyValid = (offerData: Record<string, unknown>): boolean => {
+  if (!offerData.isActive) return false;
+  const now = new Date();
+  const start = toDateSafe(offerData.startDate);
+  const end = toDateSafe(offerData.endDate);
+  if (start && now < start) return false;
+  if (end && now > end) return false;
+
+  const usageLimit = getOfferLimit(offerData, "usageLimit");
+  const usedCount = readNumber(offerData.usedCount, 0);
+  if (usageLimit > 0 && usedCount >= usageLimit) return false;
+
+  return true;
+};
+
 
 export const addItemsToOrder = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
@@ -120,6 +157,7 @@ export const addItemsToOrder = functions.https.onRequest(
           throw new Error("ORDER_NOT_ACTIVE");
         }
 
+        const nextOfferId = offerId ?? (orderData.offerId ? String(orderData.offerId) : null);
         const newItems: PersistedOrderItem[] = [];
 
         for (const incomingItem of items) {
@@ -158,6 +196,7 @@ export const addItemsToOrder = functions.https.onRequest(
             totalPrice,
             createdBy: actorId,
             addedAt: FieldValue.serverTimestamp(),
+            offerId: incomingItem.offerId || nextOfferId || null,
           });
         }
 
@@ -167,8 +206,6 @@ export const addItemsToOrder = functions.https.onRequest(
 
         const mergedItems = existingItems.concat(newItems);
         const subtotal = calculateSubtotal(mergedItems);
-
-        const nextOfferId = offerId ?? (orderData.offerId ? String(orderData.offerId) : null);
 
         let appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }> = [];
         let discount = 0;
@@ -180,7 +217,69 @@ export const addItemsToOrder = functions.https.onRequest(
             throw new Error("OFFER_NOT_FOUND");
           }
 
-          const offerData = offerSnap.data() || {};
+          const offerData = offerSnap.data();
+          if (!offerData) {
+            throw new Error("OFFER_NOT_FOUND");
+          }
+
+          if (!isOfferCurrentlyValid(offerData)) {
+            throw new Error("OFFER_EXPIRED");
+          }
+          
+          const perUserLimit = getOfferLimit(offerData, "perUserLimit");
+          if (perUserLimit > 0 && userId) {
+            // 1. FETCH CURRENT SESSION USAGE
+            const activeOrdersSnap = await tx.get(db.collection("orders").where("sessionId", "==", sessionId));
+            let currentUsage = 0;
+            
+            activeOrdersSnap.docs.forEach(doc => {
+              if (doc.id === orderRef.id) return; // skip current order, we'll check existingItems
+              const data = doc.data();
+              const dItems = Array.isArray(data.items) ? data.items : [];
+              dItems.forEach((item: any) => {
+                if (item.offerId === nextOfferId) {
+                  if (item.items && Array.isArray(item.items)) {
+                    currentUsage += item.items.length;
+                  } else {
+                    currentUsage += 1;
+                  }
+                }
+              });
+            });
+
+            existingItems.forEach((item: any) => {
+              if (item.offerId === nextOfferId) {
+                if (item.items && Array.isArray(item.items)) {
+                  currentUsage += item.items.length;
+                } else {
+                  currentUsage += 1;
+                }
+              }
+            });
+
+            // 2. COUNT NEW ITEMS IN REQUEST
+            let newUsage = 0;
+            for (const item of items) {
+              if (item.offerId === nextOfferId || nextOfferId) {
+                if ((item as any).items && Array.isArray((item as any).items)) {
+                  newUsage += (item as any).items.length;
+                } else {
+                  newUsage += 1;
+                }
+              }
+            }
+
+            // 3. FETCH PAST USAGE
+            const userSnap = await tx.get(db.collection("users").doc(userId));
+            const pastUsage = readNumber((userSnap.data()?.usedOffers || {})[nextOfferId], 0);
+
+            // 4. FINAL VALIDATION
+            const totalUsage = pastUsage + currentUsage + newUsage;
+            if (totalUsage > perUserLimit) {
+              throw new Error("LIMIT_REACHED");
+            }
+          }
+
           const offerResult = applyOffer(
             {
               outletId: String(orderData.outletId || ""),
@@ -246,6 +345,16 @@ export const addItemsToOrder = functions.https.onRequest(
 
         if (error.message === "OFFER_NOT_FOUND") {
           res.status(404).json({ success: false, message: "Offer not found" });
+          return;
+        }
+
+        if (error.message === "OFFER_EXPIRED") {
+          res.status(400).json({ success: false, message: "Offer is no longer active or has expired" });
+          return;
+        }
+
+        if (error.message === "LIMIT_REACHED") {
+          res.status(400).json({ success: false, message: "You have reached the maximum usage for this offer" });
           return;
         }
 

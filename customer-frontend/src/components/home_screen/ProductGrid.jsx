@@ -17,6 +17,7 @@ export default function ProductGrid() {
           image={p.image}
           name={p.name}
           price={p.price}
+          isAvailable={p.isAvailable !== false}
         />
       ))}
     </div>

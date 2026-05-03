@@ -49,6 +49,7 @@ interface Offer {
   };
   combo?: ComboGroup[]; // Fallback
   comboPrice?: number;   // Fallback
+  applicableCategory?: string;
   userRules?: { firstOrderOnly?: boolean; birthdayOnly?: boolean; };
 }
 
@@ -125,10 +126,24 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const isB1G1 = offer?.discountType === "BOGO" || offer?.discountType === "B1G1" || offer?.type === "BOGO" || offer?.type === "B1G1";
 
   // ─── Interactive Discount detection ──────────────────────────────────────────
+  const rawProductIds = offer?.config?.discount?.productIds || offer?.config?.applicableProductIds || offer?.applicableItems || offer?.applicableProductIds || offer?.productIds || [];
+  const isProductOffer = Array.isArray(rawProductIds) && rawProductIds.length > 0;
+  const isCategoryOffer = offer?.type === "CATEGORY_DISCOUNT" || Boolean(offer?.applicableCategory && offer?.applicableCategory !== "all");
+
   const isInteractiveDiscount =
-    (offer?.type === "DISCOUNT" || offer?.discountType === "PERCENT" || offer?.discountType === "FLAT") &&
-    offer?.config?.selection?.enabled === true &&
+    (offer?.type === "DISCOUNT" || isCategoryOffer || offer?.discountType === "PERCENT" || offer?.discountType === "FLAT") &&
+    (isProductOffer || isCategoryOffer || offer?.config?.selection?.enabled === true) &&
     !isCombo && !isB1G1;
+
+  if (offer?.type === "CATEGORY_DISCOUNT" || isCategoryOffer) {
+    console.log("=== APPLY BUTTON DEBUG ===");
+    console.log("Offer Type:", offer?.type);
+    console.log("Product IDs:", rawProductIds);
+    console.log("Is Product Offer:", isProductOffer);
+    console.log("Is Category Offer:", isCategoryOffer);
+    console.log("Can Apply (isInteractiveDiscount):", isInteractiveDiscount);
+    console.log("==========================");
+  }
 
   // ─── Birthday Offer detection ───────────────────────────────────────────
   const isBirthdayOffer = offer ? (
@@ -144,7 +159,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
     ? (comboPrice > 0 ? `₹${comboPrice} Only` : "Combo Deal")
     : isB1G1 ? "B1G1 FREE"
     : resolvedDiscountValue > 0
-      ? offer?.discountType === "PERCENT" ? `${resolvedDiscountValue}% OFF` : `₹${resolvedDiscountValue} OFF`
+      ? `${resolvedDiscountValue}% OFF`
       : "Special Offer";
 
   const title = offer?.title || discountText;
@@ -340,6 +355,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
           onClose={() => setShowDiscountModal(false)}
           onAdded={() => handleAdded("Discount")}
           addDiscountToCart={addDiscountToCart}
+          cart={cart}
         />
       )}
 
@@ -623,28 +639,62 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
 
 // ─── Discount Builder Modal ──────────────────────────────────────────────────
 interface DiscountBuilderProps {
-  offer: any;
+  offer: Offer;
   productsMap: Record<string, any>;
   productsArray: any[];
   onClose: () => void;
   onAdded: () => void;
   addDiscountToCart: (data: any) => void;
+  cart?: any[];
 }
 
 const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
-  offer, productsMap, productsArray, onClose, onAdded, addDiscountToCart
+  offer, productsMap, productsArray, onClose, onAdded, addDiscountToCart, cart = []
 }) => {
   const [selections, setSelections] = useState<string[]>([]);
   const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
-  const maxSelection = offer.config?.selection?.maxSelection || 1;
+  // If it's a category discount, allow selecting all applicable items. Otherwise, rely on config.
+  const isCategoryDiscount = Boolean(offer.applicableCategory && offer.applicableCategory !== "all");
+  const maxSelection = isCategoryDiscount ? 999 : (offer.config?.selection?.maxSelection || 1);
 
-  // Get applicable product IDs from config.discount.productIds or applicableProductIds
+  // Get applicable products based on category or specific product IDs
   const applicableProducts = useMemo(() => {
+    const allProducts = Object.values(productsMap);
+
+    // If it's a category discount, filter all products by that category
+    if (offer.applicableCategory && offer.applicableCategory !== "all") {
+      const offerCat = String(offer.applicableCategory).toLowerCase().trim();
+      
+      console.log("============= CATEGORY DISCOUNT DEBUG =============");
+      console.log("Offer Config:", offer);
+      console.log("Offer Category (offer.applicableCategory):", offerCat);
+      console.log("Cart Items Structure:", cart);
+
+      const categoryProducts = allProducts.filter((p: any) => {
+        if (!p) return false;
+        const pCat = String(p.category || "").toLowerCase().trim();
+        const pSubCat = String(p.subcategory || "").toLowerCase().trim();
+        
+        const isMatch = pCat === offerCat || pSubCat === offerCat;
+        if (isMatch) {
+          console.log(`✅ MATCHED Product: ${p.name} | Category: ${p.category} | Subcategory: ${p.subcategory}`);
+        } else {
+          // console.log(`❌ Skipped Product: ${p.name} | Category: ${p.category} | SubCat: ${p.subcategory}`); // Commented out to reduce noise
+        }
+        return isMatch;
+      });
+      console.log("Final Eligible Products for Modal:", categoryProducts.map((p: any) => p.name));
+      console.log("===================================================");
+
+      return categoryProducts;
+    }
+
+    // Otherwise, it's a product-specific discount
     const discountConfig = offer.config?.discount || {};
-    let rawIds = discountConfig.productIds || offer.config?.applicableProductIds || offer.applicableProductIds || [];
+    let rawIds = discountConfig.productIds || offer.config?.applicableProductIds || offer.applicableItems || offer.applicableProductIds || [];
     if (!Array.isArray(rawIds)) rawIds = [];
 
     const ids = rawIds.map((item: any) => {
@@ -653,7 +703,6 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
       return String(item.productId || item.id || "").trim();
     }).filter((id: string) => id.length > 0);
 
-    const allProducts = Object.values(productsMap);
     return allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
   }, [offer, productsMap]);
 
@@ -710,9 +759,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
     return sum + calcAddOnsCost(product, cust.addons);
   }, 0);
 
-  const discountAmount = discountType === "PERCENT"
-    ? Math.round((basePrice * discountValue) / 100)
-    : Math.min(discountValue, basePrice);
+  const discountAmount = Math.round((basePrice * discountValue) / 100);
 
   const finalPrice = Math.max(0, basePrice + addOnsCost - discountAmount);
 
@@ -738,7 +785,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
 
     addDiscountToCart({
       offerId: offer.id,
-      offerType: "DISCOUNT",
+      offerType: offer.type || "DISCOUNT",
       offerTitle: offer.title || "Discount Offer",
       originalPrice: basePrice,
       discountAmount,
@@ -778,7 +825,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
             <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500">✕</button>
           </div>
           <p className="text-xs text-[#8B6F5E] mt-0.5">
-            Select {maxSelection > 1 ? `up to ${maxSelection} items` : "an item"} to apply {discountType === "PERCENT" ? `${discountValue}%` : `₹${discountValue}`} discount
+            Select {maxSelection > 1 ? `up to ${maxSelection} items` : "an item"} to apply {discountValue}% discount
           </p>
         </div>
 

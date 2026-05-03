@@ -101,19 +101,21 @@ export default function ItemDetails() {
 
   });
 
+  const isAvailable = product.isAvailable !== false;
+
   const handleAdd = () => {
 
+    if (product.isAvailable === false) return;
+
     addToCart({
-      id: product.id,
-      name: product.name,
+      ...product,
       price: totalPrice,
       variation,
       addons,
-      isVeg:product.isVeg
     });
 
     setShowSnack(true);
-    
+
     setTimeout(() => {
       setShowSnack(false);
     }, 2000);
@@ -191,9 +193,10 @@ export default function ItemDetails() {
       {/* 🔹 Add to cart button */}
       <button
         onClick={handleAdd}
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[65%] bg-green-700 text-white py-4 rounded-full font-semibold shadow-lg"
+        disabled={!isAvailable}
+        className={`fixed bottom-6 left-1/2 -translate-x-1/2 w-[65%] text-white py-4 rounded-full font-semibold shadow-lg ${!isAvailable ? 'bg-gray-500 cursor-not-allowed' : 'bg-green-700'}`}
       >
-        Add To Cart • ₹{totalPrice}
+        {!isAvailable ? "Currently Unavailable" : `Add To Cart • ₹${totalPrice}`}
       </button>
 
       {/* 🔹 Snackbar */}

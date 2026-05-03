@@ -32,7 +32,7 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
     }
 
     // ✅ Type validation
-    const validTypes = ["discount", "bogo", "freebie"];
+    const validTypes = ["discount", "bogo", "freebie", "CATEGORY_DISCOUNT"];
     if (!validTypes.includes(data.type)) {
       res.status(400).json({
         success: false,
@@ -42,7 +42,7 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
     }
 
     // ✅ Discount validation
-    if (data.type === "discount") {
+    if (data.type === "discount" || data.type === "CATEGORY_DISCOUNT") {
       if (
         typeof data.discountValue !== "number" ||
         data.discountValue <= 0 ||

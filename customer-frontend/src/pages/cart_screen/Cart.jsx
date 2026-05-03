@@ -1,10 +1,14 @@
+import { useState } from "react";
 import { useCart } from "../../context/CartContext";
 import { useNavigate } from "react-router-dom";
+import { useLocationContext } from "../../context/LocationContext";
+import { useOffers } from "../../context/OfferContext";
+import { auth } from "../../lib/firebase";
 
 import CartHeader from "../../components/cart_screen/CartHeader.jsx";
 import CartItem from "../../components/cart_screen/CartItem.jsx";
 
-import { useOffers } from "../../context/OfferContext";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
 
 const Cart = () => {
   const navigate = useNavigate();
@@ -19,7 +23,11 @@ const Cart = () => {
   } = useCart();
 
   const { offers, fullUser } = useOffers();
+  const { selectedOutlet } = useLocationContext();
   const isGuest = !fullUser && localStorage.getItem("userType") === "guest";
+
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationError, setValidationError] = useState("");
 
   // ✅ Check if combo is in cart (for priority logic)
   const hasComboInCart = cart.some(item => item.isCombo);
@@ -31,28 +39,22 @@ const Cart = () => {
     const offer = offers.find((o) => o.id === applied.offerId);
     if (!offer) return;
 
-    const type = (offer.discountType || "").toUpperCase();
-
-    if (type === "PERCENT") {
-      let base = totalPrice;
-      if (offer.products && offer.products.length > 0) {
-        const allowedIds = offer.products.map((p) => p.productId).filter(Boolean);
-        const allowedNames = offer.products.map((p) => p.name?.toLowerCase());
-        base = cart
-          .filter(
-            (item) =>
-              !item.isFree &&
-              !item.isCombo &&
-              (allowedIds.includes(item.id) ||
-                allowedNames.includes(item.name?.toLowerCase()))
-          )
-          .reduce((sum, item) => sum + item.price * item.qty, 0);
-      }
-      calculatedDiscount += Math.round((base * offer.discountValue) / 100);
-    } else if (type !== "BOGO" && type !== "COMBO" && offer.discountValue > 0) {
-      // Handles FIXED, FLAT, flat, fixed, or any other named type — treat as fixed amount
-      calculatedDiscount += offer.discountValue;
+    let base = totalPrice;
+    if (offer.products && offer.products.length > 0) {
+      const allowedIds = offer.products.map((p) => p.productId).filter(Boolean);
+      const allowedNames = offer.products.map((p) => p.name?.toLowerCase());
+      base = cart
+        .filter(
+          (item) =>
+            !item.isFree &&
+            !item.isCombo &&
+            (allowedIds.includes(item.id) ||
+              allowedNames.includes(item.name?.toLowerCase()))
+        )
+        .reduce((sum, item) => sum + item.price * item.qty, 0);
     }
+    // Always treat discountValue as a percentage
+    calculatedDiscount += Math.round((base * offer.discountValue) / 100);
     // BOGO: free items already have price 0, no numeric discount shown
     // COMBO: price already calculated correctly in cart item
   });
@@ -60,30 +62,68 @@ const Cart = () => {
   // ✅ AUTO REGISTRATION OFFER DISCOUNT (Calculates ONLY on normal items)
   let autoDiscount = 0;
   if (autoAppliedOffer) {
-    const discType = (autoAppliedOffer.offerType || "").toUpperCase();
-    
-    // Calculate on non-combo, non-B1G1, non-free item total
-    const eligibleTotal = cart
-      .filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1)
-      .reduce((sum, i) => sum + i.price * i.qty, 0);
-      
-    if (eligibleTotal > 0) {
-      if (discType === "PERCENT") {
-        autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
-      } else if (autoAppliedOffer.discountValue > 0) {
-        // If fixed, ensure it doesn't exceed the eligible total itself
-        autoDiscount = Math.min(autoAppliedOffer.discountValue, eligibleTotal);
-      }
-    }
+      // Always treat discountValue as a percentage
+      autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
   }
 
   const totalDiscount = calculatedDiscount + autoDiscount;
-  const tax = 45;
-  // ✅ CORRECT: subtract discount from (items + tax)
-  const grandTotal = Math.max(0, totalPrice + tax - totalDiscount);
+  // Tax is NOT shown in cart — only applied at bill generation
+  const grandTotal = Math.max(0, totalPrice - totalDiscount);
 
   // Helper config string to detect remaining valid normal items for banner UI
   const hasEligibleItems = cart.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1).length > 0;
+
+  // ✅ BACKEND VALIDATION before Place Order
+  const handlePlaceOrder = async () => {
+    if (cart.length === 0) return;
+    if (isValidating) return;
+
+    setIsValidating(true);
+    setValidationError("");
+
+    try {
+      const userId = auth.currentUser?.uid || null;
+
+      const res = await fetch(`${API_BASE}/validateAndCalculateBill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cartItems: cart,
+          outletId: selectedOutlet,
+          autoAppliedOfferId: autoAppliedOffer?.offerId || null,
+          userId,
+        }),
+      });
+
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok || !result?.success) {
+        setValidationError(result?.message || "Cart validation failed. Please check your items.");
+        return;
+      }
+
+      // ✅ Validation passed — navigate to BillDetails with server-verified pricing
+      navigate("/bill", {
+        state: {
+          items: cart,
+          itemTotal: totalPrice,
+          tax: 0,
+          discount: totalDiscount,
+          grandTotal,
+          appliedOffers,
+          autoAppliedOffer: autoAppliedOffer && hasEligibleItems ? autoAppliedOffer : null,
+          autoDiscount,
+          // Server-verified pricing (BillDetails can use these)
+          serverPricing: result.pricing,
+          serverDiscountSources: result.discountSources,
+        },
+      });
+    } catch (error) {
+      setValidationError("Network error. Please check your connection and try again.");
+    } finally {
+      setIsValidating(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-28">
@@ -110,6 +150,15 @@ const Cart = () => {
           ))
         )}
 
+        {/* ✅ Validation Error Banner */}
+        {validationError && (
+          <div className="flex items-start gap-3 border border-red-200 bg-red-50 rounded-xl px-4 py-3 text-sm text-red-700">
+            <span className="text-base leading-none mt-0.5">⚠️</span>
+            <span className="flex-1">{validationError}</span>
+            <button onClick={() => setValidationError("")} className="font-bold text-base leading-none ml-1 opacity-50 hover:opacity-100">✕</button>
+          </div>
+        )}
+
         {/* ✅ Auto Applied Registration Offer Banner */}
         {autoAppliedOffer && hasEligibleItems && (
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl px-4 py-3 flex items-center gap-3">
@@ -118,8 +167,8 @@ const Cart = () => {
               <p className="text-sm font-bold text-green-700">{autoAppliedOffer.title}</p>
               <p className="text-xs text-green-600">
                 {autoAppliedOffer.offerType === "PERCENT"
-                  ? `${autoAppliedOffer.discountValue}% OFF — Auto Applied!`
-                  : `₹${autoAppliedOffer.discountValue} OFF — Auto Applied!`
+                ? `${autoAppliedOffer.discountValue}% OFF — Auto Applied!`
+                : `${autoAppliedOffer.discountValue}% OFF — Auto Applied!`
                 }
               </p>
             </div>
@@ -162,10 +211,7 @@ const Cart = () => {
               <span>₹{totalPrice}</span>
             </div>
 
-            <div className="flex justify-between text-sm text-gray-600 mt-1">
-              <span>Taxes & Charges</span>
-              <span>₹{tax}</span>
-            </div>
+
 
             {/* Show each applied offer's discount */}
             {appliedOffers.map((applied, idx) => {
@@ -178,7 +224,7 @@ const Cart = () => {
                     key={idx}
                     className="flex justify-between text-sm text-green-600 mt-1"
                   >
-                    <span>🎉 {offer.title}</span>
+                    <span>🎉 {offer.title} ({offer.discountValue}%)</span>
                     <span>FREE item added</span>
                   </div>
                 );
@@ -186,10 +232,7 @@ const Cart = () => {
 
               if (offer.discountType === "COMBO") return null; // Combo price already in item
 
-              const discAmt =
-                offer.discountType === "PERCENT"
-                  ? Math.round((totalPrice * offer.discountValue) / 100)
-                  : offer.discountValue;
+              const discAmt = Math.round((totalPrice * offer.discountValue) / 100);
 
               return (
                 <div
@@ -231,7 +274,7 @@ const Cart = () => {
                   state: {
                     items: cart,
                     itemTotal: totalPrice,
-                    tax,
+                    tax: 0,
                     discount: totalDiscount,
                     grandTotal,
                     appliedOffers,
@@ -262,24 +305,11 @@ const Cart = () => {
           </button>
 
           <button
-            disabled={cart.length === 0}
-            onClick={() =>
-              navigate("/bill", {
-                state: {
-                  items: cart,
-                  itemTotal: totalPrice,
-                  tax,
-                  discount: totalDiscount,
-                  grandTotal,
-                  appliedOffers,
-                  autoAppliedOffer: autoAppliedOffer && hasEligibleItems ? autoAppliedOffer : null,
-                  autoDiscount,
-                },
-              })
-            }
+            disabled={cart.length === 0 || isValidating}
+            onClick={handlePlaceOrder}
             className="flex-1 bg-green-500 text-white py-3 rounded-full font-semibold disabled:opacity-50"
           >
-            Place Order ({totalItems})
+            {isValidating ? "Validating..." : `Place Order (${totalItems})`}
           </button>
         </div>
       </div>

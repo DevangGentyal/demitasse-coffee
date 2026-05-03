@@ -44,6 +44,7 @@ export default function MenuProductGrid({
             image={p.image}
             name={p.name}
             price={p.price}
+            isAvailable={p.isAvailable !== false}
           />
         ))
       )}

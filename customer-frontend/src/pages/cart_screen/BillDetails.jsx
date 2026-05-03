@@ -114,49 +114,46 @@ const BillDetails = () => {
         }
       }
 
-      // ✅ SECURITY: Re-verify B1G1 Pricing
+      // ✅ SECURITY: Re-verify B1G1 Pricing (grouped structure: each item.items contains paid + free)
       const b1g1Items = items.filter(i => i.isManualB1G1);
-      if (b1g1Items.length > 0) {
-        // Find pairs by offerId
-        const offerGroups = {};
-        b1g1Items.forEach(item => {
-          if (!offerGroups[item.offerId]) offerGroups[item.offerId] = [];
-          offerGroups[item.offerId].push(item);
-        });
+      for (const b1g1 of b1g1Items) {
+        if (!b1g1.offerId || !Array.isArray(b1g1.items) || b1g1.items.length < 2) {
+          showMsg("B1G1 validation failed: Invalid B1G1 structure. Please re-add the offer.");
+          setIsProcessing(false);
+          navigate("/cart");
+          return;
+        }
 
-        for (const oId in offerGroups) {
-          const group = offerGroups[oId];
-          if (group.length % 2 !== 0) {
-            showMsg("B1G1 validation failed: Incomplete pair found.");
-            setIsProcessing(false);
-            return;
-          }
-          // In each pair, one must be free and it must be the cheaper one
-          // Since they might be multiple pairs for one offer, we check in pairs of 2
-          for (let i = 0; i < group.length; i += 2) {
-            const pair = [group[i], group[i+1]];
-            const freeItem = pair.find(p => p.isFree);
-            const paidItem = pair.find(p => !p.isFree);
-            
-            if (!freeItem || !paidItem) {
-               showMsg("B1G1 validation failed: Invalid pair structure.");
-               setIsProcessing(false);
-               return;
-            }
+        // Validate sub-items: at least one paid and one free
+        const paidSubs = b1g1.items.filter(si => !si.isFree);
+        const freeSubs = b1g1.items.filter(si => si.isFree);
 
-            // Fetch current product prices for security
-            const freeSnap = await getDoc(doc(db, "products", freeItem.id.split("_")[0]));
-            const paidSnap = await getDoc(doc(db, "products", paidItem.id.split("_")[0]));
-            
+        if (paidSubs.length === 0 || freeSubs.length === 0) {
+          showMsg("B1G1 validation failed: Missing paid or free item in pair.");
+          setIsProcessing(false);
+          return;
+        }
+
+        // Verify prices from DB: free item must be the cheaper one
+        for (const freeSub of freeSubs) {
+          const freeProductId = String(freeSub.productId || "");
+          if (!freeProductId) continue;
+          const freeSnap = await getDoc(doc(db, "products", freeProductId));
+
+          for (const paidSub of paidSubs) {
+            const paidProductId = String(paidSub.productId || "");
+            if (!paidProductId) continue;
+            const paidSnap = await getDoc(doc(db, "products", paidProductId));
+
             if (freeSnap.exists() && paidSnap.exists()) {
               const liveFreePrice = freeSnap.data().price;
               const livePaidPrice = paidSnap.data().price;
-              
+
               if (liveFreePrice > livePaidPrice) {
-                 showMsg("B1G1 validation failed: Cheapest item must be free. Please re-add the offer.");
-                 setIsProcessing(false);
-                 navigate("/cart");
-                 return;
+                showMsg("B1G1 validation failed: Cheapest item must be free. Please re-add the offer.");
+                setIsProcessing(false);
+                navigate("/cart");
+                return;
               }
             }
           }
@@ -191,12 +188,15 @@ const BillDetails = () => {
         userId: resolvedOwnerId,
         sessionId: activeSessionId,
         placedBy: "customer",
-        items,
+        items: items.map(item => {
+          console.log("CART ITEM:", item);
+          return item;
+        }),
         itemTotal,
         tax,
         discount,
         grandTotal,
-        status: "pending",
+        status: "in-progress",
         createdAt: new Date(),
         appliedOffers: appliedOffers.map(o => ({ offerId: o.offerId, type: o.type }))
       };
@@ -328,8 +328,8 @@ const BillDetails = () => {
                         <div key={`cv-${i}`} className="text-[#8B6F5E] ml-2">• {String(v)}</div>
                       ))}
                       {/* Add-ons */}
-                      {Object.values(sub.addOns || {}).flat().map((a, i) => (
-                        <div key={`ca-${i}`} className="text-[#AE7A65] ml-2">+ {String(a)}</div>
+                      {(Array.isArray(sub.addOns) ? sub.addOns : []).map((a, i) => (
+                        <div key={`ca-${i}`} className="text-[#AE7A65] ml-2">+ {a.name} (+₹{a.price})</div>
                       ))}
                     </div>
                   ))}
@@ -379,8 +379,8 @@ const BillDetails = () => {
                         <div key={`cv-${i}`} className="text-[#8B6F5E] ml-2">• {String(v)}</div>
                       ))}
                       {/* Add-ons */}
-                      {Object.values(sub.addOns || {}).flat().map((a, i) => (
-                        <div key={`ca-${i}`} className="text-orange-600 ml-2">+ {String(a)}</div>
+                      {(Array.isArray(sub.addOns) ? sub.addOns : []).map((a, i) => (
+                        <div key={`ca-${i}`} className="text-orange-600 ml-2">+ {a.name} (+₹{a.price})</div>
                       ))}
                       {sub.addOnsCost > 0 && (
                         <div className="text-[#8B6F5E] ml-2">Add-ons: +₹{sub.addOnsCost}</div>
@@ -439,8 +439,9 @@ const BillDetails = () => {
                       {Object.values(sub.customizations || {}).map((v, i) => (
                         <div key={`cv-${i}`} className="text-[#8B6F5E] ml-2">• {String(v)}</div>
                       ))}
-                      {Object.values(sub.addOns || {}).flat().map((a, i) => (
-                        <div key={`ca-${i}`} className="text-[#16a34a] ml-2">+ {String(a)}</div>
+                      {/* Add-ons */}
+                      {(Array.isArray(sub.addOns) ? sub.addOns : []).map((a, i) => (
+                        <div key={`ca-${i}`} className="text-[#16a34a] ml-2">+ {a.name} (+₹{a.price})</div>
                       ))}
                       {sub.addOnsCost > 0 && (
                         <div className="text-[#8B6F5E] ml-2">Add-ons: +₹{sub.addOnsCost}</div>
@@ -502,8 +503,8 @@ const BillDetails = () => {
                       <div key={`bv-${i}`} className="text-[10px] text-gray-500">• {String(v)}</div>
                     ))}
                     {/* Add-ons */}
-                    {Object.values(item.addons || {}).flat().map((a, i) => (
-                      <div key={`ba-${i}`} className="text-[10px] text-gray-500">+ {String(a)} (FREE 🎂)</div>
+                    {(Array.isArray(item.addons) ? item.addons : []).map((a, i) => (
+                      <div key={`ba-${i}`} className="text-[10px] text-gray-500">+ {a.name} (+₹{a.price}) (FREE 🎂)</div>
                     ))}
                   </div>
                 </div>
@@ -522,8 +523,8 @@ const BillDetails = () => {
                 {Object.values(item.variation || {}).map((v, i) => (
                   <div key={i} className="text-xs text-gray-500 ml-2">• {v}</div>
                 ))}
-                {Object.values(item.addons || {}).flat().map((a, i) => (
-                  <div key={`a-${i}`} className="text-xs text-gray-500 ml-2">+ {a}</div>
+                {(Array.isArray(item.addons) ? item.addons : []).map((a, i) => (
+                  <div key={`a-${i}`} className="text-xs text-gray-500 ml-2">+ {a.name} (+₹{a.price})</div>
                 ))}
               </div>
             );
@@ -536,10 +537,7 @@ const BillDetails = () => {
               <span className="text-gray-500">Item Total</span>
               <span>₹{itemTotal}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Taxes & Charges</span>
-              <span>₹{tax}</span>
-            </div>
+
 
             {/* Per-offer discount rows */}
             {appliedOffers.length > 0 && appliedOffers.map((o, i) => {
@@ -557,9 +555,7 @@ const BillDetails = () => {
 
               if (matchedOffer.discountType === "COMBO") return null; // Already in item price
 
-              const discAmt = matchedOffer.discountType === "PERCENT"
-                ? Math.round((itemTotal * matchedOffer.discountValue) / 100)
-                : matchedOffer.discountValue;
+              const discAmt = Math.round((itemTotal * matchedOffer.discountValue) / 100);
 
               return (
                 <div key={i} className="flex justify-between text-sm text-green-600 font-medium">
