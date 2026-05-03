@@ -7,7 +7,7 @@ import ProductGrid from "@/components/home_screen/ProductGrid";
 
 export default function Home() {
   return (
-    <div className="pb-24">
+    <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-28">
       <Header />
       <SearchBar />
       <OfferCard />

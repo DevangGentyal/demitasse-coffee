@@ -16,6 +16,7 @@ interface AddOrderModalProps {
   isOpen: boolean
   onClose: () => void
   onOrderCreated?: () => void
+  initialTableId?: string
 }
 
 interface OrderItem {
@@ -23,15 +24,15 @@ interface OrderItem {
   name: string
   quantity: number
   price: number
-  status: 'pending' | 'in-progress' | 'ready'
+  status: 'in-progress' | 'ready'
   addOns?: string
   notes?: string
 }
 
-export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModalProps) {
-  const { addOrder } = useApp()
+export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId }: AddOrderModalProps) {
+  const { addOrder, tables, orders } = useApp()
   const [customerName, setCustomerName] = useState('')
-  const [tableId, setTableId] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
   const [items, setItems] = useState<OrderItem[]>([])
   
   const [products, setProducts] = useState<Product[]>([])
@@ -42,6 +43,34 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [outletId, setOutletId] = useState<string | null>(null)
+
+  const activeTable = useMemo(() => {
+    if (!initialTableId) return undefined
+    return tables.find(table => table.id === initialTableId)
+  }, [initialTableId, tables])
+
+  const tableOrders = useMemo(() => {
+    if (!initialTableId) return []
+    return orders.filter(order => {
+      if (order.tableId === initialTableId) return true
+      if (activeTable?.activeSessionId && order.sessionId === activeTable.activeSessionId) return true
+      return false
+    })
+  }, [activeTable?.activeSessionId, initialTableId, orders])
+
+  const existingBillOrder = useMemo(() => {
+    if (tableOrders.length === 0) return undefined
+    return [...tableOrders].sort((a, b) => {
+      const timeA = a.timeOfOrder instanceof Date ? a.timeOfOrder.getTime() : new Date(a.timeOfOrder).getTime()
+      const timeB = b.timeOfOrder instanceof Date ? b.timeOfOrder.getTime() : new Date(b.timeOfOrder).getTime()
+      return timeA - timeB
+    })[0]
+  }, [tableOrders])
+
+  const reusableCustomerName = existingBillOrder?.customerName || activeTable?.customerName || ''
+  const reusableCustomerPhone = existingBillOrder?.customerPhone || activeTable?.customerPhone || ''
+  const isContinuingBill = Boolean(activeTable?.activeSessionId || tableOrders.length > 0)
+  const canReuseCustomerInfo = Boolean(reusableCustomerName)
 
   // Memoized categories from items
   const categories = useMemo(() => {
@@ -65,12 +94,12 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
       try {
         setIsLoading(true)
         setError(null)
-        
+
         console.log('📥 Fetching outlet ID...')
         const fetchedOutletId = await getOutletIdForCurrentUser()
         console.log('✅ Outlet ID:', fetchedOutletId)
         setOutletId(fetchedOutletId)
-        
+
         console.log('📥 Fetching products for outlet:', fetchedOutletId)
         const fetchedProducts = await getProductsByOutletId(fetchedOutletId)
         console.log('✅ Total products fetched:', fetchedProducts.length)
@@ -79,7 +108,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
         const availableProducts = fetchedProducts.filter(p => p.isAvailable)
         console.log('✅ Available products:', availableProducts.length)
         setProducts(availableProducts)
-        
+
         if (availableProducts.length === 0) {
           setError('No available items in menu')
         }
@@ -94,6 +123,24 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
 
     fetchMenu()
   }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    setItems([])
+    setSearchQuery('')
+    setSelectedCategory('all')
+    setError(null)
+
+    if (isContinuingBill && canReuseCustomerInfo) {
+      setCustomerName(reusableCustomerName)
+      setCustomerPhone(reusableCustomerPhone)
+      return
+    }
+
+    setCustomerName('')
+    setCustomerPhone('')
+  }, [canReuseCustomerInfo, isContinuingBill, isOpen, reusableCustomerName, reusableCustomerPhone])
 
   const handleAddItem = (product: Product) => {
     const existingItem = items.find(i => i.id === product.id)
@@ -111,7 +158,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
           name: product.name,
           quantity: 1,
           price: product.price,
-          status: 'pending',
+          status: 'in-progress',
           addOns: '',
           notes: '',
         },
@@ -120,11 +167,22 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
   }
 
   const handleRemoveItem = (itemId: string) => {
-    setItems(items.filter(i => i.id !== itemId))
+    setItems(prevItems =>
+      prevItems
+        .map(item =>
+          item.id === itemId
+            ? { ...item, quantity: item.quantity - 1 }
+            : item
+        )
+        .filter(item => item.quantity > 0)
+    )
   }
 
   const handleCreateOrder = async () => {
-    if (!customerName.trim() || items.length === 0) return
+    const resolvedCustomerName = customerName.trim() || reusableCustomerName.trim()
+    const resolvedCustomerPhone = customerPhone.trim() || reusableCustomerPhone.trim()
+
+    if (items.length === 0) return
     if (!outletId) {
       setError('Outlet ID not found')
       return
@@ -135,17 +193,20 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
       const totalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0)
 
       console.log('📤 Creating order with:')
-      console.log('  - CustomerName:', customerName.trim())
-      console.log('  - TableId:', tableId ? parseInt(tableId) : undefined)
+      console.log('  - CustomerName:', resolvedCustomerName)
+      console.log('  - CustomerPhone:', resolvedCustomerPhone)
+      console.log('  - TableId:', initialTableId || undefined)
       console.log('  - Items:', items)
       console.log('  - Total Amount:', totalAmount)
 
       // Create order via cloud function
       const orderId = await createOrderService(outletId, {
-        customerName: customerName.trim(),
-        tableId: tableId ? parseInt(tableId) : undefined,
+        customerName: resolvedCustomerName || 'Walk-in Customer',
+        customerPhone: resolvedCustomerPhone,
+        placedBy: 'billing',
+        tableId: initialTableId || undefined,
         items,
-        orderStatus: 'pending',
+        orderStatus: 'in-progress',
         totalAmount,
       })
 
@@ -154,28 +215,31 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
       // Also add to local context for immediate UI update
       const newOrder = {
         id: orderId,
-        customerName: customerName.trim(),
+        outletId,
+        placedBy: 'billing' as const,
+        customerName: resolvedCustomerName,
+        customerPhone: resolvedCustomerPhone,
         items: items.map(item => ({
           id: item.id,
           name: item.name,
           quantity: item.quantity,
-          status: 'pending' as const,
+          status: 'in-progress' as const,
         })),
         timeOfOrder: new Date(),
-        status: 'pending' as const,
+        status: 'in-progress' as const,
       }
 
       addOrder(newOrder)
 
       // Reset form
       setCustomerName('')
-      setTableId('')
+      setCustomerPhone('')
       setItems([])
       setSearchQuery('')
       setSelectedCategory('all')
       setError(null)
       onClose()
-      
+
       // Trigger callback to refetch orders
       if (onOrderCreated) {
         onOrderCreated()
@@ -196,7 +260,9 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
       <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-foreground">New Order</h2>
+            <h2 className="text-xl font-bold text-foreground">
+              {isContinuingBill ? 'Add Items to Bill' : 'New Order'}
+            </h2>
             <button
               onClick={onClose}
               className="text-muted-foreground hover:text-foreground"
@@ -212,35 +278,51 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
           )}
 
           <div className="space-y-4">
-            {/* Customer Name */}
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
-                Customer Name *
-              </label>
-              <Input
-                placeholder="e.g., John Doe"
-                value={customerName}
-                onChange={e => setCustomerName(e.target.value)}
-                className="bg-input border-border"
-                disabled={isLoading}
-              />
-            </div>
+            {isContinuingBill && canReuseCustomerInfo ? (
+              <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-1">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
+                  Continuing existing bill
+                </div>
+                <div className="text-sm font-semibold text-foreground">{reusableCustomerName}</div>
+                {reusableCustomerPhone && (
+                  <div className="text-sm text-muted-foreground">{reusableCustomerPhone}</div>
+                )}
+                {activeTable && (
+                  <div className="text-xs text-muted-foreground">Table: {activeTable.name}</div>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Customer Name */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Customer Name (Optional)
+                  </label>
+                  <Input
+                    placeholder="e.g., John Doe"
+                    value={customerName}
+                    onChange={e => setCustomerName(e.target.value)}
+                    className="bg-input border-border"
+                    disabled={isLoading}
+                  />
+                </div>
 
-            {/* Table ID */}
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
-                Table Number (Optional)
-              </label>
-              <Input
-                type="number"
-                min="1"
-                placeholder="e.g., 5"
-                value={tableId}
-                onChange={e => setTableId(e.target.value)}
-                className="bg-input border-border"
-                disabled={isLoading}
-              />
-            </div>
+                {/* Customer Phone */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Customer Number (Optional)
+                  </label>
+                  <Input
+                    type="tel"
+                    placeholder="e.g., 9876543210"
+                    value={customerPhone}
+                    onChange={e => setCustomerPhone(e.target.value.replace(/[^0-9+]/g, ''))}
+                    className="bg-input border-border"
+                    disabled={isLoading}
+                  />
+                </div>
+              </>
+            )}
 
             {/* Menu Items */}
             <div>
@@ -354,10 +436,10 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated }: AddOrderModal
             <div className="flex gap-2 pt-4">
               <Button
                 onClick={handleCreateOrder}
-                disabled={!customerName.trim() || items.length === 0 || isSaving || isLoading}
+                disabled={items.length === 0 || isSaving || isLoading}
                 className="flex-1 bg-black hover:bg-gray-800 text-white disabled:opacity-50"
               >
-                {isSaving ? 'Creating...' : 'Place Order'}
+                {isSaving ? 'Creating...' : isContinuingBill ? 'Add to Bill' : 'Place Order'}
               </Button>
               <Button
                 onClick={onClose}

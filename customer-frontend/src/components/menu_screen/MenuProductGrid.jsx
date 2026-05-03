@@ -5,37 +5,33 @@ export default function MenuProductGrid({
   activeCategory,
   activeSubcategory,
   search,
-  vegOnly,
-  onAdd,
+  vegOnly
 }) {
-  // If no category selected → show nothing
-  if (!activeCategory) {
-    return (
-      <div className="px-4 mt-6 text-center text-gray-500">
-        Please select a category
-      </div>
-    );
-  }
 
   const filteredProducts = products.filter((p) => {
-    if (p.category !== activeCategory) return false;
 
-    if (activeSubcategory && p.subcategory !== activeSubcategory)
+    // ✅ SEARCH (GLOBAL - works always)
+    if (search && !p.name.toLowerCase().includes(search.toLowerCase())) {
       return false;
+    }
 
+    // ✅ VEG FILTER
     if (vegOnly && !p.isVeg) return false;
 
-    if (
-      search &&
-      !p.name.toLowerCase().includes(search.toLowerCase())
-    )
+    // ✅ CATEGORY (only if selected)
+    if (activeCategory && p.category !== activeCategory) return false;
+
+    // ✅ SUBCATEGORY (only if selected)
+    if (activeSubcategory && p.subcategory !== activeSubcategory) {
       return false;
+    }
 
     return true;
   });
 
   return (
     <div className="grid grid-cols-2 gap-4 px-4 mt-6 pb-24">
+
       {filteredProducts.length === 0 ? (
         <p className="col-span-2 text-center text-gray-500">
           No items found
@@ -47,11 +43,12 @@ export default function MenuProductGrid({
             id={p.id}
             image={p.image}
             name={p.name}
-            desc={p.desc}
             price={p.price}
+            isAvailable={p.isAvailable !== false}
           />
         ))
       )}
+
     </div>
   );
 }

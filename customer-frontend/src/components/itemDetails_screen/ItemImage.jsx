@@ -1,14 +1,23 @@
-import React from "react";
-import coffeeImg from "../../assets/home_screen/offer.png";
+import React, { useState } from "react";
 
-const ItemImage = () => {
+const ItemImage = ({ image }) => {
+
+  const [imgError, setImgError] = useState(false);
+
+  const showImage = image && !imgError;
+
   return (
-    <div className="mx-6 mt-4 bg-gray-200 rounded-2xl flex items-center justify-center p-6">
-      <img
-        src={coffeeImg}
-        alt="Cappuccino"
-        className="w-50 h-50 object-contain"
-      />
+    <div className="w-full h-40 flex justify-center items-center">
+      
+      {showImage ? (
+        <img
+          src={image}
+          alt="product"
+          onError={() => setImgError(true)}
+          className="h-full w-full object-cover"
+        />
+      ) : null}
+
     </div>
   );
 };

@@ -2,8 +2,13 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
+import { earnPoints } from "../loyalty/earnPoints";
 
 const db = admin.firestore();
+
+const resolvePlacedBy = (value: unknown): "billing" | "customer" => {
+  return value === "customer" ? "customer" : "billing";
+};
 
 export const createOrder = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
@@ -36,6 +41,9 @@ export const createOrder = functions.https.onRequest(
       const {
         outletId,
         customerName,
+        customerId,
+        customerPhone,
+        placedBy,
         tableId,
         items,
         totalAmount,
@@ -44,11 +52,11 @@ export const createOrder = functions.https.onRequest(
       console.log("🔍 Validating:", { outletId, customerName, itemCount: items?.length });
 
       // Validate required fields
-      if (!outletId || !customerName || !items || !Array.isArray(items)) {
+      if (!outletId || !items || !Array.isArray(items)) {
         console.error("❌ Missing required fields");
         res.status(400).json({
           success: false,
-          message: "outletId, customerName, and items array are required",
+          message: "outletId and items array are required",
         });
         return;
       }
@@ -62,20 +70,69 @@ export const createOrder = functions.https.onRequest(
         return;
       }
 
+      // Handle table session logic if tableId is provided
+      let activeSessionId = null;
+      if (tableId) {
+        console.log(`🪑 Checking table session for table: ${tableId}`);
+        const tableRef = db.collection("tables").doc(tableId.toString());
+        const tableSnap = await tableRef.get();
+
+        if (tableSnap.exists) {
+          const tableData = tableSnap.data();
+          if (tableData?.isOccupied && tableData.activeSessionId) {
+            activeSessionId = tableData.activeSessionId;
+            console.log(`🔗 Linking order to existing session: ${activeSessionId}`);
+          } else {
+            // Start a new session
+            const sessionRef = db.collection("sessions").doc();
+            activeSessionId = sessionRef.id;
+            console.log(`🆕 Starting new session: ${activeSessionId}`);
+
+            await db.runTransaction(async (tx) => {
+              tx.set(sessionRef, {
+                outletId,
+                tableId: tableId.toString(),
+                status: "ACTIVE",
+                startedAt: FieldValue.serverTimestamp(),
+                closedAt: null,
+                totalAmount: 0,
+              });
+
+              tx.update(tableRef, {
+                isOccupied: true,
+                activeSessionId: sessionRef.id,
+                updatedAt: FieldValue.serverTimestamp(),
+              });
+            });
+          }
+        } else {
+          console.warn(`⚠️ Table ${tableId} not found in DB`);
+        }
+      }
+
       // Create new order document
       const orderRef = db.collection("orders").doc();
 
       const orderData = {
         outletId,
-        customerName: customerName.trim(),
+        customerName: (customerName || "Walk-in Customer").trim(),
+        customerId: customerId ? String(customerId).trim() : null,
+        customerPhone: customerPhone ? String(customerPhone).trim() : "",
+        placedBy: resolvePlacedBy(placedBy),
         tableId: tableId || null,
+        sessionId: activeSessionId,
         items: items.map((item: any) => ({
           id: item.id || Math.random().toString(36).substr(2, 9),
+          category: item.category || "unknown",
           name: item.name,
           quantity: item.quantity || 1,
           status: item.status || "pending",
           price: item.price || 0,
-          addOns: item.addOns || "",
+          addOns: Array.isArray(item.addons) ? item.addons : (Array.isArray(item.addOns) ? item.addOns : []),
+          items: Array.isArray(item.items) ? item.items.map((sub: any) => ({
+            ...sub,
+            addOns: Array.isArray(sub.addons) ? sub.addons : (Array.isArray(sub.addOns) ? sub.addOns : [])
+          })) : undefined,
           notes: item.notes || "",
         })),
         orderStatus: "pending",
@@ -90,6 +147,13 @@ export const createOrder = functions.https.onRequest(
       await orderRef.set(orderData);
 
       console.log("✅ Order created successfully:", orderRef.id);
+
+      // --- LOYALTY LOGIC ---
+      if (customerId) {
+        // Run loyalty logic separately without disrupting the return payload
+        earnPoints(customerId, customerName, totalAmount, items, orderRef.id);
+      }
+      // --- END LOYALTY LOGIC ---
 
       res.status(201).json({
         success: true,

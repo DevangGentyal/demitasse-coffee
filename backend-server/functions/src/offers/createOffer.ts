@@ -31,8 +31,17 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
       return;
     }
 
-    // ✅ Type validation
-    const validTypes = ["COMBO", "B1G1", "DISCOUNT", "BIRTHDAY", "NEW_USER"];
+    const validTypes = [
+      "DISCOUNT",
+      "CATEGORY_DISCOUNT",
+      "B1G1",
+      "COMBO",
+      "BIRTHDAY",
+      "NEW_USER",
+      "BOGO",
+      "FREEBIE"
+    ];
+
     if (!validTypes.includes(data.type)) {
       res.status(400).json({
         success: false,
@@ -42,28 +51,18 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
     }
 
     // ✅ Discount validation
-    if (data.type === "DISCOUNT") {
-      const discount = data.config?.discount;
-      if (!discount) {
-        res.status(400).json({ success: false, message: "DISCOUNT requires config.discount object" });
-        return;
-      }
-      if (typeof discount.discountValue !== "number" || discount.discountValue <= 0 || discount.discountValue > 100) {
-        res.status(400).json({ success: false, message: "DISCOUNT requires config.discount.discountValue > 0 and <= 100" });
-        return;
-      }
-      if (discount.type === "PRODUCT") {
-        if (!Array.isArray(discount.productIds) || discount.productIds.length === 0) {
-          res.status(400).json({ success: false, message: "DISCOUNT of type PRODUCT requires productIds" });
-          return;
-        }
-      } else if (discount.type === "CATEGORY") {
-        if (!discount.category) {
-          res.status(400).json({ success: false, message: "DISCOUNT of type CATEGORY requires a category" });
-          return;
-        }
-      } else {
-        res.status(400).json({ success: false, message: "Invalid discount type. Must be PRODUCT or CATEGORY" });
+
+    if (data.type === "DISCOUNT" || data.type === "CATEGORY_DISCOUNT") {
+      if (
+        typeof data.discountValue !== "number" ||
+        data.discountValue <= 0 ||
+        data.discountValue > 100
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid discount value",
+        });
+
         return;
       }
     }
@@ -162,38 +161,38 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
     const config = {
       combo: Array.isArray(data.config?.combo)
         ? data.config.combo.map((group: any) => ({
-            groupName: group.groupName || "Combo Group",
-            isFree: !!group.isFree,
-            selectionType: group.selectionType === "MULTIPLE" ? "MULTIPLE" : "ONE",
-            items: Array.isArray(group.items) ? group.items.map((item: any) => ({
-              productId: item.productId,
-              isCustomizable: !!item.isCustomizable,
-            })) : [],
-          }))
+          groupName: group.groupName || "Combo Group",
+          isFree: !!group.isFree,
+          selectionType: group.selectionType === "MULTIPLE" ? "MULTIPLE" : "ONE",
+          items: Array.isArray(group.items) ? group.items.map((item: any) => ({
+            productId: item.productId,
+            isCustomizable: !!item.isCustomizable,
+          })) : [],
+        }))
         : null,
       comboPrice: typeof data.config?.comboPrice === "number" ? data.config.comboPrice : 0,
       b1g1: data.config?.b1g1
         ? {
-            applicableProductIds: Array.isArray(data.config.b1g1.applicableProductIds)
-              ? data.config.b1g1.applicableProductIds
-              : [],
-            type: data.config.b1g1.type || "CHEAPEST_FREE",
-          }
+          applicableProductIds: Array.isArray(data.config.b1g1.applicableProductIds)
+            ? data.config.b1g1.applicableProductIds
+            : [],
+          type: data.config.b1g1.type || "CHEAPEST_FREE",
+        }
         : null,
       discount: data.config?.discount
         ? {
-            type: data.config.discount.type,
-            productIds: Array.isArray(data.config.discount.productIds) ? data.config.discount.productIds : [],
-            category: data.config.discount.category || null,
-            discountValue: typeof data.config.discount.discountValue === "number" ? data.config.discount.discountValue : 0,
-            discountType: "PERCENT",
-          }
+          type: data.config.discount.type,
+          productIds: Array.isArray(data.config.discount.productIds) ? data.config.discount.productIds : [],
+          category: data.config.discount.category || null,
+          discountValue: typeof data.config.discount.discountValue === "number" ? data.config.discount.discountValue : 0,
+          discountType: "PERCENT",
+        }
         : null,
       selection: data.config?.selection
         ? {
-            enabled: !!data.config.selection.enabled,
-            ...(typeof data.config.selection.maxSelection === "number" ? { maxSelection: data.config.selection.maxSelection } : {}),
-          }
+          enabled: !!data.config.selection.enabled,
+          ...(typeof data.config.selection.maxSelection === "number" ? { maxSelection: data.config.selection.maxSelection } : {}),
+        }
         : null,
       freeItem: data.config?.freeItem || null,
       loyalty: data.config?.loyalty || null,

@@ -28,9 +28,9 @@ export default function HomePage() {
     return null
   }
 
-  const availableTables = tables.filter(t => !t.occupied && t.name !== 'Counter').length
-  const occupiedTables = tables.filter(t => t.occupied && t.name !== 'Counter').length
-  const totalRevenue = tables.filter(t => t.name !== 'Counter').reduce((sum, t) => sum + t.billAmount, 0)
+  const availableTables = tables.filter(t => !t.occupied).length
+  const occupiedTables = tables.filter(t => t.occupied).length
+  const totalRevenue = tables.reduce((sum, t) => sum + t.billAmount, 0)
 
   return (
     <div className="flex h-screen">
@@ -60,7 +60,7 @@ export default function HomePage() {
                 <p className="text-xs text-muted-foreground mt-1">Total Revenue</p>
               </div>
               <div className="p-4 bg-card rounded-lg border border-border text-center">
-                <p className="text-2xl font-bold text-foreground">{tables.filter(t => t.name !== 'Counter').length}</p>
+                <p className="text-2xl font-bold text-foreground">{tables.length}</p>
                 <p className="text-xs text-muted-foreground mt-1">Total Tables</p>
               </div>
             </div>

@@ -18,16 +18,17 @@ export function AddTableModal({ isOpen, onClose }: AddTableModalProps) {
   const [capacity, setCapacity] = useState(2)
 
   const handleAdd = () => {  // ← renamed to handleAdd to match the button's onClick (was handleSubmit — that was bug #2)
-    const newId = tables.length > 0 ? Math.max(...tables.map(t => t.id)) + 1 : 1
+    const newId = `temp-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    const tableIndex = tables.length
 
     const newTable: Table = {
       id: newId,
-      name: tableName || `OD${newId}`,
+      name: tableName || `OD${tableIndex + 1}`,
       capacity: capacity,
       occupied: false,
       billAmount: 0,
-      x: 150 + (newId % 5) * 130,
-      y: 150 + Math.floor(newId / 5) * 120,
+      x: 150 + (tableIndex % 5) * 130,
+      y: 150 + Math.floor(tableIndex / 5) * 120,
       color: '#fbbf24',
     }
 

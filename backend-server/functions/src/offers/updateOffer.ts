@@ -38,16 +38,16 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
 
     const existingData = offerSnap.data();
 
-    // ✅ Type validation (if updating)
-    const validTypes = ["COMBO", "B1G1", "DISCOUNT", "BIRTHDAY", "NEW_USER"];
-    if (data.type && !validTypes.includes(data.type)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid offer type. Must be one of: " + validTypes.join(", "),
-      });
-      return;
-    }
 
+    // ✅ Type validation
+    if (data.type) {
+      const validTypes = ["discount", "bogo", "freebie", "CATEGORY_DISCOUNT"];
+      if (!validTypes.includes(data.type)) {
+        res.status(400).json({ success: false, message: "Invalid offer type" });
+        return;
+      }
+
+    }
     const finalType = data.type || existingData?.type;
 
     // ✅ Discount validation
@@ -126,7 +126,7 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
           return;
         }
       }
-      
+
       const comboPrice = data.config?.comboPrice !== undefined ? data.config.comboPrice : existingData?.config?.comboPrice;
       if (typeof comboPrice !== "number" || comboPrice < 0) {
         res.status(400).json({
@@ -201,46 +201,46 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
       updateData.config = {
         combo: Array.isArray(data.config.combo)
           ? data.config.combo.map((group: any) => ({
-              groupName: group.groupName || "Combo Group",
-              isFree: !!group.isFree,
-              selectionType: group.selectionType === "MULTIPLE" ? "MULTIPLE" : "ONE",
-              items: Array.isArray(group.items) ? group.items.map((item: any) => ({
-                productId: item.productId,
-                isCustomizable: !!item.isCustomizable,
-              })) : [],
-            }))
+            groupName: group.groupName || "Combo Group",
+            isFree: !!group.isFree,
+            selectionType: group.selectionType === "MULTIPLE" ? "MULTIPLE" : "ONE",
+            items: Array.isArray(group.items) ? group.items.map((item: any) => ({
+              productId: item.productId,
+              isCustomizable: !!item.isCustomizable,
+            })) : [],
+          }))
           : (existingConfig.combo || null),
         comboPrice: data.config.comboPrice !== undefined
           ? (typeof data.config.comboPrice === "number" ? data.config.comboPrice : 0)
           : (existingConfig.comboPrice ?? 0),
         b1g1: data.config.b1g1 !== undefined
           ? {
-              applicableProductIds: Array.isArray(data.config.b1g1.applicableProductIds)
-                ? data.config.b1g1.applicableProductIds
-                : [],
-              type: data.config.b1g1.type || "CHEAPEST_FREE",
-            }
+            applicableProductIds: Array.isArray(data.config.b1g1.applicableProductIds)
+              ? data.config.b1g1.applicableProductIds
+              : [],
+            type: data.config.b1g1.type || "CHEAPEST_FREE",
+          }
           : (existingConfig.b1g1 || null),
         discount: data.config.discount !== undefined
           ? {
-              type: data.config.discount.type || (existingConfig.discount?.type || 'PRODUCT'),
-              productIds: Array.isArray(data.config.discount.productIds) 
-                ? data.config.discount.productIds 
-                : (existingConfig.discount?.productIds || []),
-              category: data.config.discount.category !== undefined 
-                ? data.config.discount.category 
-                : (existingConfig.discount?.category || null),
-              discountValue: typeof data.config.discount.discountValue === "number"
-                ? data.config.discount.discountValue
-                : (existingConfig.discount?.discountValue ?? 0),
-              discountType: "PERCENT",
-            }
+            type: data.config.discount.type || (existingConfig.discount?.type || 'PRODUCT'),
+            productIds: Array.isArray(data.config.discount.productIds)
+              ? data.config.discount.productIds
+              : (existingConfig.discount?.productIds || []),
+            category: data.config.discount.category !== undefined
+              ? data.config.discount.category
+              : (existingConfig.discount?.category || null),
+            discountValue: typeof data.config.discount.discountValue === "number"
+              ? data.config.discount.discountValue
+              : (existingConfig.discount?.discountValue ?? 0),
+            discountType: "PERCENT",
+          }
           : (existingConfig.discount || null),
         selection: data.config.selection !== undefined
           ? {
-              enabled: data.config.selection.enabled !== undefined ? !!data.config.selection.enabled : (existingConfig.selection?.enabled ?? false),
-              ...(typeof data.config.selection.maxSelection === "number" ? { maxSelection: data.config.selection.maxSelection } : (existingConfig.selection?.maxSelection ? { maxSelection: existingConfig.selection.maxSelection } : {})),
-            }
+            enabled: data.config.selection.enabled !== undefined ? !!data.config.selection.enabled : (existingConfig.selection?.enabled ?? false),
+            ...(typeof data.config.selection.maxSelection === "number" ? { maxSelection: data.config.selection.maxSelection } : (existingConfig.selection?.maxSelection ? { maxSelection: existingConfig.selection.maxSelection } : {})),
+          }
           : (existingConfig.selection || null),
         freeItem: data.config.freeItem !== undefined
           ? data.config.freeItem

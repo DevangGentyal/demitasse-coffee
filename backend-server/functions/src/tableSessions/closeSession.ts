@@ -1,8 +1,32 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
+import { FieldValue } from "firebase-admin/firestore";
 
 const db = admin.firestore();
+
+const readString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+const readNumber = (value: unknown, fallback = 0): number => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const computePricingFromItems = (items: unknown[]): { subtotal: number; discount: number; tax: number; total: number } => {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const subtotal = normalizedItems.reduce<number>((sum, rawItem) => {
+    const item = (rawItem || {}) as Record<string, unknown>;
+    const qty = Math.max(1, Math.floor(readNumber(item.qty ?? item.quantity, 1)));
+    const unitPrice = readNumber(item.finalUnitPrice ?? item.price, 0);
+    const explicitTotal = readNumber(item.totalPrice, NaN);
+    return sum + (Number.isFinite(explicitTotal) ? explicitTotal : qty * unitPrice);
+  }, 0);
+
+  const discount = 0;
+  const tax = subtotal * 0.05;
+  const total = subtotal - discount + tax;
+
+  return { subtotal, discount, tax, total };
+};
 
 /**
  * closeSession
@@ -13,6 +37,17 @@ const db = admin.firestore();
  */
 export const closeSession = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+    // Handle OPTIONS preflight request
+    if (req.method === "OPTIONS") {
+      res.status(200).send("");
+      return;
+    }
+
     try {
       // Only POST allowed
       if (req.method !== "POST") {
@@ -23,22 +58,47 @@ export const closeSession = functions.https.onRequest(
         return;
       }
 
-      const { sessionId } = req.body;
+      const { sessionId, tableId } = req.body as { sessionId?: string; tableId?: string };
 
       // Validate input
-      if (!sessionId) {
+      if (!sessionId && !tableId) {
         res.status(400).json({
           success: false,
-          message: "sessionId is required",
+          message: "sessionId or tableId is required",
         });
         return;
       }
 
-      // Fetch session
-      const sessionRef = db.collection("sessions").doc(sessionId);
-      const sessionSnap = await sessionRef.get();
+      let resolvedSessionId = "";
+      let sessionRef: FirebaseFirestore.DocumentReference | null = null;
+      let sessionSnap: FirebaseFirestore.DocumentSnapshot | null = null;
+      let allowTableForceClose = false;
 
-      if (!sessionSnap.exists) {
+      if (sessionId) {
+        resolvedSessionId = readString(sessionId);
+        sessionRef = db.collection("sessions").doc(resolvedSessionId);
+        sessionSnap = await sessionRef.get();
+      } else {
+        const resolvedTableId = readString(tableId);
+        const activeSessionQuery = db
+          .collection("sessions")
+          .where("tableId", "==", resolvedTableId)
+          .where("status", "==", "ACTIVE")
+          .limit(1);
+        const activeSessionSnap = await activeSessionQuery.get();
+
+        if (activeSessionSnap.empty) {
+          // Fallback mode: table can still be force-reset and table-linked orders can still be archived.
+          allowTableForceClose = true;
+        } else {
+          const activeSessionDoc = activeSessionSnap.docs[0];
+          resolvedSessionId = activeSessionDoc.id;
+          sessionRef = activeSessionDoc.ref;
+          sessionSnap = activeSessionDoc;
+        }
+      }
+
+      if (!allowTableForceClose && (!sessionSnap || !sessionSnap.exists || !sessionRef)) {
         res.status(404).json({
           success: false,
           message: "Session not found",
@@ -46,10 +106,10 @@ export const closeSession = functions.https.onRequest(
         return;
       }
 
-      const sessionData = sessionSnap.data();
+      const sessionData = sessionSnap?.data() || {};
 
       // Ensure session is active
-      if (sessionData?.status !== "ACTIVE") {
+      if (!allowTableForceClose && sessionData?.status !== "ACTIVE") {
         res.status(409).json({
           success: false,
           message: "Session is already closed",
@@ -58,25 +118,146 @@ export const closeSession = functions.https.onRequest(
       }
 
       // Fetch associated table
-      const tableRef = db.collection("tables").doc(sessionData.tableId);
+      const resolvedTableId = allowTableForceClose
+        ? readString(tableId)
+        : readString(sessionData?.tableId);
+      const tableRef = db.collection("tables").doc(resolvedTableId);
 
-      // Atomic update: close session + free table
+      // Atomic update: finalize billing records + close session + free/reset table
       await db.runTransaction(async (tx) => {
-        tx.update(sessionRef, {
-          status: "CLOSED",
-          closedAt: new Date(),
-          closeReason: "MANUAL" // explicit & future-proof
-        });
+        const tableOrderQuery = db.collection("orders").where("tableId", "==", resolvedTableId).limit(50);
+        const tableOrderSnap = await tx.get(tableOrderQuery);
 
+        const candidateOrderDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+        tableOrderSnap.docs.forEach((doc) => candidateOrderDocs.set(doc.id, doc));
+        if (resolvedSessionId) {
+          const sessionOrderQuery = db.collection("orders").where("sessionId", "==", resolvedSessionId);
+          const sessionOrderSnap = await tx.get(sessionOrderQuery);
+          sessionOrderSnap.docs.forEach((doc) => candidateOrderDocs.set(doc.id, doc));
+        }
+
+        const paymentRefs = new Map<string, FirebaseFirestore.DocumentReference>();
+        for (const orderDoc of candidateOrderDocs.values()) {
+          const orderData = orderDoc.data();
+          if (readString(orderData.paymentId)) {
+            paymentRefs.set(orderDoc.id, db.collection("payments").doc(readString(orderData.paymentId)));
+            continue;
+          }
+
+          const paymentQuery = db.collection("payments").where("orderId", "==", orderDoc.id).limit(1);
+          const paymentSnap = await tx.get(paymentQuery);
+          const paymentRef = paymentSnap.empty ? db.collection("payments").doc() : paymentSnap.docs[0].ref;
+          paymentRefs.set(orderDoc.id, paymentRef);
+        }
+
+        const archivedAt = FieldValue.serverTimestamp();
+        const closedOrderIds: string[] = [];
+        const closedPaymentIds: string[] = [];
+
+        for (const orderDoc of candidateOrderDocs.values()) {
+          const orderData = orderDoc.data();
+          closedOrderIds.push(orderDoc.id);
+
+          const ownerId = readString(orderData.ownerId) || readString(sessionData.ownerId) || readString(orderData.userId) || null;
+          const resolvedPricing = orderData.pricing || computePricingFromItems(Array.isArray(orderData.items) ? orderData.items : []);
+
+          const paymentRef = paymentRefs.get(orderDoc.id) || db.collection("payments").doc();
+          closedPaymentIds.push(paymentRef.id);
+
+          tx.set(paymentRef, {
+            paymentId: paymentRef.id,
+            orderId: orderDoc.id,
+            outletId: orderData.outletId || null,
+            tableId: resolvedTableId || null,
+            sessionId: resolvedSessionId || readString(orderData.sessionId) || null,
+            ownerId,
+            customer: {
+              id: ownerId,
+              name: orderData.customerName || null,
+              phone: orderData.customerPhone || null,
+            },
+            items: Array.isArray(orderData.items) ? orderData.items : [],
+            pricing: resolvedPricing,
+            appliedOffers: Array.isArray(orderData.appliedOffers) ? orderData.appliedOffers : [],
+            paymentStatus: "PENDING_COUNTER",
+            settlementStatus: "UNPAID",
+            payAt: "COUNTER",
+            noteToCustomer: "Please pay at counter.",
+            sessionClosedByAdmin: true,
+            sessionClosedAt: archivedAt,
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+
+          const historyRef = db.collection("ordersHistory").doc(orderDoc.id);
+          tx.set(historyRef, {
+            orderId: orderDoc.id,
+            outletId: orderData.outletId || null,
+            tableId: resolvedTableId || null,
+            sessionId: resolvedSessionId || readString(orderData.sessionId) || null,
+            placedBy: orderData.placedBy || null,
+            ownerId,
+            paymentId: paymentRef.id,
+            items: Array.isArray(orderData.items) ? orderData.items : [],
+            orderLifecycleStatus: "COMPLETED",
+            pricing: resolvedPricing,
+            appliedOffers: Array.isArray(orderData.appliedOffers) ? orderData.appliedOffers : [],
+            customer: {
+              id: ownerId,
+              name: orderData.customerName || null,
+              phone: orderData.customerPhone || null,
+            },
+            finalizedAt: orderData.finalizedAt || null,
+            closedAt: archivedAt,
+            archivedAt,
+            source: "admin.closeSession",
+            createdAt: orderData.createdAt || null,
+            updatedAt: archivedAt,
+          }, { merge: true });
+
+        }
+
+        for (const orderDoc of candidateOrderDocs.values()) {
+          tx.delete(orderDoc.ref);
+        }
+
+        // Reset table first so the UI immediately reflects a free table.
         tx.update(tableRef, {
           isOccupied: false,
+          occupied: false,
           activeSessionId: null,
+          owner: null,
+          billAmount: 0,
+          ownerAssignedAt: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
         });
+
+        const closeLogRef = db.collection("sessionCloseLogs").doc();
+        tx.set(closeLogRef, {
+          sessionId: resolvedSessionId || null,
+          tableId: resolvedTableId || null,
+          outletId: sessionData.outletId || null,
+          orderIds: closedOrderIds,
+          paymentIds: closedPaymentIds,
+          closedOrdersCount: closedOrderIds.length,
+          forceClosedWithoutActiveSession: allowTableForceClose,
+          source: "billing-admin.closeSession",
+          closedAt: FieldValue.serverTimestamp(),
+        });
+
+        if (!allowTableForceClose && sessionRef) {
+          tx.update(sessionRef, {
+            status: "CLOSED",
+            closedAt: FieldValue.serverTimestamp(),
+            closeReason: "MANUAL",
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
       });
 
       res.status(200).json({
         success: true,
-        message: "Session closed manually by admin",
+        sessionId: resolvedSessionId,
+        message: "Session closed. Table reset, billing records saved, and logs captured.",
       });
       return;
     } catch (error) {

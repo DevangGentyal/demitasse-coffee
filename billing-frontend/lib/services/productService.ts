@@ -8,18 +8,35 @@ import {
   where,
 } from 'firebase/firestore'
 
+export interface CustomizationOption {
+  name: string
+  price: number
+  isAvailable: boolean
+  meta?: {
+    vegType: string | null
+  }
+}
+
+export interface CustomizationGroup {
+  groupName: string
+  min: number
+  max: number
+  options: CustomizationOption[]
+}
+
 export interface Product {
   id: string
   outletId: string
   name: string
   category: string
   subcategory?: string
+  description?: string
   price: number
   taxPercent: number
   isVeg?: boolean
   imageUrl?: string
   isAvailable: boolean
-  customizations?: any[]
+  customizations?: CustomizationGroup[]
   sortOrder?: number
   createdAt?: Timestamp
   updatedAt?: Timestamp

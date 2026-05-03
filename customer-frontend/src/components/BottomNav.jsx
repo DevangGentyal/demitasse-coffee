@@ -2,6 +2,8 @@ import {
   HomeIcon,
   HeartIcon,
   ShoppingCartIcon,
+  GiftIcon,
+  ClipboardDocumentListIcon,
 } from "@heroicons/react/24/outline";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -15,14 +17,19 @@ export default function BottomNav() {
           <HomeIcon className="w-7 h-7" />
         </NavItem>
 
-        {/* LIKES / FAV (NOT IMPLEMENTED YET) */}
-        <DisabledNavItem label="Fav">
-          <HeartIcon className="w-7 h-7" />
-        </DisabledNavItem>
+        {/* LOYALTY */}
+        <NavItem label="Loyalty" to="/loyalty">
+          <GiftIcon className="w-7 h-7" />
+        </NavItem>
 
         {/* CART */}
         <NavItem label="Cart" to="/cart">
           <ShoppingCartIcon className="w-7 h-7" />
+        </NavItem>
+
+        {/* ORDERS */}
+        <NavItem label="Orders" to="/orders">
+          <ClipboardDocumentListIcon className="w-7 h-7" />
         </NavItem>
       </div>
     </div>
