@@ -27,8 +27,8 @@ export function CartProvider({ children }) {
       !!a.isFree === !!b.isFree && 
       !!a.isCombo === !!b.isCombo &&
       !!a.isManualB1G1 === !!b.isManualB1G1 &&
-      JSON.stringify(a.variation) === JSON.stringify(b.variation) &&
-      JSON.stringify(a.addons) === JSON.stringify(b.addons)
+      JSON.stringify(a.variation || {}) === JSON.stringify(b.variation || {}) &&
+      JSON.stringify(a.addOns || a.addons || []) === JSON.stringify(b.addOns || b.addons || [])
     );
   }, []);
 
@@ -58,7 +58,7 @@ export function CartProvider({ children }) {
               isVeg: product.isVeg,
               appliedOfferId: offer.id,
               variation: {},
-              addons: {}
+              addOns: []
             });
           }
         });
@@ -150,13 +150,13 @@ export function CartProvider({ children }) {
       qty: 1,
       isFree: false,
       variation: {},
-      addons: {},
+      addOns: [],
       items: comboData.items.map(item => ({
         productId: item.productId,
         name: item.name,
         isFree: item.isFree || false,
         customizations: item.customizations || {},
-        addOns: item.addOns || {},
+        addOns: item.addOns || [],
         addOnsCost: item.addOnsCost || 0,
         totalPrice: (item.isFree ? 0 : 0) + (item.addOnsCost || 0) // base is 0 in combo, add-ons are charged
       }))
@@ -214,14 +214,14 @@ export function CartProvider({ children }) {
       isFree: false, 
       isManualB1G1: true,
       variation: {},
-      addons: {},
+      addOns: [],
       items: finalItems.map(item => ({
         productId: item.productId,
         name: item.name,
         price: item.price,
         isFree: item.isFree || false,
         customizations: item.customizations || {},
-        addOns: item.addOns || {},
+        addOns: item.addOns || [],
         addOnsCost: item.addOnsCost || 0,
         totalPrice: (item.isFree ? 0 : item.price) + (item.addOnsCost || 0)
       }))
@@ -256,13 +256,13 @@ export function CartProvider({ children }) {
       isFree: false,
       isDiscount: true,
       variation: {},
-      addons: {},
+      addOns: [],
       items: discountData.items.map(item => ({
         productId: item.productId,
         name: item.name,
         price: item.price,
         customizations: item.customizations || {},
-        addOns: item.addOns || {},
+        addOns: item.addOns || [],
         addOnsCost: item.addOnsCost || 0
       }))
     };
@@ -290,7 +290,7 @@ export function CartProvider({ children }) {
       isFree: true,
       isBirthday: true,
       variation: birthdayData.customizations || {},
-      addons: birthdayData.addOns || {},
+      addOns: birthdayData.addOns || [],
       addOnsCost: 0,
     };
 

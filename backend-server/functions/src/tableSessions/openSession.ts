@@ -3,10 +3,9 @@ import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 
-const db = admin.firestore();
-
 export const openSession = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
+    const db = admin.firestore();
     // Set CORS headers
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");

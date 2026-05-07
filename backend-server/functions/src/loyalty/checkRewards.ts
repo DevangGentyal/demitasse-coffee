@@ -2,10 +2,9 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 
-const db = admin.firestore();
-
 export const checkRewards = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
+    const db = admin.firestore();
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
     res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");

@@ -1,11 +1,21 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 export const createOffer = functions.https.onRequest(async (req, res) => {
+  // Set CORS headers
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    res.status(200).send("");
+    return;
+  }
+
   try {
     const db = admin.firestore();
 
-    // ✅ Only POST allowed
     if (req.method !== "POST") {
       res.status(405).json({
         success: false,
@@ -14,7 +24,9 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
       return;
     }
 
-    const data = req.body;
+    // Robust body parsing
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const data = body;
 
     // ✅ Required fields validation
     if (
@@ -45,25 +57,27 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
     if (!validTypes.includes(data.type)) {
       res.status(400).json({
         success: false,
-        message: "Invalid offer type. Must be one of: " + validTypes.join(", "),
+        message: "Invalid offer type",
       });
       return;
     }
 
     // ✅ Discount validation
-
     if (data.type === "DISCOUNT" || data.type === "CATEGORY_DISCOUNT") {
-      if (
-        typeof data.discountValue !== "number" ||
-        data.discountValue <= 0 ||
-        data.discountValue > 100
-      ) {
+      const rawDiscountVal = data.discountValue ?? data.config?.discount?.discountValue;
+      const discountVal = typeof rawDiscountVal === "string" ? parseFloat(rawDiscountVal) : rawDiscountVal;
+      
+      if (typeof discountVal !== "number" || isNaN(discountVal) || discountVal <= 0 || discountVal > 100) {
         res.status(400).json({
           success: false,
-          message: "Invalid discount value",
+          message: "Invalid discount value. Must be a number between 1 and 100.",
         });
-
         return;
+      }
+      
+      data.discountValue = discountVal;
+      if (data.config?.discount) {
+        data.config.discount.discountValue = discountVal;
       }
     }
 
@@ -77,54 +91,6 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
         message: "startDate must be before endDate",
       });
       return;
-    }
-
-    // ✅ B1G1 validation
-    if (data.type === "B1G1") {
-      const productIds = data.config?.b1g1?.applicableProductIds;
-      if (!Array.isArray(productIds) || productIds.length === 0) {
-        res.status(400).json({
-          success: false,
-          message: "B1G1 requires config.b1g1.applicableProductIds with at least 1 product",
-        });
-        return;
-      }
-    }
-
-    // ✅ COMBO validation
-    if (data.type === "COMBO") {
-      const combo = data.config?.combo;
-      if (!Array.isArray(combo) || combo.length === 0) {
-        res.status(400).json({
-          success: false,
-          message: "COMBO requires config.combo array with at least 1 group",
-        });
-        return;
-      }
-      for (const group of combo) {
-        if (!Array.isArray(group.items) || group.items.length === 0) {
-          res.status(400).json({
-            success: false,
-            message: "Each COMBO group must have at least 1 item",
-          });
-          return;
-        }
-      }
-      if (typeof data.config?.comboPrice !== "number" || data.config.comboPrice < 0) {
-        res.status(400).json({
-          success: false,
-          message: "COMBO requires config.comboPrice >= 0",
-        });
-        return;
-      }
-    }
-
-    // ✅ priority validation
-    if (data.priority !== undefined) {
-      if (typeof data.priority !== "number" || data.priority < 0) {
-        res.status(400).json({ success: false, message: "Priority must be a number >= 0" });
-        return;
-      }
     }
 
     // ✅ Enforce isCustomizable safety for COMBO
@@ -170,7 +136,7 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
           })) : [],
         }))
         : null,
-      comboPrice: typeof data.config?.comboPrice === "number" ? data.config.comboPrice : 0,
+      comboPrice: Number(data.config?.comboPrice || 0),
       b1g1: data.config?.b1g1
         ? {
           applicableProductIds: Array.isArray(data.config.b1g1.applicableProductIds)
@@ -179,15 +145,15 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
           type: data.config.b1g1.type || "CHEAPEST_FREE",
         }
         : null,
-      discount: data.config?.discount
+      discount: (data.type === "DISCOUNT" || data.type === "CATEGORY_DISCOUNT")
         ? {
-          type: data.config.discount.type,
-          productIds: Array.isArray(data.config.discount.productIds) ? data.config.discount.productIds : [],
-          category: data.config.discount.category || null,
-          discountValue: typeof data.config.discount.discountValue === "number" ? data.config.discount.discountValue : 0,
+          type: data.config?.discount?.type || (data.type === "CATEGORY_DISCOUNT" ? "CATEGORY" : "PRODUCT"),
+          productIds: Array.isArray(data.config?.discount?.productIds) ? data.config.discount.productIds : [],
+          category: data.config?.discount?.category || data.applicableCategory || data.category || null,
+          discountValue: Number(data.discountValue || 0),
           discountType: "PERCENT",
         }
-        : null,
+        : (data.config?.discount || null),
       selection: data.config?.selection
         ? {
           enabled: !!data.config.selection.enabled,
@@ -200,51 +166,46 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 
     // ✅ Build full nested userRules object
     const userRules = {
-      birthdayOnly: data.userRules?.birthdayOnly ?? false,
-      firstOrderOnly: data.userRules?.firstOrderOnly ?? false,
-      inactivityDays: typeof data.userRules?.inactivityDays === "number"
-        ? data.userRules.inactivityDays
-        : 0,
-      minOrdersRequired: typeof data.userRules?.minOrdersRequired === "number"
-        ? data.userRules.minOrdersRequired
-        : 0,
-      usageLimit: typeof data.userRules?.usageLimit === "number"
-        ? data.userRules.usageLimit
-        : 0,
+      birthdayOnly: !!data.userRules?.birthdayOnly,
+      firstOrderOnly: !!data.userRules?.firstOrderOnly,
+      inactivityDays: Number(data.userRules?.inactivityDays || 0),
+      minOrdersRequired: Number(data.userRules?.minOrdersRequired || 0),
+      perUserLimit: Number(data.userRules?.perUserLimit ?? 1),
     };
 
-    // ✅ Build full nested display object
     const display = {
       badge: data.display?.badge || null,
       highlightText: data.display?.highlightText || null,
     };
 
-    // ✅ Create document
     const offerRef = db.collection("offers").doc();
 
     const offerData = {
-      title: data.title.trim(),
-      description: data.description || "",
+      title: String(data.title).trim(),
+      description: String(data.description || ""),
       type: data.type,
-      category: data.category || null,
+      applicableCategory: (data.applicableCategory && data.applicableCategory.toLowerCase() !== 'discount') 
+        ? data.applicableCategory 
+        : (data.category && data.category.toLowerCase() !== 'discount' ? data.category : (data.config?.discount?.category && data.config.discount.category.toLowerCase() !== 'discount' ? data.config.discount.category : null)),
+      category: (data.category && data.category.toLowerCase() !== 'discount') 
+        ? data.category 
+        : (data.applicableCategory && data.applicableCategory.toLowerCase() !== 'discount' ? data.applicableCategory : (data.config?.discount?.category && data.config.discount.category.toLowerCase() !== 'discount' ? data.config.discount.category : null)),
 
       outletId: data.outletId,
       isActive: data.isActive ?? true,
-      autoApply: data.autoApply ?? false,
-      isStackable: data.isStackable ?? false,
-      priority: data.priority ?? 0,
-
+      autoApply: !!data.autoApply,
+      isStackable: !!data.isStackable,
+      priority: Number(data.priority || 0),
       startDate: startDate,
       endDate: endDate,
-
-      minOrderValue: typeof data.minOrderValue === "number" ? data.minOrderValue : 0,
-
+      minOrderValue: Number(data.minOrderValue || 0),
+      usageLimit: Number(data.usageLimit || 0),
+      usedCount: 0,
       config,
       userRules,
       display,
-
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     await offerRef.set(offerData);
@@ -256,14 +217,12 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
         offerId: offerRef.id,
       },
     });
-    return;
-
   } catch (error) {
     console.error("createOffer error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
+      error: error instanceof Error ? error.message : String(error)
     });
-    return;
   }
 });

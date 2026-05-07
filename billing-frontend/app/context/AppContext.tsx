@@ -40,8 +40,8 @@ export interface Order {
   customerPhone?: string
   items: OrderItem[]
   timeOfOrder: Date
-  status: 'in-progress' | 'ready' | 'completed'
-  totalAmount?: number
+  orderStatus: 'in-progress' | 'ready' | 'completed'
+  status: 'in-progress' | 'ready' | 'completed' // Mirror for compatibility
   outletId: string
 }
 
@@ -121,6 +121,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Subscribe to orders for this outlet
     const ordersQuery = query(collection(db, 'orders'), where('outletId', '==', outletId))
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+      console.log(`[APP_CONTEXT] 🔄 Realtime update: Received ${snapshot.size} orders for outlet ${outletId}`);
+      
       const ordersList = snapshot.docs.map(doc => {
         const data = doc.data()
         const resolvedTime =
@@ -129,18 +131,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           toDate(data.updatedAt) ||
           new Date()
 
-        const resolvedStatus =
-          (typeof data.orderStatus === 'string' && data.orderStatus) ||
-          'in-progress'
+        // Source of truth: orderStatus
+        const rawStatus = data.orderStatus || data.status || 'in-progress';
+        let resolvedStatus: 'in-progress' | 'ready' | 'completed' = 'in-progress';
+        
+        const normalized = String(rawStatus).toLowerCase().trim();
+        if (normalized === 'ready') resolvedStatus = 'ready';
+        else if (normalized === 'completed' || normalized === 'complete' || normalized === 'finalized') resolvedStatus = 'completed';
+        else resolvedStatus = 'in-progress';
 
         return {
           ...data,
           id: doc.id,
           timeOfOrder: resolvedTime,
-          status: resolvedStatus,
           orderStatus: resolvedStatus,
+          status: resolvedStatus, // Maintain status for legacy components
         } as unknown as Order
       })
+      
+      console.log(`[APP_CONTEXT] ✅ Processed orders. In-Progress: ${ordersList.filter(o => o.orderStatus === 'in-progress').length}, Ready: ${ordersList.filter(o => o.orderStatus === 'ready').length}`);
       setOrders(ordersList)
     })
 
@@ -154,17 +163,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Orders are now managed via Cloud Functions and synced via onSnapshot
   }
 
-  const updateOrder = (orderId: string, updates: Partial<Order>) => {
-    // Orders are now managed via Cloud Functions and synced via onSnapshot
-  }
+  const updateOrder = useCallback((orderId: string, updates: Partial<Order>) => {
+    console.log(`[APP_CONTEXT] 🛠️ Optimistic update for order ${orderId}:`, updates);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o))
+  }, [])
 
-  const updateOrderItem = (orderId: string, itemId: string, updates: Partial<OrderItem>) => {
-    // Orders are now managed via Cloud Functions and synced via onSnapshot
-  }
+  const updateOrderItem = useCallback((orderId: string, itemId: string, updates: Partial<OrderItem>) => {
+    console.log(`[APP_CONTEXT] 🛠️ Optimistic update for item ${itemId} in order ${orderId}:`, updates);
+    setOrders(prev => prev.map(o => {
+      if (o.id !== orderId) return o
+      return {
+        ...o,
+        items: o.items.map(item => item.id === itemId ? { ...item, ...updates } : item)
+      }
+    }))
+  }, [])
 
-  const deleteOrder = (orderId: string) => {
-    // Orders are now managed via Cloud Functions and synced via onSnapshot
-  }
+  const deleteOrder = useCallback((orderId: string) => {
+    console.log(`[APP_CONTEXT] 🛠️ Optimistic delete for order ${orderId}`);
+    setOrders(prev => prev.filter(o => o.id !== orderId))
+  }, [])
 
   const updateTable = useCallback(async (tableId: string, updates: Partial<Table>, skipSync = false) => {
     try {

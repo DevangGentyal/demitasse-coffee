@@ -1,8 +1,6 @@
 import * as admin from "firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
 
-const db = admin.firestore();
-
 export const earnPoints = async (
   customerId: string,
   customerName: string,
@@ -10,6 +8,7 @@ export const earnPoints = async (
   items: any[],
   orderId: string
 ) => {
+  const db = admin.firestore();
   try {
     console.log("🏆 Processing loyalty points for customer:", customerId);
     const points = Math.floor((totalAmount || 0) / 20);

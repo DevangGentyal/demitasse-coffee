@@ -2,9 +2,8 @@ import * as admin from 'firebase-admin'
 import { FieldValue } from 'firebase-admin/firestore'
 import { onDocumentCreated } from 'firebase-functions/v2/firestore'
 
-const db = admin.firestore()
-
 export const syncOrderCreated = onDocumentCreated('orders/{orderId}', async (event) => {
+  const db = admin.firestore()
   const orderSnap = event.data
   if (!orderSnap) return
 

@@ -37,13 +37,13 @@ export const updateOrder = functions.https.onRequest(
     }
 
     try {
-      console.log("📥 UPDATE ORDER - Request received");
-      console.log("Method:", req.method);
-      console.log("Body:", JSON.stringify(req.body, null, 2));
+      console.log("[BACKEND] 📥 UPDATE ORDER - Request received");
+      console.log("[BACKEND] Method:", req.method);
+      console.log("[BACKEND] Body:", JSON.stringify(req.body, null, 2));
 
       // Allow only PUT
       if (req.method !== "PUT") {
-        console.warn("❌ Wrong method:", req.method);
+        console.warn("[BACKEND] ❌ Wrong method:", req.method);
         res.status(405).json({
           success: false,
           message: "Method not allowed",
@@ -53,11 +53,11 @@ export const updateOrder = functions.https.onRequest(
 
       const { outletId, orderId, orderStatus, items, totalAmount } = req.body;
 
-      console.log("🔍 Validating:", { outletId, orderId, orderStatus });
+      console.log("[BACKEND] 🔍 Validating:", { outletId, orderId, orderStatus });
 
       // Validate required fields
       if (!outletId || !orderId) {
-        console.error("❌ Missing required fields");
+        console.error("[BACKEND] ❌ Missing required fields");
         res.status(400).json({
           success: false,
           message: "outletId and orderId are required",
@@ -70,7 +70,7 @@ export const updateOrder = functions.https.onRequest(
       const orderSnap = await orderRef.get();
 
       if (!orderSnap.exists) {
-        console.error("❌ Order not found:", orderId);
+        console.error("[BACKEND] ❌ Order not found:", orderId);
         res.status(404).json({
           success: false,
           message: "Order not found",
@@ -80,7 +80,7 @@ export const updateOrder = functions.https.onRequest(
 
       const orderData = orderSnap.data();
       if (orderData?.outletId !== outletId) {
-        console.error("❌ Outlet mismatch. Expected:", outletId, "Got:", orderData?.outletId);
+        console.error("[BACKEND] ❌ Outlet mismatch. Expected:", outletId, "Got:", orderData?.outletId);
         res.status(403).json({
           success: false,
           message: "Order does not belong to this outlet",
@@ -97,24 +97,36 @@ export const updateOrder = functions.https.onRequest(
       if (orderStatus) {
         updateData.orderStatus = normalizedOrderStatus;
         updateData.status = normalizedOrderStatus;
-        console.log("📝 Updating status to:", normalizedOrderStatus);
+        console.log(`[BACKEND] 📝 Updating order ${orderId} status to: ${normalizedOrderStatus}`);
       }
 
       let normalizedItems: any[] | null = null;
       if (items && Array.isArray(items)) {
-        normalizedItems = items.map((item: any) => ({
-          id: item.id || Math.random().toString(36).substr(2, 9),
-          name: item.name,
-          quantity: item.quantity || 1,
-          status: normalizeItemStatus(item.status),
-          price: item.price || 0,
-          addOns: Array.isArray(item.addons) ? item.addons : (Array.isArray(item.addOns) ? item.addOns : []),
-          items: Array.isArray(item.items) ? item.items.map((sub: any) => ({
-            ...sub,
-            addOns: Array.isArray(sub.addons) ? sub.addons : (Array.isArray(sub.addOns) ? sub.addOns : [])
-          })) : undefined,
-          notes: item.notes || "",
-        }));
+        normalizedItems = items.map((item: any) => {
+          const mappedItem: any = {
+            id: item.id || Math.random().toString(36).substr(2, 9),
+            name: item.name,
+            quantity: item.quantity || 1,
+            status: normalizeItemStatus(item.status),
+            price: item.price || 0,
+            addOns: Array.isArray(item.addons) ? item.addons : (Array.isArray(item.addOns) ? item.addOns : []),
+            notes: item.notes || "",
+          };
+
+          if (Array.isArray(item.items)) {
+            mappedItem.items = item.items.map((sub: any) => {
+              const subAddOns = Array.isArray(sub.addons) ? sub.addons : (Array.isArray(sub.addOns) ? sub.addOns : []);
+              console.log(`[BACKEND] Sub-item ${sub.name} addOns:`, JSON.stringify(subAddOns));
+              return {
+                ...sub,
+                addOns: subAddOns
+              };
+            });
+          }
+
+          console.log(`[BACKEND] Mapped item ${mappedItem.name} addOns:`, JSON.stringify(mappedItem.addOns));
+          return mappedItem;
+        });
         updateData.items = normalizedItems;
       } else if (orderStatus && Array.isArray(orderData?.items)) {
         // Keep item-level status in sync when order-level status is changed without explicit items.
@@ -145,8 +157,9 @@ export const updateOrder = functions.https.onRequest(
       }
 
       // Update order
+      console.log(`[BACKEND] 💾 Writing to Firestore for order: ${orderId}...`);
       await orderRef.update(updateData);
-      console.log("✅ Order updated successfully:", orderId);
+      console.log("[BACKEND] ✅ Order updated successfully in Firestore:", orderId);
 
       res.status(200).json({
         success: true,
@@ -155,7 +168,7 @@ export const updateOrder = functions.https.onRequest(
       });
       return;
     } catch (error) {
-      console.error("❌ Error updating order:", error);
+      console.error("[BACKEND] ❌ Error updating order:", error);
       res.status(500).json({
         success: false,
         message: "Internal server error",

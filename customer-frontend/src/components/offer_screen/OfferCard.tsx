@@ -37,9 +37,9 @@ interface Offer {
   category?: string;
   display?: { badge?: string; highlightText?: string; };
   applicableProductIds?: string[];
-  config?: { 
-    combo?: ComboGroup[]; 
-    comboPrice?: number; 
+  config?: {
+    combo?: ComboGroup[];
+    comboPrice?: number;
     b1g1?: { applicableProductIds: string[] };
     discountValue?: number;
     selection?: { enabled?: boolean; maxSelection?: number; };
@@ -82,6 +82,23 @@ const calcAddOnsCost = (product: any, addons: Record<number, string[]>): number 
   return cost;
 };
 
+// ✅ Transform add-ons map into expected array of objects [{ name, price }]
+const transformAddOns = (product: any, addons: Record<number, string[]>) => {
+  const result: { name: string; price: number }[] = [];
+  if (!addons) return result;
+  Object.entries(addons).forEach(([i, list]) => {
+    const group = product.customizations?.[parseInt(i)];
+    if (!group) return;
+    (list as string[]).forEach((name) => {
+      const opt = group.options?.find((o: any) => o.name === name);
+      if (opt) {
+        result.push({ name: opt.name, price: opt.price });
+      }
+    });
+  });
+  return result;
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = false }) => {
   const { cart, appliedOffers, addComboToCart, addB1G1ToCart, addDiscountToCart, addBirthdayToCart } = useCart();
@@ -90,19 +107,19 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const navigate = useNavigate();
 
   const [showLoginPopup, setShowLoginPopup] = useState(false);
-  const [applyError, setApplyError]         = useState("");
+  const [applyError, setApplyError] = useState("");
   const [showComboModal, setShowComboModal] = useState(false);
-  const [showB1G1Modal, setShowB1G1Modal]   = useState(false);
+  const [showB1G1Modal, setShowB1G1Modal] = useState(false);
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showBirthdayModal, setShowBirthdayModal] = useState(false);
-  const [addedMsg, setAddedMsg]             = useState("");
+  const [addedMsg, setAddedMsg] = useState("");
 
   // ─── Product lookup map (from MenuContext) ──────────────────────────────────
   const productsMap: Record<string, any> = useMemo(() => {
     const map: Record<string, any> = {};
     if (products && Array.isArray(products)) {
-      products.forEach((p: any) => { 
-        if (p && p.id) map[p.id] = p; 
+      products.forEach((p: any) => {
+        if (p && p.id) map[p.id] = p;
       });
     }
     return map;
@@ -126,7 +143,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const isB1G1 = offer?.discountType === "BOGO" || offer?.discountType === "B1G1" || offer?.type === "BOGO" || offer?.type === "B1G1";
 
   // ─── Interactive Discount detection ──────────────────────────────────────────
-  const rawProductIds = offer?.config?.discount?.productIds || offer?.config?.applicableProductIds || offer?.applicableItems || offer?.applicableProductIds || offer?.productIds || [];
+  const rawProductIds = offer?.config?.discount?.productIds || offer?.config?.applicableProductIds || offer?.applicableItems || offer?.applicableProductIds || [];
   const isProductOffer = Array.isArray(rawProductIds) && rawProductIds.length > 0;
   const isCategoryOffer = offer?.type === "CATEGORY_DISCOUNT" || Boolean(offer?.applicableCategory && offer?.applicableCategory !== "all");
 
@@ -158,9 +175,9 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const discountText = isCombo
     ? (comboPrice > 0 ? `₹${comboPrice} Only` : "Combo Deal")
     : isB1G1 ? "B1G1 FREE"
-    : resolvedDiscountValue > 0
-      ? `${resolvedDiscountValue}% OFF`
-      : "Special Offer";
+      : resolvedDiscountValue > 0
+        ? `${resolvedDiscountValue}% OFF`
+        : "Special Offer";
 
   const title = offer?.title || discountText;
 
@@ -173,7 +190,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const handleCTAClick = () => {
     const userType = localStorage.getItem("userType");
     if (userType === "guest") { setShowLoginPopup(true); return; }
-    
+
     if (isCombo) {
       setApplyError("");
       setShowComboModal(true);
@@ -223,170 +240,170 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   }
 
   try {
-  return (
-    <>
-      <div className="bg-[#f7efe6] rounded-3xl p-5 shadow-sm border border-[#e1d1c3] relative overflow-hidden">
+    return (
+      <>
+        <div className="bg-[#f7efe6] rounded-3xl p-5 shadow-sm border border-[#e1d1c3] relative overflow-hidden">
 
-        {/* ── Discount badge ──────────────────────────────────────────────── */}
-        <div className="absolute top-0 right-0 bg-[#16a34a] text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl shadow uppercase tracking-wider">
-          {discountText}
-        </div>
-
-        {/* ── display.badge / prop badge ──────────────────────────────────── */}
-        {(offer.display?.badge || badge) && (
-          <span className="inline-block bg-white text-[#AE7A65] text-[10px] px-2.5 py-0.5 rounded-md mb-2 font-bold border border-[#e8dccf] uppercase tracking-wide">
-            {offer.display?.badge || badge}
-          </span>
-        )}
-
-        {/* ── Title ───────────────────────────────────────────────────────── */}
-        <h3 className="text-base font-semibold text-[#5C4033] mt-1">{title}</h3>
-
-        {/* ── Description ─────────────────────────────────────────────────── */}
-        <p className="text-sm text-[#8B6F5E] mt-1.5">{offer.description || "Enjoy this exclusive offer"}</p>
-
-        {/* ── display.highlightText ────────────────────────────────────────── */}
-        {offer.display?.highlightText && (
-          <p className="inline-block text-[10px] font-bold text-[#16a34a] mt-2 bg-[#16a34a]/10 px-2 py-0.5 rounded-md">
-            {offer.display.highlightText}
-          </p>
-        )}
-
-        {/* ── Combo groups summary ─────────────────────────────────────────── */}
-        {isCombo && (
-          <div className="mt-3 space-y-1">
-            {comboGroups.map((group, idx) => {
-              if (!group || !Array.isArray(group.items)) return null;
-              const itemNames = group.items
-                .map(i => productsMap[i?.productId]?.name)
-                .filter(Boolean);
-              return (
-                <p key={idx} className="text-xs text-[#5C4033]">
-                  <span className="font-bold text-[#AE7A65] uppercase tracking-wide">{group.groupName}:</span>{" "}
-                  {itemNames.length ? itemNames.join(" / ") : <span className="text-[#8B6F5E]">Loading...</span>}
-                </p>
-              );
-            })}
+          {/* ── Discount badge ──────────────────────────────────────────────── */}
+          <div className="absolute top-0 right-0 bg-[#16a34a] text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl shadow uppercase tracking-wider">
+            {discountText}
           </div>
-        )}
 
-        {/* ── B1G1 summary ────────────────────────────────────────────────── */}
-        {isB1G1 && (
-          <div className="mt-3">
-            <p className="text-xs text-[#5C4033]">
-              <span className="font-bold text-[#AE7A65] uppercase tracking-wide">Offer:</span> Select any 2 items, cheapest is FREE!
+          {/* ── display.badge / prop badge ──────────────────────────────────── */}
+          {(offer.display?.badge || badge) && (
+            <span className="inline-block bg-white text-[#AE7A65] text-[10px] px-2.5 py-0.5 rounded-md mb-2 font-bold border border-[#e8dccf] uppercase tracking-wide">
+              {offer.display?.badge || badge}
+            </span>
+          )}
+
+          {/* ── Title ───────────────────────────────────────────────────────── */}
+          <h3 className="text-base font-semibold text-[#5C4033] mt-1">{title}</h3>
+
+          {/* ── Description ─────────────────────────────────────────────────── */}
+          <p className="text-sm text-[#8B6F5E] mt-1.5">{offer.description || "Enjoy this exclusive offer"}</p>
+
+          {/* ── display.highlightText ────────────────────────────────────────── */}
+          {offer.display?.highlightText && (
+            <p className="inline-block text-[10px] font-bold text-[#16a34a] mt-2 bg-[#16a34a]/10 px-2 py-0.5 rounded-md">
+              {offer.display.highlightText}
             </p>
-          </div>
-        )}
+          )}
 
-        {/* ── Min order & Valid till ──────────────────────────────────────── */}
-        <div className="flex gap-4 mt-3 pt-3 border-t border-[#e8dccf]">
-          {offer.minOrderValue != null && offer.minOrderValue > 0 && (
-            <div className="text-[10px]">
-              <span className="text-[#8B6F5E]">Min order</span>
-              <p className="font-bold text-[#5C4033]">₹{offer.minOrderValue}</p>
+          {/* ── Combo groups summary ─────────────────────────────────────────── */}
+          {isCombo && (
+            <div className="mt-3 space-y-1">
+              {comboGroups.map((group, idx) => {
+                if (!group || !Array.isArray(group.items)) return null;
+                const itemNames = group.items
+                  .map(i => productsMap[i?.productId]?.name)
+                  .filter(Boolean);
+                return (
+                  <p key={idx} className="text-xs text-[#5C4033]">
+                    <span className="font-bold text-[#AE7A65] uppercase tracking-wide">{group.groupName}:</span>{" "}
+                    {itemNames.length ? itemNames.join(" / ") : <span className="text-[#8B6F5E]">Loading...</span>}
+                  </p>
+                );
+              })}
             </div>
           )}
-          {formattedDate && (
-            <div className="text-[10px]">
-              <span className="text-[#8B6F5E]">Valid till</span>
-              <p className="font-bold text-[#5C4033]">{formattedDate}</p>
+
+          {/* ── B1G1 summary ────────────────────────────────────────────────── */}
+          {isB1G1 && (
+            <div className="mt-3">
+              <p className="text-xs text-[#5C4033]">
+                <span className="font-bold text-[#AE7A65] uppercase tracking-wide">Offer:</span> Select any 2 items, cheapest is FREE!
+              </p>
+            </div>
+          )}
+
+          {/* ── Min order & Valid till ──────────────────────────────────────── */}
+          <div className="flex gap-4 mt-3 pt-3 border-t border-[#e8dccf]">
+            {offer.minOrderValue != null && offer.minOrderValue > 0 && (
+              <div className="text-[10px]">
+                <span className="text-[#8B6F5E]">Min order</span>
+                <p className="font-bold text-[#5C4033]">₹{offer.minOrderValue}</p>
+              </div>
+            )}
+            {formattedDate && (
+              <div className="text-[10px]">
+                <span className="text-[#8B6F5E]">Valid till</span>
+                <p className="font-bold text-[#5C4033]">{formattedDate}</p>
+              </div>
+            )}
+          </div>
+
+          {/* ── CTA BUTTONS ──────────────────────────────────────────────────── */}
+          {(isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer) && (
+            <div className="mt-4 flex justify-center">
+              <button
+                disabled={isAddedInCart}
+                onClick={isAddedInCart ? undefined : handleCTAClick}
+                className={`w-full py-2.5 text-sm font-bold rounded-xl shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#16a34a]
+                ${isAddedInCart
+                    ? "bg-[#16a34a]/80 text-white cursor-not-allowed shadow-none"
+                    : "bg-[#16a34a] hover:bg-green-700 text-white active:scale-95"
+                  }`}
+              >
+                {isAddedInCart ? "Added ✅" : isCombo ? "Add Combo" : isInteractiveDiscount ? "Apply Offer" : isBirthdayOffer ? "Claim Free Item 🎂" : "Add Offer"}
+              </button>
+            </div>
+          )}
+
+          {/* ── Registration / First Order ──────────────────────── */}
+          {!isCombo && !isB1G1 && !isInteractiveDiscount && !isBirthdayOffer && offer.userRules?.firstOrderOnly && (
+            <div className="mt-4 text-center text-[#16a34a] text-xs font-bold bg-[#16a34a]/10 py-2.5 rounded-xl border border-[#16a34a]/20 flex items-center justify-center gap-2">
+              <span>🎉</span> Will apply automatically on checkout
             </div>
           )}
         </div>
 
-        {/* ── CTA BUTTONS ──────────────────────────────────────────────────── */}
-        {(isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer) && (
-          <div className="mt-4 flex justify-center">
-            <button
-              disabled={isAddedInCart}
-              onClick={isAddedInCart ? undefined : handleCTAClick}
-              className={`w-full py-2.5 text-sm font-bold rounded-xl shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#16a34a]
-                ${isAddedInCart 
-                  ? "bg-[#16a34a]/80 text-white cursor-not-allowed shadow-none" 
-                  : "bg-[#16a34a] hover:bg-green-700 text-white active:scale-95"
-                }`}
-            >
-              {isAddedInCart ? "Added ✅" : isCombo ? "Add Combo" : isInteractiveDiscount ? "Apply Offer" : isBirthdayOffer ? "Claim Free Item 🎂" : "Add Offer"}
-            </button>
-          </div>
+        {/* ── Combo Builder Modal ──────────────────────────────────────────────── */}
+        {showComboModal && (
+          <ComboBuilderModal
+            offer={offer}
+            comboGroups={comboGroups}
+            comboPrice={comboPrice}
+            productsMap={productsMap}
+            productsArray={products as any[] || []}
+            onClose={() => setShowComboModal(false)}
+            onAdded={() => handleAdded("Combo")}
+            addComboToCart={addComboToCart}
+          />
         )}
 
-        {/* ── Registration / First Order ──────────────────────── */}
-        {!isCombo && !isB1G1 && !isInteractiveDiscount && !isBirthdayOffer && offer.userRules?.firstOrderOnly && (
-          <div className="mt-4 text-center text-[#16a34a] text-xs font-bold bg-[#16a34a]/10 py-2.5 rounded-xl border border-[#16a34a]/20 flex items-center justify-center gap-2">
-            <span>🎉</span> Will apply automatically on checkout
-          </div>
+        {/* ── B1G1 Builder Modal ───────────────────────────────────────────────── */}
+        {showB1G1Modal && (
+          <B1G1BuilderModal
+            offer={offer}
+            productsMap={productsMap}
+            productsArray={products as any[] || []}
+            onClose={() => setShowB1G1Modal(false)}
+            onAdded={() => handleAdded("B1G1")}
+            addB1G1ToCart={addB1G1ToCart}
+          />
         )}
-      </div>
 
-      {/* ── Combo Builder Modal ──────────────────────────────────────────────── */}
-      {showComboModal && (
-        <ComboBuilderModal
-          offer={offer}
-          comboGroups={comboGroups}
-          comboPrice={comboPrice}
-          productsMap={productsMap}
-          productsArray={products as any[] || []}
-          onClose={() => setShowComboModal(false)}
-          onAdded={() => handleAdded("Combo")}
-          addComboToCart={addComboToCart}
-        />
-      )}
+        {/* ── Discount Builder Modal ───────────────────────────────────────── */}
+        {showDiscountModal && (
+          <DiscountBuilderModal
+            offer={offer}
+            productsMap={productsMap}
+            productsArray={products as any[] || []}
+            onClose={() => setShowDiscountModal(false)}
+            onAdded={() => handleAdded("Discount")}
+            addDiscountToCart={addDiscountToCart}
+            cart={cart}
+          />
+        )}
 
-      {/* ── B1G1 Builder Modal ───────────────────────────────────────────────── */}
-      {showB1G1Modal && (
-        <B1G1BuilderModal
-          offer={offer}
-          productsMap={productsMap}
-          productsArray={products as any[] || []}
-          onClose={() => setShowB1G1Modal(false)}
-          onAdded={() => handleAdded("B1G1")}
-          addB1G1ToCart={addB1G1ToCart}
-        />
-      )}
+        {/* ── Birthday Builder Modal ──────────────────────────────────────── */}
+        {showBirthdayModal && (
+          <BirthdayBuilderModal
+            offer={offer}
+            productsMap={productsMap}
+            onClose={() => setShowBirthdayModal(false)}
+            onAdded={() => handleAdded("Birthday")}
+            addBirthdayToCart={addBirthdayToCart}
+          />
+        )}
 
-      {/* ── Discount Builder Modal ───────────────────────────────────────── */}
-      {showDiscountModal && (
-        <DiscountBuilderModal
-          offer={offer}
-          productsMap={productsMap}
-          productsArray={products as any[] || []}
-          onClose={() => setShowDiscountModal(false)}
-          onAdded={() => handleAdded("Discount")}
-          addDiscountToCart={addDiscountToCart}
-          cart={cart}
-        />
-      )}
-
-      {/* ── Birthday Builder Modal ──────────────────────────────────────── */}
-      {showBirthdayModal && (
-        <BirthdayBuilderModal
-          offer={offer}
-          productsMap={productsMap}
-          onClose={() => setShowBirthdayModal(false)}
-          onAdded={() => handleAdded("Birthday")}
-          addBirthdayToCart={addBirthdayToCart}
-        />
-      )}
-
-      {/* ── Login popup ─────────────────────────────────────────────────────── */}
-      {showLoginPopup && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white w-[90%] max-sm rounded-2xl p-6 text-center shadow-lg">
-            <h2 className="text-lg font-semibold mb-2">Login Required</h2>
-            <p className="text-gray-600 text-sm mb-5">Offers are exclusive! Login or Register to unlock 🎉</p>
-            <div className="flex justify-center gap-4">
-              <button onClick={() => { setShowLoginPopup(false); navigate("/login"); }}
-                className="px-6 py-2 bg-green-600 text-white rounded-full font-semibold">Login</button>
-              <button onClick={() => setShowLoginPopup(false)}
-                className="px-6 py-2 bg-gray-200 rounded-full font-semibold">Cancel</button>
+        {/* ── Login popup ─────────────────────────────────────────────────────── */}
+        {showLoginPopup && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white w-[90%] max-sm rounded-2xl p-6 text-center shadow-lg">
+              <h2 className="text-lg font-semibold mb-2">Login Required</h2>
+              <p className="text-gray-600 text-sm mb-5">Offers are exclusive! Login or Register to unlock 🎉</p>
+              <div className="flex justify-center gap-4">
+                <button onClick={() => { setShowLoginPopup(false); navigate("/login"); }}
+                  className="px-6 py-2 bg-green-600 text-white rounded-full font-semibold">Login</button>
+                <button onClick={() => setShowLoginPopup(false)}
+                  className="px-6 py-2 bg-gray-200 rounded-full font-semibold">Cancel</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </>
-  );
+        )}
+      </>
+    );
   } catch (error) {
     console.error("OfferCard crash:", error);
     return null;
@@ -420,7 +437,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
     const rewardConfig = config.reward || config[" reward"] || {};
     // Handle both "productIds" and " productIds" (with leading space) keys
     const rawIds = rewardConfig.productIds || rewardConfig[" productIds"] || [];
-    
+
     if (!Array.isArray(rawIds)) return [];
     return rawIds
       .map((item: any) => {
@@ -514,7 +531,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
       itemName: selectedProduct.name,
       originalPrice: selectedProduct.price || 0,
       customizations: customization.variations,
-      addOns: customization.addons,
+      addOns: transformAddOns(selectedProduct, customization.addons),
       addOnsCost: 0, // Birthday add-ons are FREE
     });
 
@@ -540,7 +557,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/55 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-[420px] bg-white rounded-t-3xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden animate-slideUp" onClick={e => e.stopPropagation()}>
-        
+
         {/* Header */}
         <div className="px-5 pt-4 pb-3 border-b border-gray-100 shrink-0">
           <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-3" />
@@ -667,7 +684,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
     // If it's a category discount, filter all products by that category
     if (offer.applicableCategory && offer.applicableCategory !== "all") {
       const offerCat = String(offer.applicableCategory).toLowerCase().trim();
-      
+
       console.log("============= CATEGORY DISCOUNT DEBUG =============");
       console.log("Offer Config:", offer);
       console.log("Offer Category (offer.applicableCategory):", offerCat);
@@ -677,7 +694,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
         if (!p) return false;
         const pCat = String(p.category || "").toLowerCase().trim();
         const pSubCat = String(p.subcategory || "").toLowerCase().trim();
-        
+
         const isMatch = pCat === offerCat || pSubCat === offerCat;
         if (isMatch) {
           console.log(`✅ MATCHED Product: ${p.name} | Category: ${p.category} | Subcategory: ${p.subcategory}`);
@@ -717,7 +734,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
         const next = [...prev];
         next.splice(idx, 1);
         setCustomizations(curr => {
-          const cNext = {...curr};
+          const cNext = { ...curr };
           delete cNext[idx];
           return cNext;
         });
@@ -776,7 +793,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
         name: p.name || "Item",
         price: p.price || 0,
         customizations: cust.variations,
-        addOns: cust.addons,
+        addOns: transformAddOns(p, cust.addons),
         addOnsCost: itemAddOnsCost
       };
     }).filter(Boolean) as any[];
@@ -954,7 +971,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
   // customizations: Object with random keys that index into selections
   const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
-  
+
   // Track which product description is expanded
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
@@ -962,7 +979,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
     // Handling a known typo in the database ("applicableProductIds:") as well
     const b1g1Config = offer.config?.b1g1 || {};
     let rawIds = b1g1Config.applicableProductIds || b1g1Config["applicableProductIds:"] || offer.applicableProductIds || [];
-    
+
     // Safety check for rawIds
     if (!Array.isArray(rawIds)) rawIds = [];
 
@@ -976,7 +993,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
     const allProducts = Object.values(productsMap);
     return allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
   }, [offer, productsMap]);
-  
+
   const handleSelect = (productId: string) => {
     if (selections.includes(productId)) {
       // Allow deselecting
@@ -986,7 +1003,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
         next.splice(idx, 1);
         // Also clear customization
         setCustomizations(curr => {
-          const cNext = {...curr};
+          const cNext = { ...curr };
           delete cNext[idx];
           return cNext;
         });
@@ -999,7 +1016,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
 
     const newIdx = selections.length;
     setSelections(prev => [...prev, productId]);
-    
+
     const product = productsMap[productId];
     if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) {
       setCustomizingIdx(newIdx);
@@ -1019,7 +1036,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
         name: p.name || "Item",
         price: p.price || 0,
         customizations: cust.variations,
-        addOns: cust.addons,
+        addOns: transformAddOns(p, cust.addons),
         addOnsCost,
         isFree: false // Temporarily set all to false
       };
@@ -1032,7 +1049,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
     const sorted = [...rawItems].sort((a, b) => a.price - b.price);
     const cheapestId = sorted[0].productId;
     const cheapestIdx = rawItems.findIndex(i => i.productId === cheapestId);
-    
+
     // Mark only the cheapest as free (base price)
     rawItems[cheapestIdx].isFree = true;
 
@@ -1080,10 +1097,10 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
             applicableProducts.map((p: any) => {
               const id = p.id;
               const isSelected = selections.includes(id);
-              
+
               const isVeg = p.isVeg === true;
               const isNonVeg = p.isVeg === false;
-              
+
               const hasAddons = Array.isArray(p.customizations) && p.customizations.length > 0;
               const canExpand =
                 typeof p.description === "string" &&
@@ -1110,9 +1127,9 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
                         <p className="text-sm font-semibold text-[#5C4033] truncate">{p.name}</p>
                       </div>
                       <p className="text-xs font-bold text-[#16a34a]">₹{p.price}</p>
-                      
+
                       {canExpand && (
-                        <span 
+                        <span
                           onClick={(e) => {
                             e.stopPropagation();
                             setExpandedItemId(isExpanded ? null : id);
@@ -1128,7 +1145,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
                       {isSelected && <span className="text-white text-xs">✓</span>}
                     </div>
                   </div>
-                  
+
                   {isExpanded && canExpand && (
                     <div className="mt-2 pt-2 border-t border-gray-100">
                       <p className="text-xs text-gray-500 whitespace-pre-wrap">{p.description}</p>
@@ -1172,16 +1189,16 @@ interface ComboBuilderProps {
 const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
   offer, comboGroups, comboPrice, productsMap, productsArray, onClose, onAdded, addComboToCart
 }) => {
-  const [selections, setSelections]         = useState<Record<number, string>>({});
+  const [selections, setSelections] = useState<Record<number, string>>({});
   const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
 
   // Track which product description is expanded
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
-  const totalGroups     = comboGroups.length;
-  const selectedCount   = Object.keys(selections).length;
-  const allSelected     = selectedCount === totalGroups;
+  const totalGroups = comboGroups.length;
+  const selectedCount = Object.keys(selections).length;
+  const allSelected = selectedCount === totalGroups;
 
   const hasUnavailable = comboGroups.some(group => {
     if (!group || !Array.isArray(group.items)) return true;
@@ -1194,7 +1211,7 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
     let total = 0;
     Object.entries(customizations).forEach(([idx, cust]) => {
       const productId = selections[parseInt(idx)];
-      const product   = productsMap[productId];
+      const product = productsMap[productId];
       if (!product) return;
       total += calcAddOnsCost(product, cust.addons);
     });
@@ -1205,7 +1222,7 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
 
   const handleSelect = (groupIndex: number, productId: string) => {
     setSelections(prev => ({ ...prev, [groupIndex]: productId }));
-    
+
     // Clear previous customization for this group
     setCustomizations(prev => {
       const next = { ...prev };
@@ -1230,8 +1247,8 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
     const items = Object.entries(selections).map(([gIdxStr, productId]) => {
       const gIdx = parseInt(gIdxStr);
       const product = productsMap[productId];
-      const cust    = customizations[gIdx] || { variations: {}, addons: {} };
-      const group   = comboGroups[gIdx];
+      const cust = customizations[gIdx] || { variations: {}, addons: {} };
+      const group = comboGroups[gIdx];
 
       if (!product) return null;
 
@@ -1241,7 +1258,7 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
         groupName: group?.groupName || `Group ${gIdx + 1}`,
         price: product.price || 0,
         customizations: cust.variations,
-        addOns: cust.addons,
+        addOns: transformAddOns(product, cust.addons),
         addOnsCost: calcAddOnsCost(product, cust.addons)
       };
     }).filter(Boolean);
@@ -1260,8 +1277,8 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
 
   if (customizingIdx !== null) {
     const productId = selections[customizingIdx];
-    const product   = productsMap[productId];
-    const existing  = customizations[customizingIdx] || { variations: {}, addons: {} };
+    const product = productsMap[productId];
+    const existing = customizations[customizingIdx] || { variations: {}, addons: {} };
 
     return (
       <CustomizationSheet
@@ -1303,7 +1320,7 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
           {comboGroups.map((group, gIdx) => {
             const selectedProductId = selections[gIdx];
-            const hasCust           = !!(customizations[gIdx]);
+            const hasCust = !!(customizations[gIdx]);
 
             return (
               <div key={gIdx}>
@@ -1317,7 +1334,7 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
                   {(() => {
                     const groupProductIds = group.items.map((item: any) => String(item.productId || "").trim());
                     const groupProducts = productsArray.filter((product: any) => groupProductIds.includes(String(product.id).trim()));
-                    
+
                     if (groupProducts.length === 0) {
                       return <p className="text-center text-xs text-red-500 py-3">Items unavailable</p>;
                     }
@@ -1360,7 +1377,7 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
                               </div>
 
                               {canExpand && (
-                                <span 
+                                <span
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setExpandedItemId(isExpanded ? null : product.id);

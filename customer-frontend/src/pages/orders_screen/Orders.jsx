@@ -166,6 +166,11 @@ function OrderCard({ order, accent = "green" }) {
                   <p key={`dcust-${i}`} className="text-xs text-gray-600">• {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</p>
                 ))}
 
+                {/* Add-ons */}
+                {Array.isArray(item.addOns) && item.addOns.map((addon, i) => (
+                  <p key={`addon-${i}`} className="text-xs text-gray-600">+ {addon.name} {addon.price ? `(+₹${addon.price})` : ''}</p>
+                ))}
+
                 {/* Sub items */}
                 {Array.isArray(item.items) && item.items.map((sub, i) => {
                   const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : [];
@@ -175,6 +180,10 @@ function OrderCard({ order, accent = "green" }) {
                       <p className="text-xs text-gray-600 mt-0.5">- {sub.name}</p>
                       {subSelected.map((opt, j) => (
                         <p key={`subcust-${j}`} className="text-[11px] text-gray-500 ml-2">• {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</p>
+                      ))}
+                      {/* Sub-item Add-ons */}
+                      {Array.isArray(sub.addOns) && sub.addOns.map((addon, j) => (
+                        <p key={`subaddon-${j}`} className="text-[11px] text-gray-500 ml-2">+ {addon.name} {addon.price ? `(+₹${addon.price})` : ''}</p>
                       ))}
                     </div>
                   );

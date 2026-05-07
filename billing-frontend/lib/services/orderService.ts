@@ -16,7 +16,7 @@ export interface OrderItem {
   quantity: number
   status?: 'in-progress' | 'ready' | 'completed'
   price?: number
-  addOns?: string
+  addOns?: any[]
   notes?: string
 }
 
@@ -155,7 +155,7 @@ export const createOrder = async (
         quantity: item.quantity || 1,
         status: item.status || 'in-progress',
         price: item.price || 0,
-        addOns: item.addOns || '',
+        addOns: Array.isArray(item.addOns) ? item.addOns : [],
         notes: item.notes || '',
       })),
       orderStatus: orderData.orderStatus,
@@ -237,6 +237,9 @@ export const updateOrder = async (
   try {
     const idToken = await getIdToken()
 
+    console.log(`[ORDER_SERVICE] 📤 Updating order ${orderId} for outlet ${outletId}...`);
+    console.log(`[ORDER_SERVICE] Payload:`, JSON.stringify(updates, null, 2));
+
     const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/updateOrder`, {
       method: 'PUT',
       headers: {
@@ -252,8 +255,11 @@ export const updateOrder = async (
 
     if (!response.ok) {
       const errorData = await response.json()
+      console.error(`[ORDER_SERVICE] ❌ Update failed with status ${response.status}:`, errorData);
       throw new Error(errorData.message || 'Failed to update order')
     }
+    
+    console.log(`[ORDER_SERVICE] ✅ Update request sent successfully`);
   } catch (error) {
     console.error('Error updating order:', error)
     throw error

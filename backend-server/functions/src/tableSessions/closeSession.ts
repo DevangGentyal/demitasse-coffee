@@ -214,6 +214,44 @@ export const closeSession = functions.https.onRequest(
             updatedAt: archivedAt,
           }, { merge: true });
 
+          // ✅ Increment offer usage counters
+          const appliedOffers = Array.isArray(orderData.appliedOffers) ? orderData.appliedOffers : [];
+          const orderItems = Array.isArray(orderData.items) ? orderData.items : [];
+          
+          console.log(`[OFFER_INCREMENT_DEBUG] candidateOrdersCount=${candidateOrderDocs.size}, orderId=${orderDoc.id}, appliedOffers=${JSON.stringify(appliedOffers)}, itemsCount=${orderItems.length}`);
+
+          // Collect all offer IDs from order-level and item-level
+          const offerIdsToProcess = new Set<string>();
+          appliedOffers.forEach((o: any) => { if (o.offerId) offerIdsToProcess.add(o.offerId); });
+          if (orderData.offerId) offerIdsToProcess.add(String(orderData.offerId));
+          orderItems.forEach((item: any) => { if (item.offerId) offerIdsToProcess.add(item.offerId); });
+
+          if (offerIdsToProcess.size > 0) {
+            for (const offerId of offerIdsToProcess) {
+              console.log(`[OFFER_INCREMENT_START] offerId=${offerId}, source=admin.closeSession`);
+              
+              const offerRef = db.collection("offers").doc(offerId);
+              // Use a transaction get to log current count
+              const offerSnap = await tx.get(offerRef);
+              const currentUsedCount = readNumber(offerSnap.data()?.usedCount, 0);
+              console.log(`[OFFER_INCREMENT_DEBUG] offerId=${offerId}, currentUsedCount=${currentUsedCount}, userId=${ownerId || 'GUEST'}`);
+
+              tx.update(offerRef, { usedCount: FieldValue.increment(1) });
+
+              if (ownerId) {
+                const userRef = db.collection("users").doc(ownerId);
+                tx.set(userRef, {
+                  [`usedOffers.${offerId}`]: FieldValue.increment(1)
+                }, { merge: true });
+                console.log(`[OFFER_INCREMENT_SUCCESS] offerId=${offerId}, newUsedCount=${currentUsedCount + 1}`);
+              } else {
+                console.log(`[OFFER_INCREMENT_SKIPPED] reason=No ownerId found for user-specific tracking`);
+                console.log(`[OFFER_INCREMENT_SUCCESS] offerId=${offerId}, newUsedCount=${currentUsedCount + 1} (Global Only)`);
+              }
+            }
+          } else {
+            console.log(`[OFFER_INCREMENT_SKIPPED] reason=No offers found in order ${orderDoc.id} (checked appliedOffers, root offerId, and item offerIds)`);
+          }
         }
 
         for (const orderDoc of candidateOrderDocs.values()) {

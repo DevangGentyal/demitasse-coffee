@@ -121,21 +121,33 @@ export const createOrder = functions.https.onRequest(
         placedBy: resolvePlacedBy(placedBy),
         tableId: tableId || null,
         sessionId: activeSessionId,
-        items: items.map((item: any) => ({
-          id: item.id || Math.random().toString(36).substr(2, 9),
-          category: item.category || "unknown",
-          name: item.name,
-          quantity: item.quantity || 1,
-          status: item.status || "pending",
-          price: item.price || 0,
-          addOns: Array.isArray(item.addons) ? item.addons : (Array.isArray(item.addOns) ? item.addOns : []),
-          items: Array.isArray(item.items) ? item.items.map((sub: any) => ({
-            ...sub,
-            addOns: Array.isArray(sub.addons) ? sub.addons : (Array.isArray(sub.addOns) ? sub.addOns : [])
-          })) : undefined,
-          notes: item.notes || "",
-        })),
-        orderStatus: "pending",
+        items: items.map((item: any) => {
+          const mappedItem: any = {
+            id: item.id || Math.random().toString(36).substr(2, 9),
+            category: item.category || "unknown",
+            name: item.name,
+            quantity: item.quantity || 1,
+            status: item.status || "in-progress",
+            price: item.price || 0,
+            addOns: Array.isArray(item.addons) ? item.addons : (Array.isArray(item.addOns) ? item.addOns : []),
+            notes: item.notes || "",
+          };
+
+          if (Array.isArray(item.items)) {
+            mappedItem.items = item.items.map((sub: any) => {
+              const subAddOns = Array.isArray(sub.addons) ? sub.addons : (Array.isArray(sub.addOns) ? sub.addOns : []);
+              console.log(`[BACKEND] Sub-item ${sub.name} addOns:`, JSON.stringify(subAddOns));
+              return {
+                ...sub,
+                addOns: subAddOns
+              };
+            });
+          }
+
+          console.log(`[BACKEND] Mapped item ${mappedItem.name} addOns:`, JSON.stringify(mappedItem.addOns));
+          return mappedItem;
+        }),
+        orderStatus: req.body.orderStatus || "in-progress",
         totalAmount: totalAmount || 0,
         timeOfOrder: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp(),

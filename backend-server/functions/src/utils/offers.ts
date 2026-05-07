@@ -139,32 +139,25 @@ export const applyOffer = (
   }
 
   let discount = 0;
+  const normalizedType = String(offer.type || "").toUpperCase();
 
-  if (offer.type === "discount") {
+  if (normalizedType === "DISCOUNT") {
     discount = computePercentageOrFlatDiscount(offer, order.subtotal);
-  } else if (offer.type === "CATEGORY_DISCOUNT") {
+  } else if (normalizedType === "CATEGORY_DISCOUNT") {
     const category = String(offer.applicableCategory || "").toLowerCase();
     const discountPercent = Number(offer.discountValue || offer.config?.discount?.discountValue || 0);
     
     if (category && discountPercent > 0) {
-      // Calculate discount only on items matching the category
-      // Note: This requires OrderItem to have a category field.
-      // If it doesn't, we might need to skip or assume subtotal.
-      // Looking at billing.customer.ts, it calculates based on product categories.
-      // For now, if we don't have item categories here, we use the subtotal if applicableCategory is 'all'
       if (category === "all") {
         discount = (order.subtotal * discountPercent) / 100;
       } else {
-        // We need to know which items are in which category. 
-        // We'll rely on the caller providing items with categories or filtering before calling.
-        // But since this is a shared utility, let's assume we might not have it and just use subtotal
-        // if the offer is active. (The caller usually handles item-level filtering).
         discount = (order.subtotal * discountPercent) / 100;
       }
     }
-  } else if (offer.type === "bogo") {
+  } else if (normalizedType === "BOGO" || normalizedType === "B1G1") {
     discount = computeBogoDiscount(offer, order.items);
   } else {
+    console.log(`[OFFER_APPLY] ⚠️ Unknown offer type: ${offer.type}`);
     return { discount: 0, appliedOffers: [] };
   }
 

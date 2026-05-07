@@ -41,6 +41,7 @@ export default function EditOfferPage() {
     description: '',
     type: 'DISCOUNT' as string,
     category: '',
+    applicableCategory: '',
     startDate: '',
     endDate: '',
     minOrderValue: '',
@@ -64,6 +65,7 @@ export default function EditOfferPage() {
     inactivityDays: '',
     minOrdersRequired: '',
     usageLimit: '',
+    perUserLimit: '1',
 
     // display fields
     badge: '',
@@ -102,7 +104,8 @@ export default function EditOfferPage() {
             title: offer.title || '',
             description: offer.description || '',
             type: offer.type || 'DISCOUNT',
-            category: offer.category || '',
+            category: offer.category || offer.applicableCategory || '',
+            applicableCategory: offer.applicableCategory || offer.category || '',
             startDate: parseDate(offer.startDate),
             endDate: parseDate(offer.endDate),
             minOrderValue: offer.minOrderValue ? offer.minOrderValue.toString() : '',
@@ -114,18 +117,23 @@ export default function EditOfferPage() {
             // Populate config fields from nested structure
             discountScope: offer.config?.discount?.type || 'PRODUCT',
             discountProductIds: offer.config?.discount?.productIds || [],
-            discountCategory: offer.config?.discount?.category || '',
+            discountCategory: offer.config?.discount?.category || (offer.applicableCategory && offer.applicableCategory.toLowerCase() !== 'discount' ? offer.applicableCategory : '') || (offer.category && offer.category.toLowerCase() !== 'discount' ? offer.category : ''),
             discountValue: offer.config?.discount?.discountValue ? offer.config.discount.discountValue.toString() : '',
             comboPrice: offer.config?.comboPrice !== undefined ? offer.config.comboPrice.toString() : ((offer.config as any)?.combo?.comboPrice ? (offer.config as any).combo.comboPrice.toString() : ''),
             b1g1ProductIds: offer.config?.b1g1?.applicableProductIds || [],
             comboGroups: Array.isArray(offer.config?.combo) ? offer.config.combo : [],
+            
+            // Clean up category
+            category: (offer.category && offer.category.toLowerCase() !== 'discount') ? offer.category : ((offer.applicableCategory && offer.applicableCategory.toLowerCase() !== 'discount') ? offer.applicableCategory : ''),
+            applicableCategory: (offer.applicableCategory && offer.applicableCategory.toLowerCase() !== 'discount') ? offer.applicableCategory : ((offer.category && offer.category.toLowerCase() !== 'discount') ? offer.category : ''),
 
             // Populate userRules
             birthdayOnly: offer.userRules?.birthdayOnly ?? false,
             firstOrderOnly: offer.userRules?.firstOrderOnly ?? false,
             inactivityDays: offer.userRules?.inactivityDays ? offer.userRules.inactivityDays.toString() : '',
             minOrdersRequired: offer.userRules?.minOrdersRequired ? offer.userRules.minOrdersRequired.toString() : '',
-            usageLimit: offer.userRules?.usageLimit ? offer.userRules.usageLimit.toString() : '',
+            usageLimit: (offer as any).usageLimit ? (offer as any).usageLimit.toString() : (offer.userRules?.usageLimit ? offer.userRules.usageLimit.toString() : ''),
+            perUserLimit: offer.userRules?.perUserLimit ? (offer.userRules as any).perUserLimit.toString() : '1',
 
             // Populate display
             badge: offer.display?.badge || '',
@@ -276,7 +284,7 @@ export default function EditOfferPage() {
         firstOrderOnly: formData.firstOrderOnly,
         inactivityDays: formData.inactivityDays ? Number(formData.inactivityDays) : 0,
         minOrdersRequired: formData.minOrdersRequired ? Number(formData.minOrdersRequired) : 0,
-        usageLimit: formData.usageLimit ? Number(formData.usageLimit) : 0,
+        perUserLimit: formData.perUserLimit ? Number(formData.perUserLimit) : 1,
       }
 
       // Auto-set userRules based on type
@@ -293,7 +301,10 @@ export default function EditOfferPage() {
         title: formData.title,
         description: formData.description,
         type: formData.type,
-        category: formData.category || null,
+        applicableCategory: (formData.discountScope === 'CATEGORY' && formData.discountCategory && formData.discountCategory.toLowerCase() !== 'discount') 
+          ? formData.discountCategory 
+          : (formData.category && formData.category.toLowerCase() !== 'discount' ? formData.category : null),
+        category: (formData.category && formData.category.toLowerCase() !== 'discount' ? formData.category : (formData.discountScope === 'CATEGORY' && formData.discountCategory && formData.discountCategory.toLowerCase() !== 'discount' ? formData.discountCategory : null)),
         startDate: formData.startDate,
         endDate: formData.endDate,
         minOrderValue: formData.minOrderValue ? Number(formData.minOrderValue) : 0,
@@ -301,6 +312,7 @@ export default function EditOfferPage() {
         isActive: formData.isActive,
         autoApply: formData.autoApply,
         isStackable: formData.isStackable,
+        usageLimit: formData.usageLimit ? Number(formData.usageLimit) : 0,
         config,
         userRules,
         display,
@@ -361,7 +373,7 @@ export default function EditOfferPage() {
           </div>
 
           {formData.type === 'DISCOUNT' && (
-            <div className="space-y-3 p-3 border rounded bg-gray-50">
+            <div className="space-y-3 p-3 border rounded bg-[#f7efe6]/30 border-[#e1d1c3]">
               <Input type="number" placeholder="Discount % *" value={formData.discountValue} onChange={e => handleChange("discountValue", e.target.value)} />
               
               <div>
@@ -421,7 +433,8 @@ export default function EditOfferPage() {
               </div>
               <Input type="number" placeholder="Inactivity Days" value={formData.inactivityDays} onChange={e => handleChange("inactivityDays", e.target.value)} />
               <Input type="number" placeholder="Min Orders Required" value={formData.minOrdersRequired} onChange={e => handleChange("minOrdersRequired", e.target.value)} />
-              <Input type="number" placeholder="Usage Limit" value={formData.usageLimit} onChange={e => handleChange("usageLimit", e.target.value)} />
+              <Input type="number" placeholder="Global Usage Limit (0 = unlimited)" value={formData.usageLimit} onChange={e => handleChange("usageLimit", e.target.value)} />
+              <Input type="number" placeholder="Per User Limit (default = 1)" value={formData.perUserLimit} onChange={e => handleChange("perUserLimit", e.target.value)} />
             </div>
           </div>
 
@@ -719,7 +732,8 @@ export default function EditOfferPage() {
                   {formData.firstOrderOnly && <p className="text-xs">• First Order Only</p>}
                   {formData.inactivityDays && <p className="text-xs">• Inactivity Days: {formData.inactivityDays}</p>}
                   {formData.minOrdersRequired && <p className="text-xs">• Min Orders Required: {formData.minOrdersRequired}</p>}
-                  {formData.usageLimit && <p className="text-xs">• Usage Limit: {formData.usageLimit}</p>}
+                  {formData.usageLimit && <p className="text-xs">• Global Usage Limit: {formData.usageLimit}</p>}
+                  {formData.perUserLimit && <p className="text-xs">• Per User Limit: {formData.perUserLimit}</p>}
                 </div>
               )}
 

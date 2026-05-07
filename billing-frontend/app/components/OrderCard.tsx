@@ -46,41 +46,54 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       ready: 'completed',
       completed: 'in-progress',
     }
-    const newStatus = statusFlow[status] || 'ready'
+    
+    // Use 'status' prop which is passed as order.orderStatus from page.tsx
+    const currentStatus = status || order.orderStatus || 'in-progress';
+    const newStatus = statusFlow[currentStatus] || 'ready'
+    
     const syncedItems = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
-      const currentStatus = normalizeItemStatus(item?.status)
+      const itemStatus = normalizeItemStatus(item?.status)
       if (newStatus === 'completed') {
         return { ...item, status: 'completed' }
       }
-      if (newStatus === 'ready' && currentStatus !== 'completed') {
+      if (newStatus === 'ready' && itemStatus !== 'completed') {
         return { ...item, status: 'ready' }
       }
       if (newStatus === 'in-progress') {
         return { ...item, status: 'in-progress' }
       }
-      return { ...item, status: currentStatus }
+      return { ...item, status: itemStatus }
     })
     
     setIsUpdating(true)
     try {
+      console.log(`[FRONTEND] 📤 Attempting to update order ${order.id} from ${currentStatus} to ${newStatus}`);
+      
       // Update via cloud function if outletId is available
       if (outletId) {
-        console.log('📤 Updating order status via cloud function')
+        console.log('[FRONTEND] 📤 Calling updateOrder service...');
         await updateOrderService(outletId, order.id, {
           orderStatus: newStatus as any,
           items: syncedItems,
         })
+        console.log('[FRONTEND] ✅ updateOrder service call successful');
+      } else {
+        console.warn('[FRONTEND] ⚠️ No outletId available for order update');
       }
       
       // Update in local context for immediate UI update
-      updateOrder(order.id, { status: newStatus as any })
+      console.log(`[FRONTEND] 🛠️ Triggering optimistic update for ${order.id} to ${newStatus}`);
+      updateOrder(order.id, { 
+        orderStatus: newStatus as any,
+        status: newStatus as any 
+      })
       
       // Trigger refetch if callback provided
       if (onOrderUpdated) {
         onOrderUpdated()
       }
     } catch (error) {
-      console.error('❌ Error updating order status:', error)
+      console.error('[FRONTEND] ❌ Error updating order status:', error)
       // Optionally show error toast here
     } finally {
       setIsUpdating(false)
@@ -251,8 +264,9 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                         const subItems = Array.isArray(item.items) ? item.items : []
                         
                         const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
+                        const hasAddOns = Array.isArray(item.addOns) && item.addOns.length > 0
                         
-                        if (!hasVariations && directSelected.length === 0 && subItems.length === 0) return null
+                        if (!hasVariations && directSelected.length === 0 && subItems.length === 0 && !hasAddOns) return null
 
                         return (
                           <div className="text-xs opacity-80 ml-6 mt-1 flex flex-col gap-0.5">
@@ -281,6 +295,10 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                                   <span>- {sub.name}</span>
                                   {subSelected.map((opt: any, j: number) => (
                                     <span key={`subcust-${i}-${j}`} className="ml-2 opacity-80">+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
+                                  ))}
+                                  {/* Sub-item Add-ons */}
+                                  {Array.isArray(sub.addOns) && sub.addOns.map((addon: any, j: number) => (
+                                    <span key={`subaddon-${i}-${j}`} className="ml-2 opacity-80">+ {addon.name} (+₹{addon.price})</span>
                                   ))}
                                 </div>
                               )
@@ -321,8 +339,9 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                       const subItems = Array.isArray(item.items) ? item.items : []
                       
                       const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
+                      const hasAddOns = Array.isArray(item.addOns) && item.addOns.length > 0
                       
-                      if (!hasVariations && directSelected.length === 0 && subItems.length === 0) return null
+                      if (!hasVariations && directSelected.length === 0 && subItems.length === 0 && !hasAddOns) return null
 
                       return (
                         <div className="text-xs text-muted-foreground ml-6 mt-0.5 flex flex-col gap-0.5">
@@ -351,6 +370,10 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                                 <span>- {sub.name}</span>
                                 {subSelected.map((opt: any, j: number) => (
                                   <span key={`subcust-${i}-${j}`} className="ml-2 opacity-80">+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
+                                ))}
+                                {/* Sub-item Add-ons */}
+                                {Array.isArray(sub.addOns) && sub.addOns.map((addon: any, j: number) => (
+                                  <span key={`subaddon-${i}-${j}`} className="ml-2 opacity-80">+ {addon.name} (+₹{addon.price})</span>
                                 ))}
                               </div>
                             )

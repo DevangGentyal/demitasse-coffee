@@ -6,7 +6,8 @@ import { calculateSubtotal } from "../utils/pricing";
 import { applyTax } from "../utils/tax";
 import { applyOffer } from "../utils/offers";
 
-const db = admin.firestore();
+const getDb = () => admin.firestore();
+
 
 interface OrderItem {
   productId: string;
@@ -17,6 +18,9 @@ interface OrderItem {
   name?: string;
   price?: number;
   quantity?: number;
+  addOns?: any[];
+  items?: any[];
+  [key: string]: any;
 }
 
 const readString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
@@ -50,7 +54,15 @@ const sanitizeOrderItems = (rawItems: unknown[]): OrderItem[] => {
       finalUnitPrice: unitPrice,
       price: unitPrice,
       totalPrice: Number.isFinite(explicitTotal) ? explicitTotal : unitPrice * qty,
+      addOns: Array.isArray(data.addOns) ? data.addOns : (Array.isArray(data.addons) ? data.addons : []),
     };
+
+    if (Array.isArray(data.items)) {
+      normalizedItem.items = data.items.map((sub: any) => ({
+        ...sub,
+        addOns: Array.isArray(sub.addOns) ? sub.addOns : (Array.isArray(sub.addons) ? sub.addons : []),
+      }));
+    }
 
     if (createdBy) {
       normalizedItem.createdBy = createdBy;
@@ -63,6 +75,8 @@ const sanitizeOrderItems = (rawItems: unknown[]): OrderItem[] => {
 
 
 const generateBillHandler = async (req: Request, res: Response): Promise<void> => {
+  const db = getDb();
+
   setCors(res);
 
   if (req.method === "OPTIONS") {
@@ -225,6 +239,8 @@ const generateBillHandler = async (req: Request, res: Response): Promise<void> =
 };
 
 const closeSessionHandler = async (req: Request, res: Response): Promise<void> => {
+  const db = getDb();
+
   setCors(res);
 
   if (req.method === "OPTIONS") {
@@ -390,19 +406,22 @@ const closeSessionHandler = async (req: Request, res: Response): Promise<void> =
         });
       }
 
-      // Increment used counts for applied offers
+      // Increment used counts for applied offers (ONLY on successful close)
       if (appliedOffers.length > 0) {
         const userRef = ownerId ? db.collection("users").doc(ownerId) : null;
         for (const source of appliedOffers) {
           const offerRef = db.collection("offers").doc(source.offerId);
           tx.update(offerRef, { usedCount: FieldValue.increment(1) });
+          console.log(`[OFFER_INCREMENT] [closeSession] Global usedCount +1 for offer=${source.offerId}, path=offers/${source.offerId}`);
           
           if (userRef) {
+            // Use dot notation to avoid overwriting the entire usedOffers map
             tx.set(userRef, {
-              usedOffers: {
-                [source.offerId]: FieldValue.increment(1)
-              }
+              [`usedOffers.${source.offerId}`]: FieldValue.increment(1)
             }, { merge: true });
+            console.log(`[OFFER_INCREMENT] [closeSession] Per-user usedOffers +1 for user=${ownerId}, offer=${source.offerId}, path=users/${ownerId}/usedOffers.${source.offerId}`);
+          } else {
+            console.log(`[OFFER_INCREMENT] [closeSession] ⚠️ Skipping per-user increment: No ownerId/userRef found`);
           }
         }
       }
@@ -464,7 +483,8 @@ interface CartItemInput {
   discountValue?: number;
   discountType?: string;
   variation?: Record<string, unknown>;
-  addons?: Record<string, unknown>;
+  addons?: any;
+  addOns?: any[];
   offerType?: string;
   items?: Array<{
     productId: string;
@@ -473,7 +493,8 @@ interface CartItemInput {
     isFree?: boolean;
     addOnsCost?: number;
     customizations?: Record<string, unknown>;
-    addOns?: Record<string, unknown>;
+    addons?: any;
+    addOns?: any[];
   }>;
 }
 
@@ -517,7 +538,11 @@ const isOfferCurrentlyValid = (offerData: Record<string, unknown>): boolean => {
 
   const usageLimit = getOfferLimit(offerData, "usageLimit");
   const usedCount = readNumber(offerData.usedCount, 0);
-  if (usageLimit > 0 && usedCount >= usageLimit) return false;
+  console.log(`[OFFER_VALIDATION] [Global] usageLimit=${usageLimit}, usedCount=${usedCount}`);
+  if (usageLimit > 0 && usedCount >= usageLimit) {
+    console.log(`[OFFER_VALIDATION] [Global] ❌ Limit reached (${usedCount}/${usageLimit})`);
+    return false;
+  }
 
   return true;
 };
@@ -531,14 +556,21 @@ const checkPerUserLimit = async (
   currentItemUsage: number,
   tx?: FirebaseFirestore.Transaction
 ) => {
-  const perUserLimit = getOfferLimit(offerData, "perUserLimit");
-  if (perUserLimit > 0 && userId) {
+  const db = getDb();
+
+  // perUserLimit: default to 1 if not set (missing = 1 per user)
+  const rawPerUserLimit = getOfferLimit(offerData, "perUserLimit");
+  const perUserLimit = rawPerUserLimit > 0 ? rawPerUserLimit : 1;
+  console.log(`[OFFER_VALIDATION] [PerUser] userId=${userId || 'GUEST'}, offer=${offerId}, limit=${perUserLimit} (raw=${rawPerUserLimit})`);
+
+  if (userId) {
     // 1. FETCH PAST USAGE
     const userRef = db.collection("users").doc(userId);
     const userSnap = tx ? await tx.get(userRef) : await userRef.get();
     const userData = userSnap.data() || {};
     const usedOffers = userData.usedOffers || {};
     const pastUsage = readNumber(usedOffers[offerId], 0);
+    console.log(`[OFFER_VALIDATION] [PerUser] user_path=users/${userId}, pastUsage=${pastUsage}`);
 
     // 2. FETCH CURRENT SESSION USAGE
     let currentUsage = 0;
@@ -566,7 +598,9 @@ const checkPerUserLimit = async (
 
     // 4. FINAL VALIDATION
     const totalUsage = pastUsage + currentUsage + newUsage;
+    console.log(`[OFFER_VALIDATION] perUserLimit check: pastUsage=${pastUsage}, currentUsage=${currentUsage}, newUsage=${newUsage}, totalUsage=${totalUsage}, limit=${perUserLimit}`);
     if (totalUsage > perUserLimit) {
+      console.log(`[OFFER_VALIDATION] ❌ Per-user limit reached for user=${userId} on offer=${offerId} (${totalUsage}/${perUserLimit})`);
       throw new Error(`INVALID_OFFER:You have reached the maximum usage for this offer`);
     }
   }
@@ -580,6 +614,7 @@ const validateCartServer = async (
   sessionId?: string,
   tx?: FirebaseFirestore.Transaction
 ): Promise<ValidatedBill> => {
+  const db = getDb();
 
   const verifiedItems: CartItemInput[] = [];
   let subtotal = 0;
@@ -890,6 +925,8 @@ const validateAndCalculateBillHandler = async (req: Request, res: Response): Pro
 // ─────────────────────────────────────────────────────────────────────────────
 
 const finalizeAndCloseHandler = async (req: Request, res: Response): Promise<void> => {
+  const db = getDb();
+
   setCors(res);
   if (req.method === "OPTIONS") { res.status(200).send(""); return; }
   if (req.method !== "POST") { res.status(405).json({ success: false, message: "Method not allowed" }); return; }
@@ -1052,19 +1089,24 @@ const finalizeAndCloseHandler = async (req: Request, res: Response): Promise<voi
         tx.set(userRef, { hasPlacedFirstOrder: true }, { merge: true });
       }
 
-      // Increment used counts for applied offers
+      // Increment used counts for applied offers (ONLY on successful finalization)
       if (bill.discountSources.length > 0) {
         const userRef = (userId && userType !== "guest") ? db.collection("users").doc(userId) : null;
         for (const source of bill.discountSources) {
-          const offerRef = db.collection("offers").doc(source.offerId);
-          tx.update(offerRef, { usedCount: FieldValue.increment(1) });
-          
-          if (userRef) {
-            tx.set(userRef, {
-              usedOffers: {
-                [source.offerId]: FieldValue.increment(1)
-              }
-            }, { merge: true });
+          if (source.offerId) {
+            console.log(`[OFFER_INCREMENT_START] offerId=${source.offerId}, userId=${userId || 'GUEST'}, source=customer.finalizeAndClose`);
+            
+            const offerRef = db.collection("offers").doc(source.offerId);
+            tx.update(offerRef, { usedCount: FieldValue.increment(1) });
+            
+            if (userRef) {
+              tx.set(userRef, {
+                [`usedOffers.${source.offerId}`]: FieldValue.increment(1)
+              }, { merge: true });
+              console.log(`[OFFER_INCREMENT_SUCCESS] offerId=${source.offerId}, user=${userId}`);
+            } else {
+              console.log(`[OFFER_INCREMENT_SKIPPED] reason=No userRef for per-user tracking (userType=${userType})`);
+            }
           }
         }
       }

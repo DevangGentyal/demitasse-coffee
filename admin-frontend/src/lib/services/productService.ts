@@ -96,6 +96,8 @@ const getIdToken = async (): Promise<string> => {
   return await auth.currentUser.getIdToken()
 }
 
+const CLOUD_FUNCTIONS_URL = process.env.NEXT_PUBLIC_CLOUD_FUNCTIONS_URL || 'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
+
 /**
  * Create a new product via Cloud Function
  */
@@ -108,7 +110,7 @@ export const createProduct = async (
     
     console.log('📥 CREATE PRODUCT - Request:', { outletId, name: productData.name, price: productData.price })
 
-    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/createProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/createProduct`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -147,7 +149,7 @@ export const updateProduct = async (
     
     console.log('📥 UPDATE PRODUCT - Request:', { outletId, productId, updates: Object.keys(updates) })
 
-    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/updateProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateProduct`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -161,7 +163,8 @@ export const updateProduct = async (
 
     if (!response.ok) {
       const errorData = await response.json()
-      throw new Error(errorData.message || 'Failed to update product')
+      const errorMsg = errorData.error ? `${errorData.message}: ${errorData.error}` : (errorData.message || 'Failed to update product')
+      throw new Error(errorMsg)
     }
 
     console.log('✅ Product updated successfully')
@@ -184,7 +187,7 @@ export const updateProductAvailability = async (
     
     console.log('📥 UPDATE AVAILABILITY - Request:', { outletId, productId, available })
 
-    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/updateProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateProduct`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -218,7 +221,7 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
     
     console.log('📥 DELETE PRODUCT - Request:', { outletId, productId })
 
-    const response = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/deleteProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/deleteProduct`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',

@@ -503,7 +503,7 @@ const BillDetails = () => {
                       <div key={`bv-${i}`} className="text-[10px] text-gray-500">• {String(v)}</div>
                     ))}
                     {/* Add-ons */}
-                    {(Array.isArray(item.addons) ? item.addons : []).map((a, i) => (
+                    {(Array.isArray(item.addOns) ? item.addOns : []).map((a, i) => (
                       <div key={`ba-${i}`} className="text-[10px] text-gray-500">+ {a.name} (+₹{a.price}) (FREE 🎂)</div>
                     ))}
                   </div>
@@ -523,7 +523,7 @@ const BillDetails = () => {
                 {Object.values(item.variation || {}).map((v, i) => (
                   <div key={i} className="text-xs text-gray-500 ml-2">• {v}</div>
                 ))}
-                {(Array.isArray(item.addons) ? item.addons : []).map((a, i) => (
+                {(Array.isArray(item.addOns) ? item.addOns : []).map((a, i) => (
                   <div key={`a-${i}`} className="text-xs text-gray-500 ml-2">+ {a.name} (+₹{a.price})</div>
                 ))}
               </div>

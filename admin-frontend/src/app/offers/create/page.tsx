@@ -57,6 +57,7 @@ export default function CreateOfferPage() {
     inactivityDays: '',
     minOrdersRequired: '',
     usageLimit: '',
+    perUserLimit: '1',
 
     // display fields
     badge: '',
@@ -219,7 +220,7 @@ export default function CreateOfferPage() {
         firstOrderOnly: formData.firstOrderOnly,
         inactivityDays: formData.inactivityDays ? Number(formData.inactivityDays) : 0,
         minOrdersRequired: formData.minOrdersRequired ? Number(formData.minOrdersRequired) : 0,
-        usageLimit: formData.usageLimit ? Number(formData.usageLimit) : 0,
+        perUserLimit: formData.perUserLimit ? Number(formData.perUserLimit) : 1,
       }
 
       // Build display
@@ -248,6 +249,7 @@ export default function CreateOfferPage() {
         isActive: formData.isActive,
         autoApply: formData.autoApply,
         isStackable: formData.isStackable,
+        usageLimit: formData.usageLimit ? Number(formData.usageLimit) : 0,
         config,
         userRules,
         display,
@@ -369,7 +371,8 @@ export default function CreateOfferPage() {
               </div>
               <Input type="number" placeholder="Inactivity Days" value={formData.inactivityDays} onChange={e => handleChange("inactivityDays", e.target.value)} />
               <Input type="number" placeholder="Min Orders Required" value={formData.minOrdersRequired} onChange={e => handleChange("minOrdersRequired", e.target.value)} />
-              <Input type="number" placeholder="Usage Limit" value={formData.usageLimit} onChange={e => handleChange("usageLimit", e.target.value)} />
+              <Input type="number" placeholder="Global Usage Limit (0 = unlimited)" value={formData.usageLimit} onChange={e => handleChange("usageLimit", e.target.value)} />
+              <Input type="number" placeholder="Per User Limit (default = 1)" value={formData.perUserLimit} onChange={e => handleChange("perUserLimit", e.target.value)} />
             </div>
           </div>
 
@@ -668,7 +671,8 @@ export default function CreateOfferPage() {
                   {formData.firstOrderOnly && <p className="text-xs">• First Order Only</p>}
                   {formData.inactivityDays && <p className="text-xs">• Inactivity Days: {formData.inactivityDays}</p>}
                   {formData.minOrdersRequired && <p className="text-xs">• Min Orders Required: {formData.minOrdersRequired}</p>}
-                  {formData.usageLimit && <p className="text-xs">• Usage Limit: {formData.usageLimit}</p>}
+                  {formData.usageLimit && <p className="text-xs">• Global Usage Limit: {formData.usageLimit}</p>}
+                  {formData.perUserLimit && <p className="text-xs">• Per User Limit: {formData.perUserLimit}</p>}
                 </div>
               )}
 

@@ -107,11 +107,29 @@ export default function ItemDetails() {
 
     if (product.isAvailable === false) return;
 
+    // ✅ Transform addons map into expected array of objects [{ name, price }]
+    const transformedAddons = [];
+    Object.entries(addons || {}).forEach(([groupIndex, names]) => {
+      const group = product.customizations[parseInt(groupIndex)];
+      if (!group) return;
+      names.forEach(name => {
+        const option = group.options?.find(o => o.name === name);
+        if (option) {
+          transformedAddons.push({
+            name: option.name,
+            price: option.price
+          });
+        }
+      });
+    });
+
+    console.log("[DEBUG] Adding to cart with add-ons:", transformedAddons);
+
     addToCart({
       ...product,
       price: totalPrice,
       variation,
-      addons,
+      addOns: transformedAddons,
     });
 
     setShowSnack(true);

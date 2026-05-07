@@ -1,11 +1,21 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 export const updateOffer = functions.https.onRequest(async (req, res) => {
+  // Set CORS headers
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    res.status(200).send("");
+    return;
+  }
+
   try {
     const db = admin.firestore();
 
-    // ✅ Only PUT/PATCH allowed
     if (req.method !== "PUT" && req.method !== "PATCH") {
       res.status(405).json({
         success: false,
@@ -14,9 +24,10 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
       return;
     }
 
-    const data = req.body;
+    // Robust body parsing
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const data = body;
 
-    // ✅ Required
     if (!data.offerId) {
       res.status(400).json({
         success: false,
@@ -38,53 +49,74 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
 
     const existingData = offerSnap.data();
 
-
     // ✅ Type validation
     if (data.type) {
-      const validTypes = ["discount", "bogo", "freebie", "CATEGORY_DISCOUNT"];
-      if (!validTypes.includes(data.type)) {
+      const validTypes = [
+        "DISCOUNT",
+        "CATEGORY_DISCOUNT",
+        "B1G1",
+        "COMBO",
+        "BIRTHDAY",
+        "NEW_USER",
+        "BOGO",
+        "FREEBIE"
+      ];
+      if (!validTypes.includes(data.type.toUpperCase())) {
         res.status(400).json({ success: false, message: "Invalid offer type" });
         return;
       }
-
+      data.type = data.type.toUpperCase();
     }
     const finalType = data.type || existingData?.type;
 
     // ✅ Discount validation
-    if (finalType === "DISCOUNT") {
-      const discount = data.config?.discount !== undefined ? data.config.discount : existingData?.config?.discount;
-      if (!discount) {
-        res.status(400).json({ success: false, message: "DISCOUNT requires config.discount object" });
+    if (finalType === "DISCOUNT" || finalType === "CATEGORY_DISCOUNT") {
+      const existingDiscount = existingData?.config?.discount || {};
+      const incomingDiscount = data.config?.discount || {};
+
+      const rawDiscVal = incomingDiscount.discountValue ?? existingDiscount.discountValue;
+      const discVal = typeof rawDiscVal === "string" ? parseFloat(rawDiscVal) : rawDiscVal;
+
+      if (typeof discVal !== "number" || isNaN(discVal) || discVal <= 0 || discVal > 100) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid discount value. Must be a number between 1 and 100.",
+        });
         return;
       }
-      const discVal = discount.discountValue;
-      if (typeof discVal !== "number" || discVal <= 0 || discVal > 100) {
-        res.status(400).json({ success: false, message: "DISCOUNT requires config.discount.discountValue > 0 and <= 100" });
-        return;
+
+      if (data.config?.discount) {
+        data.config.discount.discountValue = discVal;
       }
-      if (discount.type === "PRODUCT") {
-        if (!Array.isArray(discount.productIds) || discount.productIds.length === 0) {
+
+      const discountType = incomingDiscount.type || existingDiscount.type || "PRODUCT";
+      if (discountType === "PRODUCT") {
+        const pIds = incomingDiscount.productIds || existingDiscount.productIds;
+        if (!Array.isArray(pIds) || pIds.length === 0) {
           res.status(400).json({ success: false, message: "DISCOUNT of type PRODUCT requires productIds" });
           return;
         }
-      } else if (discount.type === "CATEGORY") {
-        if (!discount.category) {
+      } else if (discountType === "CATEGORY") {
+        const cat = incomingDiscount.category || existingDiscount.category;
+        if (!cat) {
           res.status(400).json({ success: false, message: "DISCOUNT of type CATEGORY requires a category" });
           return;
         }
       }
     }
 
-    // ✅ Date validation (if updating)
-    const startDate = data.startDate
-      ? new Date(data.startDate)
-      : existingData?.startDate?.toDate?.() || existingData?.startDate;
+    // Prepare update object
+    const updateData: any = {
+      updatedAt: FieldValue.serverTimestamp(),
+    };
 
-    const endDate = data.endDate
-      ? new Date(data.endDate)
-      : existingData?.endDate?.toDate?.() || existingData?.endDate;
+    if (data.startDate !== undefined) updateData.startDate = new Date(data.startDate);
+    if (data.endDate !== undefined) updateData.endDate = new Date(data.endDate);
 
-    if (startDate && endDate && startDate >= endDate) {
+    const startDate = updateData.startDate || existingData?.startDate?.toDate?.() || existingData?.startDate;
+    const endDate = updateData.endDate || existingData?.endDate?.toDate?.() || existingData?.endDate;
+
+    if (startDate && endDate && new Date(startDate) >= new Date(endDate)) {
       res.status(400).json({
         success: false,
         message: "startDate must be before endDate",
@@ -92,80 +124,40 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
       return;
     }
 
-    // ✅ B1G1 validation
-    if (finalType === "B1G1") {
-      const productIds = data.config?.b1g1?.applicableProductIds !== undefined
-        ? data.config.b1g1.applicableProductIds
-        : existingData?.config?.b1g1?.applicableProductIds;
-
-      if (!Array.isArray(productIds) || productIds.length === 0) {
-        res.status(400).json({
-          success: false,
-          message: "B1G1 requires config.b1g1.applicableProductIds with at least 1 product",
-        });
-        return;
-      }
-    }
-
-    // ✅ COMBO validation
+    // COMBO validation
     if (finalType === "COMBO") {
       const combo = data.config?.combo !== undefined ? data.config.combo : existingData?.config?.combo;
       if (!Array.isArray(combo) || combo.length === 0) {
-        res.status(400).json({
-          success: false,
-          message: "COMBO requires config.combo array with at least 1 group",
-        });
+        res.status(400).json({ success: false, message: "COMBO requires config.combo array" });
         return;
       }
-      for (const group of combo) {
-        if (!Array.isArray(group.items) || group.items.length === 0) {
-          res.status(400).json({
-            success: false,
-            message: "Each COMBO group must have at least 1 item",
-          });
-          return;
-        }
-      }
-
       const comboPrice = data.config?.comboPrice !== undefined ? data.config.comboPrice : existingData?.config?.comboPrice;
       if (typeof comboPrice !== "number" || comboPrice < 0) {
-        res.status(400).json({
-          success: false,
-          message: "COMBO requires config.comboPrice >= 0",
-        });
+        res.status(400).json({ success: false, message: "COMBO requires config.comboPrice >= 0" });
         return;
       }
     }
 
-    // ✅ priority validation
-    if (data.priority !== undefined && data.priority !== null) {
-      if (typeof data.priority !== "number" || data.priority < 0) {
-        res.status(400).json({ success: false, message: "Priority must be a number >= 0" });
-        return;
-      }
-    }
-
-    // ✅ Prepare update object
-    const updateData: any = {
-      updatedAt: new Date(),
-    };
-
-    if (data.title !== undefined) updateData.title = data.title.trim();
-    if (data.description !== undefined) updateData.description = data.description;
+    if (data.title !== undefined) updateData.title = String(data.title).trim();
+    if (data.description !== undefined) updateData.description = String(data.description);
     if (data.type !== undefined) updateData.type = data.type;
-    if (data.category !== undefined) updateData.category = data.category;
 
-    if (data.isActive !== undefined) updateData.isActive = data.isActive;
-    if (data.autoApply !== undefined) updateData.autoApply = data.autoApply;
-    if (data.isStackable !== undefined) updateData.isStackable = data.isStackable;
-    if (data.priority !== undefined) updateData.priority = data.priority;
+    if (data.category !== undefined || data.applicableCategory !== undefined) {
+      const catVal = data.applicableCategory || data.category;
+      if (catVal && catVal.toLowerCase() !== 'discount') {
+        updateData.category = catVal;
+        updateData.applicableCategory = catVal;
+      }
+    }
 
-    if (data.startDate !== undefined) updateData.startDate = new Date(data.startDate);
-    if (data.endDate !== undefined) updateData.endDate = new Date(data.endDate);
+    if (data.isActive !== undefined) updateData.isActive = !!data.isActive;
+    if (data.autoApply !== undefined) updateData.autoApply = !!data.autoApply;
+    if (data.isStackable !== undefined) updateData.isStackable = !!data.isStackable;
+    if (data.priority !== undefined) updateData.priority = Number(data.priority);
+    if (data.minOrderValue !== undefined) updateData.minOrderValue = Number(data.minOrderValue);
+    if (data.usageLimit !== undefined) updateData.usageLimit = Number(data.usageLimit);
 
-    if (data.minOrderValue !== undefined) updateData.minOrderValue = data.minOrderValue;
-
-    // ✅ Enforce isCustomizable safety for COMBO
+    // Enforce isCustomizable safety for COMBO
     if (finalType === "COMBO" && data.config?.combo && Array.isArray(data.config.combo)) {
       try {
         const productRefs: { group: any; item: any }[] = [];
@@ -195,8 +187,7 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
       }
     }
 
-    // ✅ Full nested config — merge with existing if partial update
-    if (data.config !== undefined) {
+    if (data.config !== undefined && data.config !== null) {
       const existingConfig = existingData?.config || {};
       updateData.config = {
         combo: Array.isArray(data.config.combo)
@@ -210,10 +201,10 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
             })) : [],
           }))
           : (existingConfig.combo || null),
-        comboPrice: data.config.comboPrice !== undefined
-          ? (typeof data.config.comboPrice === "number" ? data.config.comboPrice : 0)
+        comboPrice: data.config.comboPrice !== undefined && data.config.comboPrice !== null
+          ? Number(data.config.comboPrice)
           : (existingConfig.comboPrice ?? 0),
-        b1g1: data.config.b1g1 !== undefined
+        b1g1: (data.config.b1g1 != null)
           ? {
             applicableProductIds: Array.isArray(data.config.b1g1.applicableProductIds)
               ? data.config.b1g1.applicableProductIds
@@ -221,7 +212,7 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
             type: data.config.b1g1.type || "CHEAPEST_FREE",
           }
           : (existingConfig.b1g1 || null),
-        discount: data.config.discount !== undefined
+        discount: (data.config.discount != null)
           ? {
             type: data.config.discount.type || (existingConfig.discount?.type || 'PRODUCT'),
             productIds: Array.isArray(data.config.discount.productIds)
@@ -230,55 +221,37 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
             category: data.config.discount.category !== undefined
               ? data.config.discount.category
               : (existingConfig.discount?.category || null),
-            discountValue: typeof data.config.discount.discountValue === "number"
-              ? data.config.discount.discountValue
-              : (existingConfig.discount?.discountValue ?? 0),
+            discountValue: Number(data.config.discount.discountValue || 0),
             discountType: "PERCENT",
           }
           : (existingConfig.discount || null),
-        selection: data.config.selection !== undefined
+        selection: (data.config.selection != null)
           ? {
-            enabled: data.config.selection.enabled !== undefined ? !!data.config.selection.enabled : (existingConfig.selection?.enabled ?? false),
+            enabled: !!data.config.selection.enabled,
             ...(typeof data.config.selection.maxSelection === "number" ? { maxSelection: data.config.selection.maxSelection } : (existingConfig.selection?.maxSelection ? { maxSelection: existingConfig.selection.maxSelection } : {})),
           }
           : (existingConfig.selection || null),
-        freeItem: data.config.freeItem !== undefined
-          ? data.config.freeItem
-          : (existingConfig.freeItem || null),
-        loyalty: data.config.loyalty !== undefined
-          ? data.config.loyalty
-          : (existingConfig.loyalty || null),
+        freeItem: data.config.freeItem !== undefined ? data.config.freeItem : (existingConfig.freeItem || null),
+        loyalty: data.config.loyalty !== undefined ? data.config.loyalty : (existingConfig.loyalty || null),
       };
     }
 
-    // ✅ Full nested userRules — merge with existing if partial update
-    if (data.userRules !== undefined) {
-      const existingRules = existingData?.userRules || {};
+    if (data.userRules != null) {
+      //  const existingRules = existingData?.userRules || {};
       updateData.userRules = {
-        birthdayOnly: data.userRules.birthdayOnly ?? (existingRules.birthdayOnly ?? false),
-        firstOrderOnly: data.userRules.firstOrderOnly ?? (existingRules.firstOrderOnly ?? false),
-        inactivityDays: typeof data.userRules.inactivityDays === "number"
-          ? data.userRules.inactivityDays
-          : (existingRules.inactivityDays ?? 0),
-        minOrdersRequired: typeof data.userRules.minOrdersRequired === "number"
-          ? data.userRules.minOrdersRequired
-          : (existingRules.minOrdersRequired ?? 0),
-        usageLimit: typeof data.userRules.usageLimit === "number"
-          ? data.userRules.usageLimit
-          : (existingRules.usageLimit ?? 0),
+        birthdayOnly: !!data.userRules.birthdayOnly,
+        firstOrderOnly: !!data.userRules.firstOrderOnly,
+        inactivityDays: Number(data.userRules.inactivityDays || 0),
+        minOrdersRequired: Number(data.userRules.minOrdersRequired || 0),
+        perUserLimit: Number(data.userRules.perUserLimit ?? 1),
       };
     }
 
-    // ✅ Full nested display — merge with existing if partial update
-    if (data.display !== undefined) {
+    if (data.display != null) {
       const existingDisplay = existingData?.display || {};
       updateData.display = {
-        badge: data.display.badge !== undefined
-          ? data.display.badge
-          : (existingDisplay.badge || null),
-        highlightText: data.display.highlightText !== undefined
-          ? data.display.highlightText
-          : (existingDisplay.highlightText || null),
+        badge: data.display.badge || existingDisplay.badge || null,
+        highlightText: data.display.highlightText || existingDisplay.highlightText || null,
       };
     }
 
@@ -288,14 +261,13 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
       success: true,
       message: "Offer updated successfully",
     });
-    return;
 
   } catch (error) {
     console.error("updateOffer error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
+      error: error instanceof Error ? error.message : String(error)
     });
-    return;
   }
 });

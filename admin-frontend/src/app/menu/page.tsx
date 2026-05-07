@@ -195,8 +195,9 @@ export default function MenuPage() {
   }
 
   const handleSubmit = async () => {
-    if (!formData.name.trim() || !formData.category || !formData.subcategory || !formData.price) {
-      setEditError('Please fill all required fields')
+    // subcategory is now optional in validation (some products may not have one)
+    if (!formData.name.trim() || !formData.category || !formData.price) {
+      setEditError('Please fill all required fields (Name, Category, Price)')
       return
     }
 
@@ -218,7 +219,7 @@ export default function MenuPage() {
       const productData = {
         name: formData.name.trim(),
         category: formData.category,
-        subcategory: formData.subcategory,
+        subcategory: formData.subcategory, // can be empty string
         price: priceValue,
         taxPercent: taxValue,
         isAvailable: formData.isAvailable,
@@ -248,7 +249,8 @@ export default function MenuPage() {
       setEditError(null)
     } catch (error) {
       console.error('❌ Error saving product:', error)
-      setEditError('Failed to save product. Please try again.')
+      const msg = error instanceof Error ? error.message : 'Failed to save product. Please try again.'
+      setEditError(msg)
     } finally {
       setIsSaving(false)
     }
@@ -267,7 +269,8 @@ export default function MenuPage() {
       setEditError(null)
     } catch (error) {
       console.error('❌ Error updating availability:', error)
-      setEditError('Failed to update availability. Please try again.')
+      const msg = error instanceof Error ? error.message : 'Failed to update availability. Please try again.'
+      setEditError(msg)
     }
   }
 

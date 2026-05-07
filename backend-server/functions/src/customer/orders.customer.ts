@@ -6,8 +6,6 @@ import { calculateSubtotal } from "../utils/pricing";
 import { applyOffer } from "../utils/offers";
 import { applyTax } from "../utils/tax";
 
-const db = admin.firestore();
-
 interface InputItem {
   productId: string;
   qty: number;
@@ -103,7 +101,11 @@ const isOfferCurrentlyValid = (offerData: Record<string, unknown>): boolean => {
 
   const usageLimit = getOfferLimit(offerData, "usageLimit");
   const usedCount = readNumber(offerData.usedCount, 0);
-  if (usageLimit > 0 && usedCount >= usageLimit) return false;
+  console.log(`[OFFER_VALIDATION] [Global] usageLimit=${usageLimit}, usedCount=${usedCount}`);
+  if (usageLimit > 0 && usedCount >= usageLimit) {
+    console.log(`[OFFER_VALIDATION] [Global] ❌ Limit reached (${usedCount}/${usageLimit})`);
+    return false;
+  }
 
   return true;
 };
@@ -111,6 +113,7 @@ const isOfferCurrentlyValid = (offerData: Record<string, unknown>): boolean => {
 
 export const addItemsToOrder = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
+    const db = admin.firestore();
     setCors(res);
 
     if (req.method === "OPTIONS") {
@@ -226,8 +229,11 @@ export const addItemsToOrder = functions.https.onRequest(
             throw new Error("OFFER_EXPIRED");
           }
           
-          const perUserLimit = getOfferLimit(offerData, "perUserLimit");
-          if (perUserLimit > 0 && userId) {
+          // perUserLimit: default to 1 if not set (missing = 1 per user)
+          const rawPerUserLimit = getOfferLimit(offerData, "perUserLimit");
+          const perUserLimit = rawPerUserLimit > 0 ? rawPerUserLimit : 1;
+          console.log(`[OFFER_VALIDATION] [PerUser] userId=${userId || 'GUEST'}, offer=${nextOfferId}, limit=${perUserLimit} (raw=${rawPerUserLimit})`);
+          if (userId) {
             // 1. FETCH CURRENT SESSION USAGE
             const activeOrdersSnap = await tx.get(db.collection("orders").where("sessionId", "==", sessionId));
             let currentUsage = 0;
@@ -272,12 +278,17 @@ export const addItemsToOrder = functions.https.onRequest(
             // 3. FETCH PAST USAGE
             const userSnap = await tx.get(db.collection("users").doc(userId));
             const pastUsage = readNumber((userSnap.data()?.usedOffers || {})[nextOfferId], 0);
+            console.log(`[OFFER_VALIDATION] [PerUser] user_path=users/${userId}, pastUsage=${pastUsage}`);
 
             // 4. FINAL VALIDATION
             const totalUsage = pastUsage + currentUsage + newUsage;
+            console.log(`[OFFER_VALIDATION] [PerUser] check: pastUsage=${pastUsage}, currentUsage=${currentUsage}, newUsage=${newUsage}, totalUsage=${totalUsage}, limit=${perUserLimit}`);
             if (totalUsage > perUserLimit) {
+              console.log(`[OFFER_VALIDATION] [PerUser] ❌ Limit reached for user=${userId} on offer=${nextOfferId} (${totalUsage}/${perUserLimit})`);
               throw new Error("LIMIT_REACHED");
             }
+          } else {
+            console.log(`[OFFER_VALIDATION] [PerUser] ⚠️ Validation skipped: userId is missing (GUEST user)`);
           }
 
           const offerResult = applyOffer(
