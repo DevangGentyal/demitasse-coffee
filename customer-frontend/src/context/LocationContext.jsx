@@ -181,16 +181,39 @@ export function LocationProvider({ children }) {
                 const isOccupied = !!data.isOccupied;
 
                 // If table was reset/cleared by admin, force client to reselect outlet/table
-                if (!isOccupied || !activeSessionId) {
-                    clearLocation();
-                    setSelectedOutletState("");
-                    setOutletNameState("");
-                    setTableNumberState("");
-                    setSelectedTableIdState("");
-                    setSelectedTableNameState("");
-                    setSelectedTableOwnerIdState("");
-                    setSelectedSessionIdState("");
-                }
+                const currentStoredSessionId =
+    localStorage.getItem("selectedSessionId") ||
+    getCookie("selectedSessionId") ||
+    "";
+
+const shouldClear =
+    !activeSessionId &&
+    !isOccupied &&
+    currentStoredSessionId !== "";
+
+if (shouldClear) {
+    // Prevent false resets during session creation race condition
+
+    setTimeout(() => {
+        const latestSessionId =
+            localStorage.getItem("selectedSessionId") ||
+            getCookie("selectedSessionId") ||
+            "";
+
+        // Recheck after delay
+        if (!latestSessionId) {
+            clearLocation();
+
+            setSelectedOutletState("");
+            setOutletNameState("");
+            setTableNumberState("");
+            setSelectedTableIdState("");
+            setSelectedTableNameState("");
+            setSelectedTableOwnerIdState("");
+            setSelectedSessionIdState("");
+        }
+    }, 3000);
+}
             },
             (err) => {
                 console.warn("Table listener error:", err);

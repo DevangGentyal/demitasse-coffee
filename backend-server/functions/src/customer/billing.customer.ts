@@ -5,6 +5,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { calculateSubtotal } from "../utils/pricing";
 import { applyTax } from "../utils/tax";
 import { applyOffer } from "../utils/offers";
+import { handleCustomerPreflight } from "./cors";
 
 const getDb = () => admin.firestore();
 
@@ -24,12 +25,6 @@ interface OrderItem {
 }
 
 const readString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-
-const setCors = (res: Response): void => {
-  res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-};
 
 const readNumber = (value: unknown, fallback = 0): number => {
   const numeric = Number(value);
@@ -77,12 +72,7 @@ const sanitizeOrderItems = (rawItems: unknown[]): OrderItem[] => {
 const generateBillHandler = async (req: Request, res: Response): Promise<void> => {
   const db = getDb();
 
-  setCors(res);
-
-  if (req.method === "OPTIONS") {
-    res.status(200).send("");
-    return;
-  }
+  if (handleCustomerPreflight(req, res)) return;
 
   if (req.method !== "POST") {
     res.status(405).json({ success: false, message: "Method not allowed" });
@@ -241,12 +231,7 @@ const generateBillHandler = async (req: Request, res: Response): Promise<void> =
 const closeSessionHandler = async (req: Request, res: Response): Promise<void> => {
   const db = getDb();
 
-  setCors(res);
-
-  if (req.method === "OPTIONS") {
-    res.status(200).send("");
-    return;
-  }
+  if (handleCustomerPreflight(req, res)) return;
 
   if (req.method !== "POST") {
     res.status(405).json({ success: false, message: "Method not allowed" });
@@ -872,8 +857,7 @@ const validateCartServer = async (
 // ─────────────────────────────────────────────────────────────────────────────
 
 const validateAndCalculateBillHandler = async (req: Request, res: Response): Promise<void> => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(200).send(""); return; }
+  if (handleCustomerPreflight(req, res)) return;
   if (req.method !== "POST") { res.status(405).json({ success: false, message: "Method not allowed" }); return; }
 
   try {
@@ -927,8 +911,7 @@ const validateAndCalculateBillHandler = async (req: Request, res: Response): Pro
 const finalizeAndCloseHandler = async (req: Request, res: Response): Promise<void> => {
   const db = getDb();
 
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(200).send(""); return; }
+  if (handleCustomerPreflight(req, res)) return;
   if (req.method !== "POST") { res.status(405).json({ success: false, message: "Method not allowed" }); return; }
 
   try {

@@ -5,6 +5,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { calculateSubtotal } from "../utils/pricing";
 import { applyOffer } from "../utils/offers";
 import { applyTax } from "../utils/tax";
+import { handleCustomerPreflight } from "./cors";
 
 interface InputItem {
   productId: string;
@@ -32,12 +33,6 @@ interface PersistedOrderItem {
   addedAt: unknown;
   offerId?: string | null;
 }
-
-const setCors = (res: Response): void => {
-  res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-};
 
 const readNumberish = (value: unknown): number => {
   const numeric = Number(value);
@@ -114,12 +109,7 @@ const isOfferCurrentlyValid = (offerData: Record<string, unknown>): boolean => {
 export const addItemsToOrder = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
     const db = admin.firestore();
-    setCors(res);
-
-    if (req.method === "OPTIONS") {
-      res.status(200).send("");
-      return;
-    }
+    if (handleCustomerPreflight(req, res)) return;
 
     if (req.method !== "POST") {
       res.status(405).json({ success: false, message: "Method not allowed" });
