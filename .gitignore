@@ -4,3 +4,8 @@
 firebase-debug.log
 **/firebase-debug.log
 serviceAccountKey.json.json
+backend-server/functions/.gitignore
+backend-server/firestore-debug.log
+backend-server/scripts/copyFirestoreToEmulator.js
+backend-server/scripts/migrateLoyaltyStructure.js
+backend-server/scripts/seedLoyaltyEmulator.js
