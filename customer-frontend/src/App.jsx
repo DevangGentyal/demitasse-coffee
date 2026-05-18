@@ -24,6 +24,7 @@ import Offers from "./pages/offer_screen/Offers";
 import OfferDetails from "./pages/offer_screen/offerDetails";
 import SelectOutlet from "./pages/location_screen/SelectOutlet";
 import CompleteProfile from "./components/auth_screen/completeProfile";
+import LoyaltyPage from "./pages/LoyaltyPage";
 
 // Components
 import ProtectedRoute from "./components/ProtectedRoute_screen/ProtectedRoute";
@@ -115,6 +116,14 @@ function Layout() {
           element={
             <ProtectedRoute>
               <Offers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/loyalty"
+          element={
+            <ProtectedRoute>
+              <LoyaltyPage />
             </ProtectedRoute>
           }
         />

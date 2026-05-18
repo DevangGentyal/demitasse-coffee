@@ -1,106 +1,75 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { GiftIcon } from "@heroicons/react/24/outline";
-
-// We use a mock customer ID since there is no auth implemented in the frontend
-const CUSTOMER_ID = "customer-123";
-
-// Update this API base URL with your deployed Firebase project URL or local emulator URL
-// For example: "http://127.0.0.1:5001/your-project-id/us-central1"
-// @ts-ignore
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
+import React from "react";
+import { SparklesIcon, GiftIcon, StarIcon } from "@heroicons/react/24/outline";
 
 export default function LoyaltyPage() {
-  const navigate = useNavigate();
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/checkRewards?customerId=${CUSTOMER_ID}`)
-      .then(res => res.json())
-      .then(res => {
-        if (res.success) setData(res);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching loyalty data:", err);
-        setLoading(false);
-      });
-  }, []);
-
   return (
-    <div className="p-4 pt-8">
-      <h1 className="text-2xl font-bold mb-6">Loyalty Dashboard</h1>
-      {loading ? (
-        <div className="animate-pulse space-y-4">
-          <div className="h-32 bg-gray-200 rounded-2xl"></div>
-          <div className="h-40 bg-gray-200 rounded-2xl"></div>
+    <div className="min-h-screen bg-gradient-to-b from-[#f7efe6] via-[#f5efe7] to-[#efe6da] px-4 pt-10 pb-24">
+      {/* Header */}
+      <div className="mb-8 text-center mt-4">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr from-amber-200 to-amber-100 shadow-lg shadow-amber-200/50 text-amber-700">
+          <SparklesIcon className="w-8 h-8" />
         </div>
-      ) : data ? (
-        <div className="space-y-6">
-          {/* Points Card */}
-          <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100 space-y-2 relative overflow-hidden">
-             <div className="absolute top-0 right-0 p-4 opacity-5">
-               <GiftIcon className="w-24 h-24" />
-             </div>
-             <h2 className="text-gray-500 font-medium">Points Balance</h2>
-             <div className="text-5xl font-bold text-green-600">{data.pointsBalance}</div>
+        <h1 className="text-3xl font-bold text-[#3e2723] tracking-tight">Demitasse Perks</h1>
+        <p className="mt-2 text-sm font-medium text-[#6B4F4F]">Something exciting is brewing ☕</p>
+      </div>
+
+      {/* Main Teaser Card */}
+      <div className="relative overflow-hidden rounded-[2rem] bg-white p-8 shadow-xl shadow-black/5 border border-white/50">
+        <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-amber-50 blur-3xl"></div>
+        <div className="absolute -bottom-10 -left-10 h-40 w-40 rounded-full bg-emerald-50 blur-3xl"></div>
+        
+        <div className="relative z-10 text-center">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#3e2723] px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-200 mb-6 shadow-sm">
+            Coming Soon
+          </span>
+          <h2 className="text-2xl font-bold text-gray-900 leading-tight">Exclusive Rewards <br/>& Free Treats</h2>
+          <p className="mt-4 text-sm text-gray-500 leading-relaxed">
+            We are crafting a premium loyalty experience. Soon, you'll be able to earn points on every coffee and unlock exclusive perks, birthday treats, and free beverages.
+          </p>
+        </div>
+
+        {/* Fake Blurred Preview */}
+        <div className="mt-8 relative rounded-2xl bg-gray-50 p-4 border border-gray-100 overflow-hidden select-none">
+          <div className="absolute inset-0 bg-white/40 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center">
+            <div className="bg-white/90 px-4 py-2 rounded-full shadow-sm border border-white flex items-center gap-2">
+              <span className="animate-pulse h-2 w-2 rounded-full bg-amber-500"></span>
+              <span className="text-xs font-bold text-gray-800 tracking-wide">Launching in Phase 2</span>
+            </div>
           </div>
           
-          {/* Coffee Progress Card */}
-          <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100 space-y-4">
-             <h2 className="font-semibold text-lg">Coffee Progress</h2>
-             <div className="flex gap-2 h-3">
-                {[1, 2, 3, 4, 5].map(i => (
-                  <div 
-                    key={i} 
-                    className={`flex-1 rounded-full ${i <= data.coffeeProgress.current ? 'bg-amber-600' : 'bg-gray-100'}`}
-                  ></div>
-                ))}
-             </div>
-             <div>
-               <p className="text-sm font-medium text-gray-800">
-                 {data.coffeeProgress.current} / 5 coffees
-               </p>
-               <p className="text-sm text-gray-500">
-                 {data.coffeeProgress.remaining > 0 
-                    ? `${data.coffeeProgress.remaining} coffees away from free pizza!` 
-                    : "You have earned a free pizza!"}
-               </p>
-             </div>
-          </div>
-
-          {/* Available Rewards */}
-          {data.availableRewards && data.availableRewards.length > 0 && (
-            <div className="p-6 bg-amber-50 rounded-2xl border border-amber-200 space-y-3">
-               <h2 className="font-semibold text-lg text-amber-900">Your Rewards</h2>
-               <div className="space-y-2">
-                 {data.availableRewards.map((reward: any) => (
-                   <div key={reward.id} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-amber-100">
-                     <div className="p-2 bg-amber-100 rounded-lg text-amber-700">
-                       <GiftIcon className="w-6 h-6" />
-                     </div>
-                     <span className="font-medium capitalize text-amber-900">
-                       {reward.type.replace('_', ' ')}
-                     </span>
-                   </div>
-                 ))}
-               </div>
+          <div className="opacity-40 blur-[1px]">
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center gap-2">
+                <StarIcon className="w-5 h-5 text-amber-500" />
+                <span className="font-bold text-gray-800 text-sm">Your Points</span>
+              </div>
+              <span className="font-black text-xl text-amber-600">450</span>
             </div>
-          )}
+            <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-amber-400 w-[60%]"></div>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2 text-right">50 points away from a free coffee!</p>
+          </div>
+        </div>
+      </div>
 
-          <button 
-             onClick={() => navigate("/redeem")}
-             className="w-full py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold shadow-md transition-colors"
-          >
-             Redeem Rewards
-          </button>
+      {/* Feature Teasers */}
+      <div className="mt-6 grid grid-cols-2 gap-4">
+        <div className="rounded-3xl bg-white p-5 shadow-sm border border-gray-100 flex flex-col items-center text-center">
+          <div className="h-12 w-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-3">
+            <GiftIcon className="w-6 h-6" />
+          </div>
+          <h3 className="text-sm font-bold text-gray-900">Birthday Treats</h3>
+          <p className="mt-1 text-[11px] text-gray-500 leading-tight">A special surprise on your big day.</p>
         </div>
-      ) : (
-        <div className="p-6 bg-red-50 text-red-600 rounded-2xl border border-red-200">
-          <p>Could not load loyalty data. Ensure the backend functions are running and API_BASE is correct.</p>
+        <div className="rounded-3xl bg-white p-5 shadow-sm border border-gray-100 flex flex-col items-center text-center">
+          <div className="h-12 w-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">
+            <StarIcon className="w-6 h-6" />
+          </div>
+          <h3 className="text-sm font-bold text-gray-900">Earn Faster</h3>
+          <p className="mt-1 text-[11px] text-gray-500 leading-tight">Double points on weekend orders.</p>
         </div>
-      )}
+      </div>
     </div>
   );
 }

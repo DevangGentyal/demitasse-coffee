@@ -158,6 +158,7 @@ export function LocationProvider({ children }) {
     // outlet/table/session so they must re-select.
     useEffect(() => {
         if (!selectedTableId) return undefined;
+        let clearTimer = null;
 
         const tableRef = doc(db, "tables", selectedTableId);
         const unsub = onSnapshot(
@@ -182,14 +183,32 @@ export function LocationProvider({ children }) {
 
                 // If table was reset/cleared by admin, force client to reselect outlet/table
                 if (!isOccupied || !activeSessionId) {
-                    clearLocation();
-                    setSelectedOutletState("");
-                    setOutletNameState("");
-                    setTableNumberState("");
-                    setSelectedTableIdState("");
-                    setSelectedTableNameState("");
-                    setSelectedTableOwnerIdState("");
-                    setSelectedSessionIdState("");
+                    // Check if client is intentionally closing the session locally
+                    if (localStorage.getItem("isClosingSession") === "true") {
+                        return; // Prevent clearing during the 10-second confirmation screen
+                    }
+
+                    // Prevent false resets during session creation race condition
+                    // We wait 3 seconds. If the backend update arrives (from session creation),
+                    // it will trigger a new snapshot and cancel this clear operation.
+                    if (!clearTimer) {
+                        clearTimer = setTimeout(() => {
+                            clearLocation();
+                            setSelectedOutletState("");
+                            setOutletNameState("");
+                            setTableNumberState("");
+                            setSelectedTableIdState("");
+                            setSelectedTableNameState("");
+                            setSelectedTableOwnerIdState("");
+                            setSelectedSessionIdState("");
+                        }, 3000);
+                    }
+                } else {
+                    // Table is valid and occupied. Cancel any pending reset.
+                    if (clearTimer) {
+                        clearTimeout(clearTimer);
+                        clearTimer = null;
+                    }
                 }
             },
             (err) => {
@@ -197,7 +216,10 @@ export function LocationProvider({ children }) {
             }
         );
 
-        return () => unsub();
+        return () => {
+            unsub();
+            if (clearTimer) clearTimeout(clearTimer);
+        };
     }, [selectedTableId]);
 
     useEffect(() => {

@@ -207,7 +207,7 @@ function OrderCard({ order, accent = "green" }) {
 export default function Orders() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { selectedOutlet, selectedTableId, selectedTableName, tableNumber, selectedTableOwnerId, selectedSessionId } = useLocationContext();
+  const { selectedOutlet, selectedTableId, selectedTableName, tableNumber, selectedTableOwnerId, selectedSessionId, clearLocation } = useLocationContext();
   const [liveOrders, setLiveOrders] = useState([]);
   const [historyOrders, setHistoryOrders] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -219,18 +219,20 @@ export default function Orders() {
   const [showPayOverlay, setShowPayOverlay] = useState(false);
   const [overlayCountdown, setOverlayCountdown] = useState(10);
   const [isClosingAfterBill, setIsClosingAfterBill] = useState(false);
+  const [showFinalConfirmation, setShowFinalConfirmation] = useState(false);
+  const [expandedBillItems, setExpandedBillItems] = useState({});
+
+  const toggleBillItem = (idx) => {
+    setExpandedBillItems(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
 
   const resolvedTableName = selectedTableName || tableNumber || "Current Table";
   const viewerId = String(user?.uid || selectedTableOwnerId || "");
   const effectiveTableOwnerId = String(currentTableOwnerId || selectedTableOwnerId || "");
   const isCurrentOwner = !!viewerId && !!effectiveTableOwnerId && viewerId === effectiveTableOwnerId;
 
-  const movedToPreviousOrders = useMemo(
-    () => (isCurrentOwner ? [] : liveOrders.map((order) => ({ ...order, statusLabel: "Delivered" }))),
-    [isCurrentOwner, liveOrders]
-  );
-
-  const visibleLiveOrders = isCurrentOwner ? liveOrders : [];
+  // CHANGE 2: All participants see all live orders (removed ownerId-based filtering)
+  const visibleLiveOrders = liveOrders;
   const billReadyOrders = useMemo(
     () => visibleLiveOrders.filter(isBillReadyOrder),
     [visibleLiveOrders]
@@ -238,11 +240,11 @@ export default function Orders() {
 
   const mergedHistoryOrders = useMemo(() => {
     const byId = new Map();
-    [...movedToPreviousOrders, ...historyOrders].forEach((order) => {
+    historyOrders.forEach((order) => {
       byId.set(order.id, order);
     });
     return [...byId.values()].sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime());
-  }, [movedToPreviousOrders, historyOrders]);
+  }, [historyOrders]);
 
   const activeOrder = billReadyOrders[0] || null;
 
@@ -251,8 +253,11 @@ export default function Orders() {
   const resetSessionAndTable = async () => {
     if (!selectedTableId && !selectedSessionId) return;
 
-    const idToken = await auth.currentUser?.getIdToken();
-    if (!idToken) {
+    // Support both authenticated owners and guest participants
+    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const guestId = localStorage.getItem("guestId");
+
+    if (!idToken && !guestId) {
       throw new Error("User not authenticated");
     }
 
@@ -262,12 +267,14 @@ export default function Orders() {
     };
 
     try {
+      const headers = { "Content-Type": "application/json" };
+      if (idToken) {
+        headers.Authorization = `Bearer ${idToken}`;
+      }
+
       const response = await fetch(`${API_BASE}/closeSession`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
+        headers,
         body: JSON.stringify(payload),
       });
 
@@ -303,10 +310,7 @@ export default function Orders() {
   };
 
   const handleGenerateBill = async () => {
-    if (!isCurrentOwner) {
-      setBanner({ type: "error", text: "Only the current table owner can generate a bill." });
-      return;
-    }
+    // CHANGE 3: Any participant can generate the bill (removed isCurrentOwner check)
 
     if (!activeOrder) {
       setBanner({ type: "error", text: "No completed order found to generate bill." });
@@ -362,9 +366,9 @@ export default function Orders() {
 
     const q = query(collection(db, "orders"), where("tableId", "==", selectedTableId));
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      // CHANGE 2: Show ALL orders for this table to every participant (removed ownerId filter)
       const rows = groupLiveOrders(snapshot.docs).filter((order) => {
         if (!hasBillableItems(order)) return false;
-        if (viewerId && order.ownerId && order.ownerId !== viewerId) return false;
         return true;
       });
       rows.sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime());
@@ -426,11 +430,7 @@ export default function Orders() {
     setBillDetails(null);
   }, [selectedTableId]);
 
-  useEffect(() => {
-    if (!isCurrentOwner && liveOrders.length > 0) {
-      setShowHistory(true);
-    }
-  }, [isCurrentOwner, liveOrders.length]);
+  // CHANGE 2: Removed auto-show-history for non-owners (all participants now see live orders directly)
 
   useEffect(() => {
     if (!showPayOverlay) return undefined;
@@ -518,6 +518,17 @@ export default function Orders() {
         </div>
       )}
 
+      {showFinalConfirmation && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4 backdrop-blur-md transition-opacity">
+          <div className="w-full max-w-sm rounded-[2rem] bg-white p-8 text-center shadow-2xl">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-3xl">✅</div>
+            <h2 className="text-2xl font-bold text-gray-900">Ordering Closed</h2>
+            <p className="mt-3 text-base text-gray-600 font-medium">Thank you! Please pay your bill at the counter.</p>
+            <p className="mt-6 text-sm font-semibold text-gray-400">Redirecting to menu in a moment...</p>
+          </div>
+        </div>
+      )}
+
       <div className="sticky top-0 z-20 border-b border-black/5 bg-white/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[420px] items-center justify-between px-4 py-4">
           <div>
@@ -548,8 +559,7 @@ export default function Orders() {
             <>
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Ongoing orders</p>
-                  <h2 className="mt-1 text-base font-bold text-gray-900">Current Orders</h2>
+                  <h2 className="text-base font-bold text-gray-900 uppercase tracking-wide">Ongoing Orders</h2>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-emerald-700">Live total</p>
@@ -558,22 +568,8 @@ export default function Orders() {
               </div>
               
               <div className="mt-2 text-[11px] text-emerald-700 bg-white/40 rounded-lg px-2 py-1 inline-block border border-emerald-200">
-                💡 Generate bill after completing all orders
+                💡 Generate bill and close session below
               </div>
-
-              {activeOrder && isCurrentOwner && (
-                <div className="mt-4 rounded-2xl border border-emerald-200 bg-white/80 p-3">
-                  <div className="flex items-center justify-center gap-3">
-                    <button
-                      onClick={handleGenerateBill}
-                      disabled={isGeneratingBill}
-                      className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-emerald-300"
-                    >
-                      {isGeneratingBill ? "Generating..." : "Generate Bill"}
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <div className="mt-4 space-y-3">
                 {visibleLiveOrders.map((order) => <OrderCard key={order.id} order={order} accent="green" />)}
@@ -598,7 +594,10 @@ export default function Orders() {
                   <h3 className="text-xl font-bold text-gray-900">Final Bill</h3>
                 </div>
                 <button 
-                  onClick={() => setBillDetails(null)}
+                  onClick={() => {
+                    setBillDetails(null);
+                    setExpandedBillItems({});
+                  }}
                   className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
                 >
                   ✕
@@ -610,15 +609,94 @@ export default function Orders() {
                 <div className="space-y-4">
                   {/* Items List */}
                   <div className="space-y-3">
-                    {billDetails.items.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-start text-sm">
-                        <div className="flex-1 pr-4">
-                          <p className="font-semibold text-gray-800">{item.name}</p>
-                          <p className="text-xs text-gray-500">Qty: {item.qty} × {currency.format(item.finalUnitPrice || item.price || 0)}</p>
+                    {billDetails.items.map((item, idx) => {
+                      const isExpanded = !!expandedBillItems[idx];
+                      const directCustomizations = Array.isArray(item.customizations) ? item.customizations : [];
+                      const directSelected = directCustomizations.flatMap(g => (g.options || []).filter(o => o.isSelected));
+                      const hasVariations = Array.isArray(item.variations) && item.variations.length > 0;
+                      const hasAddons = Array.isArray(item.addOns) ? item.addOns : (Array.isArray(item.addons) ? item.addons : []);
+                      const hasSubItems = Array.isArray(item.items) && item.items.length > 0;
+                      const isOffer = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.isFree;
+                      
+                      const hasItemDetails = hasVariations || directSelected.length > 0 || hasAddons.length > 0 || hasSubItems || isOffer;
+
+                      return (
+                        <div key={idx} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
+                          <div 
+                            className={`flex justify-between items-start text-sm ${hasItemDetails ? 'cursor-pointer select-none' : ''}`}
+                            onClick={() => hasItemDetails && toggleBillItem(idx)}
+                          >
+                            <div className="flex-1 pr-4">
+                              <p className="font-semibold text-gray-800 flex items-center gap-1.5">
+                                {item.name || "Item"}
+                                {hasItemDetails && (
+                                  <span className={`text-[10px] text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                                    ▼
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-xs text-gray-500 mt-0.5">Qty: {item.qty} × {currency.format(item.finalUnitPrice || item.price || 0)}</p>
+                            </div>
+                            <p className="font-bold text-gray-900 mt-0.5">{currency.format(item.totalPrice || 0)}</p>
+                          </div>
+
+                          {isExpanded && hasItemDetails && (
+                            <div className="mt-2.5 ml-1 pl-3 border-l-2 border-gray-200 space-y-1.5 text-xs text-gray-600 animate-in fade-in slide-in-from-top-1 duration-200 pb-1">
+                              {/* Offer badge */}
+                              {isOffer && (
+                                <p className="font-semibold text-blue-600 mb-1 flex items-center gap-1.5">
+                                  <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded uppercase font-bold tracking-wide">{
+                                    item.isCombo ? "Combo" : 
+                                    item.isManualB1G1 ? "B1G1" : 
+                                    item.isBirthday ? "Birthday" : 
+                                    item.isFree ? "Free Item" : 
+                                    item.isDiscount ? "Discount" : "Offer"
+                                  }</span> 
+                                  {item.offerTitle || item.name}
+                                </p>
+                              )}
+
+                              {/* Variations */}
+                              {hasVariations && item.variations.map((v, i) => (
+                                <p key={`var-${i}`}>• {v.name || v.option || v.type} {v.price ? <span className="text-gray-400">(+₹{v.price})</span> : ''}</p>
+                              ))}
+
+                              {/* Direct Customizations */}
+                              {directSelected.map((opt, i) => (
+                                <p key={`dcust-${i}`}>• {opt.name} {opt.price ? <span className="text-gray-400">(+₹{opt.price})</span> : ''}</p>
+                              ))}
+
+                              {/* Add-ons */}
+                              {hasAddons.length > 0 && hasAddons.map((addon, i) => (
+                                <p key={`addon-${i}`} className="text-amber-700">+ {addon.name} {addon.price ? <span className="text-amber-700/60">(+₹{addon.price})</span> : ''}</p>
+                              ))}
+
+                              {/* Sub items */}
+                              {hasSubItems && item.items.map((sub, i) => {
+                                const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : [];
+                                const subSelected = subCustomizations.flatMap(g => (g.options || []).filter(o => o.isSelected));
+                                const subAddons = Array.isArray(sub.addOns) ? sub.addOns : (Array.isArray(sub.addons) ? sub.addons : []);
+                                return (
+                                  <div key={`sub-${i}`} className="mt-1.5">
+                                    <p className="font-medium text-gray-700 flex items-center">
+                                      - {sub.name} {sub.isFree && <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded ml-1.5 font-bold">FREE</span>}
+                                    </p>
+                                    <div className="pl-3 space-y-0.5 mt-1">
+                                      {subSelected.map((opt, j) => (
+                                        <p key={`subcust-${j}`} className="text-[11px] text-gray-500">• {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</p>
+                                      ))}
+                                      {subAddons.map((addon, j) => (
+                                        <p key={`subaddon-${j}`} className="text-[11px] text-amber-700">+ {addon.name} {addon.price ? `(+₹${addon.price})` : ''}</p>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                        <p className="font-bold text-gray-900">{currency.format(item.totalPrice || 0)}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <div className="h-px bg-gray-100 my-4" />
@@ -673,70 +751,43 @@ export default function Orders() {
                   </div>
                 </div>
               </div>
-
-              {/* Action */}
-              <div className="p-6">
-                <button
-                  disabled={isClosingAfterBill}
-                  onClick={async () => {
-                    setIsClosingAfterBill(true);
-                    try {
-                      await resetSessionAndTable();
-                      setBillDetails(null);
-                      setBanner({ type: "success", text: "Please pay at counter. Redirecting..." });
-                      setTimeout(() => navigate("/select-outlet"), 2000);
-                    } catch (err) {
-                      setBanner({ type: "error", text: "Failed to close ordering session." });
-                      setIsClosingAfterBill(false);
-                    }
-                  }}
-                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-200 active:scale-[0.98] transition-all disabled:opacity-50"
-                >
-                  {isClosingAfterBill ? "Processing..." : "Close Ordering"}
-                </button>
-                <p className="text-[10px] text-center text-gray-400 mt-4 font-medium italic">
-                  Once closed, you cannot add more items to this session.
-                </p>
-              </div>
             </div>
           </div>
         )}
 
-        <button
-          onClick={() => setShowHistory((value) => !value)}
-          className="sticky bottom-4 z-10 w-full rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-black/15"
-        >
-          {showHistory ? "Hide Previous Orders" : "Previous Orders"}
-        </button>
-
-        {showHistory && (
-          <section className="rounded-3xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Lifetime history</p>
-                <h2 className="mt-1 text-base font-bold text-gray-900">Archived orders for owner</h2>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-amber-700">History total</p>
-                <p className="text-lg font-bold text-gray-900">{currency.format(lifetimeTotal)}</p>
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {isLoadingHistory ? (
-                <div className="rounded-2xl border border-dashed border-amber-200 bg-white/70 px-4 py-10 text-center text-sm text-gray-500">
-                  Loading previous orders...
-                </div>
-              ) : mergedHistoryOrders.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-amber-200 bg-white/70 px-4 py-10 text-center text-sm text-gray-500">
-                  No previous orders found.
-                </div>
-              ) : (
-                mergedHistoryOrders.map((order) => <OrderCard key={order.id} order={order} accent="amber" />)
-              )}
-            </div>
-          </section>
-        )}
+        {/* NEW BOTTOM ACTIONS */}
+        <div className="sticky bottom-4 z-10 flex w-full gap-3 mt-4">
+          <button
+            onClick={handleGenerateBill}
+            disabled={isGeneratingBill || !activeOrder}
+            className="flex-1 rounded-2xl bg-gray-900 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-black/15 disabled:opacity-50"
+          >
+            {isGeneratingBill ? "Loading..." : "View Final Bill"}
+          </button>
+          <button
+            disabled={isClosingAfterBill}
+            onClick={async () => {
+              setIsClosingAfterBill(true);
+              try {
+                localStorage.setItem("isClosingSession", "true");
+                await resetSessionAndTable();
+                setShowFinalConfirmation(true);
+                setTimeout(() => {
+                  localStorage.removeItem("isClosingSession");
+                  clearLocation();
+                  navigate("/select-outlet");
+                }, 10000);
+              } catch (err) {
+                localStorage.removeItem("isClosingSession");
+                setBanner({ type: "error", text: "Failed to close ordering session." });
+                setIsClosingAfterBill(false);
+              }
+            }}
+            className="flex-1 rounded-2xl bg-red-500 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-red-500/20 disabled:opacity-50"
+          >
+            {isClosingAfterBill ? "Closing..." : "Close Ordering"}
+          </button>
+        </div>
       </div>
     </div>
   );

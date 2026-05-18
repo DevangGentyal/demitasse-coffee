@@ -16,7 +16,14 @@ const ProtectedRoute = ({ children }) => {
   }
 
   if (requiresLocationSelection && (!selectedOutlet || !selectedTableId)) {
-    return <Navigate to="/select-outlet" />;
+    // Check localStorage as synchronous fallback — setGlobalOutlet/setTableSelection
+    // write to localStorage before navigate(), but React state updates are batched
+    // and may not be available until the next render cycle.
+    const lsOutlet = localStorage.getItem("selectedOutlet");
+    const lsTable = localStorage.getItem("selectedTableId");
+    if (!lsOutlet || !lsTable) {
+      return <Navigate to="/select-outlet" />;
+    }
   }
 
   return children;

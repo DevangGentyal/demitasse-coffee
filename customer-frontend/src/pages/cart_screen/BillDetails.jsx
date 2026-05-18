@@ -35,14 +35,7 @@ const BillDetails = () => {
   // If user is guest, userType from local storage is used
   const userType = localStorage.getItem("userType");
 
-  const [guestName, setGuestName] = useState("");
-  const [guestPhone, setGuestPhone] = useState("");
   const [outletName, setOutletName] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [bannerMsg, setBannerMsg] = useState("");
-  const [bannerType, setBannerType] = useState("error");
-
-  const showMsg = (msg, type = "error") => { setBannerMsg(msg); setBannerType(type); };
 
   // ✅ Fetch outlet name from Firestore
   useEffect(() => {
@@ -80,204 +73,6 @@ const BillDetails = () => {
     autoDiscount = 0,
   } = state;
 
-  // ✅ PLACE ORDER FUNCTION (WITH SECURITY CHECK)
-  const handlePlaceOrder = async () => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-
-    try {
-      // 🔐 SECURITY REVALIDATION
-      const userObj = fullUser || { userType: userType === "guest" ? "guest" : "registered" };
-      const couponCodes = appliedOffers.map(o => o.couponCode).filter(Boolean);
-      
-      const { validAppliedOffers, cleanCart } = revalidateCart(items, offers, userObj, couponCodes);
-
-      // Check if items in state match the revalidated items (count and free status)
-      const stateFreeItems = items.filter(i => i.isFree && !i.isManualB1G1).length;
-      const validFreeItems = (items.length - cleanCart.filter(i => !i.isManualB1G1).length); 
-
-      if (stateFreeItems > validFreeItems) {
-         showMsg("Cart validation failed. Some offers are no longer valid. Please check your cart.");
-         setIsProcessing(false);
-         navigate("/cart");
-         return;
-      }
-
-      // ✅ Validate combo items
-      const comboItems = items.filter(i => i.isCombo);
-      for (const combo of comboItems) {
-        if (!combo.offerId || combo.comboPrice === undefined || !combo.items?.length) {
-          showMsg("Invalid combo item detected. Please re-add the combo.");
-          setIsProcessing(false);
-          navigate("/cart");
-          return;
-        }
-      }
-
-      // ✅ SECURITY: Re-verify B1G1 Pricing (grouped structure: each item.items contains paid + free)
-      const b1g1Items = items.filter(i => i.isManualB1G1);
-      for (const b1g1 of b1g1Items) {
-        if (!b1g1.offerId || !Array.isArray(b1g1.items) || b1g1.items.length < 2) {
-          showMsg("B1G1 validation failed: Invalid B1G1 structure. Please re-add the offer.");
-          setIsProcessing(false);
-          navigate("/cart");
-          return;
-        }
-
-        // Validate sub-items: at least one paid and one free
-        const paidSubs = b1g1.items.filter(si => !si.isFree);
-        const freeSubs = b1g1.items.filter(si => si.isFree);
-
-        if (paidSubs.length === 0 || freeSubs.length === 0) {
-          showMsg("B1G1 validation failed: Missing paid or free item in pair.");
-          setIsProcessing(false);
-          return;
-        }
-
-        // Verify prices from DB: free item must be the cheaper one
-        for (const freeSub of freeSubs) {
-          const freeProductId = String(freeSub.productId || "");
-          if (!freeProductId) continue;
-          const freeSnap = await getDoc(doc(db, "products", freeProductId));
-
-          for (const paidSub of paidSubs) {
-            const paidProductId = String(paidSub.productId || "");
-            if (!paidProductId) continue;
-            const paidSnap = await getDoc(doc(db, "products", paidProductId));
-
-            if (freeSnap.exists() && paidSnap.exists()) {
-              const liveFreePrice = freeSnap.data().price;
-              const livePaidPrice = paidSnap.data().price;
-
-              if (liveFreePrice > livePaidPrice) {
-                showMsg("B1G1 validation failed: Cheapest item must be free. Please re-add the offer.");
-                setIsProcessing(false);
-                navigate("/cart");
-                return;
-              }
-            }
-          }
-        }
-      }
-
-      const resolvedOwnerId = selectedTableOwnerId || auth.currentUser?.uid || null;
-      let activeSessionId = selectedSessionId || null;
-
-      if (!activeSessionId && selectedOutlet && selectedTableId && auth.currentUser?.uid) {
-        const sessionResponse = await fetch(`${API_BASE}/customerOpenSession`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            outletId: selectedOutlet,
-            tableId: selectedTableId,
-            userId: auth.currentUser.uid,
-          }),
-        });
-        const sessionPayload = await sessionResponse.json().catch(() => ({}));
-        if (!sessionResponse.ok || !sessionPayload?.success || !sessionPayload?.sessionId) {
-          throw new Error(sessionPayload?.message || "Failed to initialize active session");
-        }
-        activeSessionId = String(sessionPayload.sessionId);
-        setTableSelection(selectedTableId, tableNumber || selectedTableId, resolvedOwnerId || "", activeSessionId);
-      }
-
-      const orderData = {
-        tableId: selectedTableId || null,
-        outletId: selectedOutlet || null,
-        ownerId: resolvedOwnerId,
-        userId: resolvedOwnerId,
-        sessionId: activeSessionId,
-        placedBy: "customer",
-        items: items.map(item => {
-          console.log("CART ITEM:", item);
-          return item;
-        }),
-        itemTotal,
-        tax,
-        discount,
-        grandTotal,
-        status: "in-progress",
-        createdAt: new Date(),
-        appliedOffers: appliedOffers.map(o => ({ offerId: o.offerId, type: o.type }))
-      };
-
-      // If a primary offer is present, include `offerId` for backend finalize validation
-      if (appliedOffers && appliedOffers.length > 0) {
-        orderData.offerId = appliedOffers[0].offerId;
-      }
-
-      // ✅ Include auto-applied offer in order data
-      if (autoAppliedOffer) {
-        orderData.autoAppliedOffer = {
-          offerId: autoAppliedOffer.offerId,
-          offerType: autoAppliedOffer.offerType,
-          discountValue: autoAppliedOffer.discountValue,
-          autoApplied: true
-        };
-      }
-
-      if (userType === "guest") {
-        if (!guestName || !guestPhone) {
-          showMsg("Please enter your Name and Phone to place the order.");
-          setIsProcessing(false);
-          return;
-        }
-        orderData.userType = "guest";
-        orderData.name = guestName;
-        orderData.phone = guestPhone;
-      } else {
-        const user = auth.currentUser;
-        if (!user) throw new Error("User not authenticated");
-        
-        orderData.userId = user.uid;
-        orderData.userType = "registered";
-      }
-
-      // Record Order
-      const orderRef = await addDoc(collection(db, "orders"), orderData);
-
-      if (selectedTableId) {
-        await updateDoc(doc(db, "tables", selectedTableId), {
-          isOccupied: true,
-          occupied: true,
-          updatedAt: new Date(),
-        });
-      }
-
-      // ✅ Update User Flags (First Order / Birthday Used)
-      if (userType !== "guest" && auth.currentUser) {
-        const userRef = doc(db, "users", auth.currentUser.uid);
-        const updates = {};
-        
-        // ✅ ALWAYS set hasPlacedFirstOrder after successful order
-        if (!fullUser?.hasPlacedFirstOrder) {
-          updates.hasPlacedFirstOrder = true;
-        }
-        
-        // Check if a birthday offer was used (via appliedOffers or cart items)
-        const birthdayUsed = appliedOffers.some(o => o.type === "birthday") ||
-          items.some(item => item.isBirthday);
-        if (birthdayUsed) {
-          updates.hasUsedBirthdayOffer = true;
-          updates.lastBirthdayOfferYear = new Date().getFullYear();
-        }
-
-        if (Object.keys(updates).length > 0) {
-          await updateDoc(userRef, updates);
-        }
-      }
-
-      showMsg("Order placed successfully! 🎉", "success");
-      clearCart();
-      setTimeout(() => navigate("/home"), 1500);
-
-    } catch (error) {
-      console.error("Order Error:", error);
-      showMsg("Failed to place order: " + (error.message || "Please try again."));
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-10">
@@ -287,10 +82,6 @@ const BillDetails = () => {
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Status Banner */}
-        {bannerMsg && (
-          <Banner message={bannerMsg} type={bannerType} onClose={() => setBannerMsg("")} />
-        )}
 
         {/* ITEMS SUMMARY */}
         <div className="bg-white rounded-2xl p-4 shadow-md space-y-3">
@@ -589,6 +380,14 @@ const BillDetails = () => {
               </div>
             )}
 
+            {/* ✅ Tax Row */}
+            {tax > 0 && (
+              <div className="flex justify-between text-sm text-gray-600 font-medium mt-1">
+                <span>Tax (5% GST)</span>
+                <span>₹{tax}</span>
+              </div>
+            )}
+
             <div className="flex justify-between font-bold text-lg pt-2 border-t mt-2">
               <span>Grand Total</span>
               <span>₹{grandTotal}</span>
@@ -644,34 +443,6 @@ const BillDetails = () => {
           </div>
         </div>
 
-        {/* GUEST INFO */}
-        {userType === "guest" && (
-          <div className="bg-white rounded-2xl p-4 shadow-md space-y-3">
-            <h3 className="font-semibold text-gray-700">Contact Details</h3>
-            <input
-              type="text"
-              placeholder="Full Name"
-              value={guestName}
-              onChange={(e) => setGuestName(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-orange-400"
-            />
-            <input
-              type="tel"
-              placeholder="Phone Number"
-              value={guestPhone}
-              onChange={(e) => setGuestPhone(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-orange-400"
-            />
-          </div>
-        )}
-
-        <button
-          onClick={handlePlaceOrder}
-          disabled={isProcessing}
-          className={`w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all ${isProcessing ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700 active:scale-95"}`}
-        >
-          {isProcessing ? "Processing..." : "Place Order Now"}
-        </button>
       </div>
     </div>
   );

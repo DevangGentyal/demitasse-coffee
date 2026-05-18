@@ -3,7 +3,9 @@ import { useCart } from "../../context/CartContext";
 import { useNavigate } from "react-router-dom";
 import { useLocationContext } from "../../context/LocationContext";
 import { useOffers } from "../../context/OfferContext";
-import { auth } from "../../lib/firebase";
+import { auth, db } from "../../lib/firebase";
+import { collection, addDoc, doc, updateDoc, getDoc } from "firebase/firestore";
+import { revalidateCart } from "../../lib/offerUtils";
 
 import CartHeader from "../../components/cart_screen/CartHeader.jsx";
 import CartItem from "../../components/cart_screen/CartItem.jsx";
@@ -20,10 +22,11 @@ const Cart = () => {
     totalItems,
     appliedOffers,
     autoAppliedOffer, // ✅ NEW
+    clearCart,
   } = useCart();
 
   const { offers, fullUser } = useOffers();
-  const { selectedOutlet } = useLocationContext();
+  const { selectedOutlet, tableNumber, selectedTableId, selectedTableOwnerId, selectedSessionId, setTableSelection } = useLocationContext();
   const isGuest = !fullUser && localStorage.getItem("userType") === "guest";
 
   const [isValidating, setIsValidating] = useState(false);
@@ -102,23 +105,213 @@ const Cart = () => {
         return;
       }
 
-      // ✅ Validation passed — navigate to BillDetails with server-verified pricing
+      // ✅ Validation passed — place order directly instead of navigating
+
+      const userType = localStorage.getItem("userType");
+      const userObj = fullUser || { userType: userType === "guest" ? "guest" : "registered" };
+      const couponCodes = appliedOffers.map(o => o.couponCode).filter(Boolean);
+      
+      const { validAppliedOffers, cleanCart } = revalidateCart(cart, offers, userObj, couponCodes);
+
+      const stateFreeItems = cart.filter(i => i.isFree && !i.isManualB1G1).length;
+      const validFreeItems = (cart.length - cleanCart.filter(i => !i.isManualB1G1).length); 
+
+      if (stateFreeItems > validFreeItems) {
+         setValidationError("Cart validation failed. Some offers are no longer valid. Please check your cart.");
+         return;
+      }
+
+      const comboItems = cart.filter(i => i.isCombo);
+      for (const combo of comboItems) {
+        if (!combo.offerId || combo.comboPrice === undefined || !combo.items?.length) {
+          setValidationError("Invalid combo item detected. Please re-add the combo.");
+          return;
+        }
+      }
+
+      const b1g1Items = cart.filter(i => i.isManualB1G1);
+      for (const b1g1 of b1g1Items) {
+        if (!b1g1.offerId || !Array.isArray(b1g1.items) || b1g1.items.length < 2) {
+          setValidationError("B1G1 validation failed: Invalid B1G1 structure. Please re-add the offer.");
+          return;
+        }
+
+        const paidSubs = b1g1.items.filter(si => !si.isFree);
+        const freeSubs = b1g1.items.filter(si => si.isFree);
+
+        if (paidSubs.length === 0 || freeSubs.length === 0) {
+          setValidationError("B1G1 validation failed: Missing paid or free item in pair.");
+          return;
+        }
+
+        for (const freeSub of freeSubs) {
+          const freeProductId = String(freeSub.productId || "");
+          if (!freeProductId) continue;
+          const freeSnap = await getDoc(doc(db, "products", freeProductId));
+
+          for (const paidSub of paidSubs) {
+            const paidProductId = String(paidSub.productId || "");
+            if (!paidProductId) continue;
+            const paidSnap = await getDoc(doc(db, "products", paidProductId));
+
+            if (freeSnap.exists() && paidSnap.exists()) {
+              const liveFreePrice = freeSnap.data().price;
+              const livePaidPrice = paidSnap.data().price;
+
+              if (liveFreePrice > livePaidPrice) {
+                setValidationError("B1G1 validation failed: Cheapest item must be free. Please re-add the offer.");
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      const resolvedOwnerId = selectedTableOwnerId || auth.currentUser?.uid || null;
+      let activeSessionId = selectedSessionId || null;
+
+      if (!activeSessionId && selectedOutlet && selectedTableId && auth.currentUser?.uid) {
+        const sessionResponse = await fetch(`${API_BASE}/customerOpenSession`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            outletId: selectedOutlet,
+            tableId: selectedTableId,
+            userId: auth.currentUser.uid,
+          }),
+        });
+        const sessionPayload = await sessionResponse.json().catch(() => ({}));
+        if (!sessionResponse.ok || !sessionPayload?.success || !sessionPayload?.sessionId) {
+          throw new Error(sessionPayload?.message || "Failed to initialize active session");
+        }
+        activeSessionId = String(sessionPayload.sessionId);
+        setTableSelection(selectedTableId, tableNumber || selectedTableId, resolvedOwnerId || "", activeSessionId);
+      }
+
+      const orderData = {
+        tableId: selectedTableId || null,
+        outletId: selectedOutlet || null,
+        ownerId: resolvedOwnerId,
+        userId: resolvedOwnerId,
+        sessionId: activeSessionId,
+        placedBy: "customer",
+        items: cart.map(item => item),
+        itemTotal: totalPrice,
+        tax: 0,
+        discount: totalDiscount,
+        grandTotal,
+        status: "in-progress",
+        createdAt: new Date(),
+        appliedOffers: appliedOffers.map(o => ({ offerId: o.offerId, type: o.type }))
+      };
+
+      if (appliedOffers && appliedOffers.length > 0) {
+        orderData.offerId = appliedOffers[0].offerId;
+      }
+
+      if (autoAppliedOffer) {
+        orderData.autoAppliedOffer = {
+          offerId: autoAppliedOffer.offerId,
+          offerType: autoAppliedOffer.offerType,
+          discountValue: autoAppliedOffer.discountValue,
+          autoApplied: true
+        };
+      }
+
+      if (userType === "guest") {
+        orderData.userType = "guest";
+      } else {
+        const user = auth.currentUser;
+        if (!user) throw new Error("User not authenticated");
+        orderData.userId = user.uid;
+        orderData.userType = "registered";
+      }
+
+      const orderRef = await addDoc(collection(db, "orders"), orderData);
+
+      if (selectedTableId) {
+        await updateDoc(doc(db, "tables", selectedTableId), {
+          isOccupied: true,
+          occupied: true,
+          updatedAt: new Date(),
+        });
+      }
+
+      if (userType !== "guest" && auth.currentUser) {
+        const userRef = doc(db, "users", auth.currentUser.uid);
+        const updates = {};
+        
+        if (!fullUser?.hasPlacedFirstOrder) {
+          updates.hasPlacedFirstOrder = true;
+        }
+        
+        const birthdayUsed = appliedOffers.some(o => o.type === "birthday") ||
+          cart.some(item => item.isBirthday);
+        if (birthdayUsed) {
+          updates.hasUsedBirthdayOffer = true;
+          updates.lastBirthdayOfferYear = new Date().getFullYear();
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await updateDoc(userRef, updates);
+        }
+      }
+
+      clearCart();
+      navigate("/home");
+
+    } catch (error) {
+      console.error("Order Error:", error);
+      setValidationError(error.message || "Network error. Please check your connection and try again.");
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const handleViewBill = async () => {
+    if (cart.length === 0) return;
+    if (isValidating) return;
+
+    setIsValidating(true);
+    setValidationError("");
+
+    try {
+      const userId = auth.currentUser?.uid || null;
+
+      const res = await fetch(`${API_BASE}/validateAndCalculateBill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cartItems: cart,
+          outletId: selectedOutlet,
+          autoAppliedOfferId: autoAppliedOffer?.offerId || null,
+          userId,
+        }),
+      });
+
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok || !result?.success) {
+        setValidationError(result?.message || "Cart validation failed. Please check your items.");
+        return;
+      }
+
       navigate("/bill", {
         state: {
           items: cart,
           itemTotal: totalPrice,
-          tax: 0,
+          tax: result.pricing?.tax || 0,
           discount: totalDiscount,
-          grandTotal,
+          grandTotal: result.pricing?.total || grandTotal,
           appliedOffers,
           autoAppliedOffer: autoAppliedOffer && hasEligibleItems ? autoAppliedOffer : null,
           autoDiscount,
-          // Server-verified pricing (BillDetails can use these)
           serverPricing: result.pricing,
           serverDiscountSources: result.discountSources,
         },
       });
     } catch (error) {
+      console.error("View Bill Error:", error);
       setValidationError("Network error. Please check your connection and try again.");
     } finally {
       setIsValidating(false);
@@ -131,11 +324,17 @@ const Cart = () => {
 
       <div className="px-4 space-y-5">
         {cart.length === 0 ? (
-          <div className="text-center py-10">
-            <p className="text-gray-500 mb-4">Your cart is empty</p>
+          <div className="flex flex-col items-center justify-center py-20 px-6 text-center bg-white rounded-3xl shadow-sm border border-[#e0d2c3] mt-8">
+            <div className="w-24 h-24 mb-6 bg-orange-50 rounded-full flex items-center justify-center">
+              <span className="text-5xl">🛒</span>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Your Cart is Empty</h2>
+            <p className="text-gray-500 mb-8 max-w-[250px] leading-relaxed">
+              Looks like you haven't added anything yet. Discover our delicious menu items!
+            </p>
             <button
               onClick={() => navigate("/menu")}
-              className="bg-orange-500 text-white px-6 py-2 rounded-full"
+              className="bg-orange-500 hover:bg-orange-600 active:scale-95 transition-all text-white px-8 py-3.5 rounded-full font-bold shadow-lg shadow-orange-500/30"
             >
               Explore Menu
             </button>
@@ -269,30 +468,18 @@ const Cart = () => {
             </div>
 
             <button
-              onClick={() =>
-                navigate("/bill", {
-                  state: {
-                    items: cart,
-                    itemTotal: totalPrice,
-                    tax: 0,
-                    discount: totalDiscount,
-                    grandTotal,
-                    appliedOffers,
-                    autoAppliedOffer: autoAppliedOffer && hasEligibleItems ? autoAppliedOffer : null,
-                    autoDiscount,
-                  },
-                })
-              }
-              className="text-orange-600 text-sm mt-3 underline block"
+              disabled={isValidating}
+              onClick={handleViewBill}
+              className="text-orange-600 text-sm mt-3 underline block disabled:opacity-50"
             >
-              View Detailed Bill →
+              {isValidating ? "Calculating..." : "View Detailed Bill →"}
             </button>
           </div>
         )}
 
         <div className="flex gap-4">
           <button
-            onClick={() => navigate("/menu")}
+            onClick={() => { clearCart(); navigate("/menu"); }}
             className="flex-1 bg-red-500 text-white py-3 rounded-full font-semibold"
           >
             Cancel
