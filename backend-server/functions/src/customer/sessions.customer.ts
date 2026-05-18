@@ -2,23 +2,13 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
+import { handleCustomerPreflight } from "./cors";
 
 const db = admin.firestore();
 
-const setCors = (res: Response): void => {
-  res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-};
-
 export const openSession = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
-    setCors(res);
-
-    if (req.method === "OPTIONS") {
-      res.status(200).send("");
-      return;
-    }
+    if (handleCustomerPreflight(req, res)) return;
 
     if (req.method !== "POST") {
       res.status(405).json({ success: false, message: "Method not allowed" });

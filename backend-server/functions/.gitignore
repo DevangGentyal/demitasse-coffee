@@ -8,3 +8,19 @@ typings/
 # Node.js dependency directory
 node_modules/
 *.local
+
+# Compiled JavaScript files
+lib/**/*.js
+lib/**/*.js.map
+
+# TypeScript v1 declaration files
+typings/
+
+# Node.js dependency directory
+node_modules/
+*.local
+
+# Firebase emulator exports & data
+firebase-export-metadata.json
+emulator-data/
+**/firebase-export-*/

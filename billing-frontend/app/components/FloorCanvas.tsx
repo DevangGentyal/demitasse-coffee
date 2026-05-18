@@ -11,6 +11,8 @@ import { db } from '@/lib/firebase/app'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { toast } from 'sonner'
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
+import { CancellationModal } from '@/app/components/CancellationModal'
+import { removeOrderItem } from '@/lib/services/orderService'
 
 const TABLE_WIDTH = 108
 const TABLE_HEIGHT = 92
@@ -32,6 +34,7 @@ const isTempTableId = (id: string): boolean => id.startsWith('temp-')
 
 interface OrderItem {
   id: string
+  orderId?: string
   name: string
   qty: number
   price: number
@@ -77,6 +80,10 @@ function OrderViewModal({
     appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }>
   } | null
 }) {
+  const { outletId } = useAuth()
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false)
+  const [isDeletingItem, setIsDeletingItem] = useState<string | null>(null)
+
   const items = orders?.items ?? []
   const rawTotal = items.reduce((s, i) => s + i.qty * i.price, 0)
 
@@ -84,6 +91,23 @@ function OrderViewModal({
   const hasBill = !!billData?.pricing
   const pricing = billData?.pricing ?? { subtotal: rawTotal, discount: 0, tax: 0, total: rawTotal }
   const appliedOffers = billData?.appliedOffers ?? []
+
+  const handleDeleteItem = async (orderId: string, itemId: string) => {
+    if (items.length <= 1) {
+      toast.error('Cannot remove the last remaining item. Cancel the entire order instead.')
+      return
+    }
+
+    setIsDeletingItem(itemId)
+    try {
+      await removeOrderItem(outletId || '', orderId, itemId)
+      toast.success('Item removed successfully')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to remove item')
+    } finally {
+      setIsDeletingItem(null)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -103,7 +127,7 @@ function OrderViewModal({
         <div className="flex items-center px-6 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
           <span className="flex-1">Item</span>
           <span className="w-16 text-center">Qty</span>
-          <span className="w-20 text-right">Price</span>
+          <span className="w-20 text-right pr-6">Price</span>
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
@@ -111,58 +135,107 @@ function OrderViewModal({
             <div className="text-center text-gray-400 py-16 text-sm">No orders for this table yet.</div>
           ) : (
             items.map((item) => (
-              <div key={item.id} className="flex items-center px-6 py-4">
+              <div key={item.id} className="flex items-center px-6 py-4 gap-2">
                 <div className="flex-1">
                   <div className="text-sm font-medium text-gray-900">{item.name}</div>
                   <div className="text-xs text-gray-500">₹{item.price.toFixed(2)} each</div>
                 </div>
                 <div className="w-16 text-center text-sm font-medium text-gray-700">{item.qty}</div>
-                <div className="w-20 text-right">
-                  <div className="text-sm font-semibold text-gray-900">{(item.qty * item.price).toFixed(2)}</div>
+                <div className="w-20 text-right pr-2 text-sm font-semibold text-gray-900">
+                  ₹{(item.qty * item.price).toFixed(2)}
                 </div>
+                {item.orderId && (
+                  <button
+                    onClick={() => item.orderId && handleDeleteItem(item.orderId, item.id)}
+                    disabled={isDeletingItem === item.id || items.length <= 1}
+                    className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400"
+                    title={items.length <= 1 ? "Cannot remove last item" : "Remove item"}
+                  >
+                    {isDeletingItem === item.id ? (
+                      <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Trash2 size={15} />
+                    )}
+                  </button>
+                )}
               </div>
             ))
           )}
         </div>
 
-        <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 space-y-2">
-          <div className="flex justify-between items-center text-sm text-gray-600">
-            <span>Subtotal</span>
-            <span>₹{pricing.subtotal.toFixed(2)}</span>
+        <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 space-y-4">
+          <div className="space-y-2">
+            <div className="flex justify-between items-center text-sm text-gray-600">
+              <span>Subtotal</span>
+              <span>₹{pricing.subtotal.toFixed(2)}</span>
+            </div>
+
+            {appliedOffers.map((offer, idx) => (
+              <div key={idx} className="flex justify-between items-center text-sm text-green-600 font-medium">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[10px] bg-green-100 px-1.5 py-0.5 rounded uppercase">{offer.type || 'Offer'}</span>
+                  {offer.title}
+                </span>
+                <span>-₹{offer.amount.toFixed(2)}</span>
+              </div>
+            ))}
+
+            {pricing.discount > 0 && appliedOffers.length === 0 && (
+              <div className="flex justify-between items-center text-sm text-green-600 font-medium">
+                <span>Discount</span>
+                <span>-₹{pricing.discount.toFixed(2)}</span>
+              </div>
+            )}
+
+            {hasBill && (
+              <div className="flex justify-between items-center text-sm text-gray-600">
+                <span>Tax (5% GST)</span>
+                <span>₹{pricing.tax.toFixed(2)}</span>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+              <span className="text-base font-semibold text-gray-700">
+                {hasBill ? 'Total Payable' : 'Total'}
+              </span>
+              <span className="text-2xl font-bold text-gray-900">₹{pricing.total.toFixed(2)}</span>
+            </div>
           </div>
 
-          {appliedOffers.map((offer, idx) => (
-            <div key={idx} className="flex justify-between items-center text-sm text-green-600 font-medium">
-              <span className="flex items-center gap-1.5">
-                <span className="text-[10px] bg-green-100 px-1.5 py-0.5 rounded uppercase">{offer.type || 'Offer'}</span>
-                {offer.title}
-              </span>
-              <span>-₹{offer.amount.toFixed(2)}</span>
-            </div>
-          ))}
-
-          {pricing.discount > 0 && appliedOffers.length === 0 && (
-            <div className="flex justify-between items-center text-sm text-green-600 font-medium">
-              <span>Discount</span>
-              <span>-₹{pricing.discount.toFixed(2)}</span>
-            </div>
-          )}
-
-          {hasBill && (
-            <div className="flex justify-between items-center text-sm text-gray-600">
-              <span>Tax (5% GST)</span>
-              <span>₹{pricing.tax.toFixed(2)}</span>
-            </div>
-          )}
-
-          <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-            <span className="text-base font-semibold text-gray-700">
-              {hasBill ? 'Total Payable' : 'Total'}
-            </span>
-            <span className="text-2xl font-bold text-gray-900">₹{pricing.total.toFixed(2)}</span>
+          <div className="flex gap-3">
+            {orders?.items?.[0]?.orderId && (
+              <Button
+                variant="destructive"
+                onClick={() => setIsCancelModalOpen(true)}
+                className="flex-1 font-semibold flex items-center justify-center gap-1.5 h-10 text-xs"
+              >
+                <Power size={14} />
+                Cancel Entire Order
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={onClose}
+              className="flex-1 font-semibold h-10 border-gray-200 text-xs"
+            >
+              Close View
+            </Button>
           </div>
         </div>
       </div>
+
+      {isCancelModalOpen && orders?.items?.[0]?.orderId && (
+        <CancellationModal
+          isOpen={isCancelModalOpen}
+          onClose={() => setIsCancelModalOpen(false)}
+          orderId={orders.items[0].orderId}
+          cancelledItems={orders.items}
+          onSuccess={() => {
+            setIsCancelModalOpen(false)
+            onClose()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1146,6 +1219,7 @@ export function FloorCanvas() {
             tableId: activeTable.id,
             items: tableSessionOrders[activeTable.id].flatMap(o => o.items.map(i => ({
               id: i.id,
+              orderId: o.id,
               name: i.name,
               qty: getItemQuantity(i as { quantity?: unknown; qty?: unknown }),
               price: getItemPrice(i as { price?: unknown })
