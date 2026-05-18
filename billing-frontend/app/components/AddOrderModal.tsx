@@ -25,7 +25,7 @@ interface OrderItem {
   quantity: number
   price: number
   status: 'in-progress' | 'ready'
-  addOns?: string
+  addOns?: any[]
   notes?: string
 }
 
@@ -159,7 +159,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
           quantity: 1,
           price: product.price,
           status: 'in-progress',
-          addOns: '',
+              addOns: [],
           notes: '',
         },
       ])
@@ -227,6 +227,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
         })),
         timeOfOrder: new Date(),
         status: 'in-progress' as const,
+        orderStatus: 'in-progress' as const,
       }
 
       addOrder(newOrder)

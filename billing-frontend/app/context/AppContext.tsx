@@ -26,7 +26,7 @@ export interface OrderItem {
   name: string
   quantity: number
   status?: 'in-progress' | 'ready' | 'completed'
-  addOns?: string
+  addOns?: any[]
   notes?: string
   price?: number
 }
