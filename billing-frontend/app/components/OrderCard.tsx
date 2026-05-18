@@ -3,10 +3,16 @@
 import { useApp, type Order } from '@/app/context/AppContext'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { X, ChevronRight, Check } from 'lucide-react'
+import { X, ChevronRight, Check, Trash2, Power } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { useState } from 'react'
-import { updateOrder as updateOrderService, deleteOrder as deleteOrderService } from '@/lib/services/orderService'
+import { 
+  updateOrder as updateOrderService, 
+  deleteOrder as deleteOrderService,
+  removeOrderItem as removeOrderItemService
+} from '@/lib/services/orderService'
+import { CancellationModal } from '@/app/components/CancellationModal'
+import { toast } from 'sonner'
 
 interface OrderCardProps {
   order: any
@@ -19,6 +25,33 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
   const { updateOrder, deleteOrder, updateOrderItem } = useApp()
   const [expandedItems, setExpandedItems] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [isDeletingItem, setIsDeletingItem] = useState<string | null>(null)
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false)
+
+  const handleDeleteItem = async (itemId: string) => {
+    if (!order.items || order.items.length <= 1) {
+      toast.error('Cannot remove the last remaining item. Cancel the entire order instead.')
+      return
+    }
+
+    setIsDeletingItem(itemId)
+    try {
+      await removeOrderItemService(outletId || '', order.id, itemId)
+      toast.success('Item removed successfully')
+      
+      const updatedItems = order.items.filter((i: any) => i.id !== itemId)
+      updateOrder(order.id, { items: updatedItems })
+
+      if (onOrderUpdated) {
+        onOrderUpdated()
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to remove item')
+    } finally {
+      setIsDeletingItem(null)
+    }
+  }
+
 
   const normalizeItemStatus = (value?: string): 'in-progress' | 'ready' | 'completed' => {
     const raw = String(value || '').trim().toLowerCase()
@@ -192,6 +225,13 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
     addSuffix: false,
   })
 
+  const getVariationValues = (item: any): string[] => {
+    if (!item?.variation || typeof item.variation !== 'object') return []
+    return Object.values(item.variation)
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  }
+
   return (
     <Card className="p-4 border-l-4 bg-card hover:shadow-lg transition-all duration-200 cursor-pointer group"
       style={{
@@ -214,10 +254,11 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
             </div>
           </div>
           <button
-            onClick={handleDelete}
+            onClick={() => setIsCancelModalOpen(true)}
             className="text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 p-1 hover:bg-destructive/10 rounded"
+            title="Cancel entire order"
           >
-            <X size={18} />
+            <Trash2 size={18} />
           </button>
         </div>
 
@@ -243,82 +284,111 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
             <>
               <p className="text-sm font-bold text-foreground mb-2">Items ({order.items.length})</p>
               {order.items.map((item: any, idx: number) => (
-                <button
+                <div
                   key={item.id || `item-${idx}`}
-                  onClick={() => handleItemStatusToggle(item.id, item.status)}
-                  className={`w-full text-left p-3 rounded-md border transition-all ${getItemStatusColor(item.status)}`}
+                  className={`w-full flex items-center justify-between p-3 rounded-md border transition-all gap-3 ${getItemStatusColor(item.status)}`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center">
-                        <span className="font-bold text-sm">{item.quantity || item.qty || 1}x</span>
-                        <span className="ml-2 truncate text-sm font-semibold">{item.name}</span>
-                        {(normalizeItemStatus(item.status) === 'ready' || normalizeItemStatus(item.status) === 'completed') && <Check size={14} className="inline ml-2 text-success" />}
-                      </div>
-
-                      {/* Add-ons and Customizations */}
-                      {(() => {
-                        const directCustomizations = Array.isArray(item.customizations) ? item.customizations : []
-                        const directSelected = directCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
-                        
-                        const subItems = Array.isArray(item.items) ? item.items : []
-                        
-                        const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
-                        const hasAddOns = Array.isArray(item.addOns) && item.addOns.length > 0
-                        
-                        if (!hasVariations && directSelected.length === 0 && subItems.length === 0 && !hasAddOns) return null
-
-                        return (
-                          <div className="text-xs opacity-80 ml-6 mt-1 flex flex-col gap-0.5">
-                            {/* Variations */}
-                            {Array.isArray(item.variations) && item.variations.map((v: any, i: number) => (
-                              <span key={`var-${i}`}>+ {v.name || v.option || v.type} {v.price ? `(+₹${v.price})` : ''}</span>
-                            ))}
-
-                            {/* Add-ons */}
-                            {Array.isArray(item.addOns) && item.addOns.map((addon: any, i: number) => (
-                              <span key={`addon-${i}`}>+ {addon.name} (+₹{addon.price})</span>
-                            ))}
-
-                            {/* Direct Customizations */}
-                            {directSelected.map((opt: any, i: number) => (
-                              <span key={`dcust-${i}`}>+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
-                            ))}
-
-                            {/* Sub items (e.g. B1G1 / Combo) */}
-                            {subItems.map((sub: any, i: number) => {
-                              const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : []
-                              const subSelected = subCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
-                              
-                              return (
-                                <div key={`sub-${i}`} className="flex flex-col gap-0.5">
-                                  <span>- {sub.name}</span>
-                                  {subSelected.map((opt: any, j: number) => (
-                                    <span key={`subcust-${i}-${j}`} className="ml-2 opacity-80">+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
-                                  ))}
-                                  {/* Sub-item Add-ons */}
-                                  {Array.isArray(sub.addOns) && sub.addOns.map((addon: any, j: number) => (
-                                    <span key={`subaddon-${i}-${j}`} className="ml-2 opacity-80">+ {addon.name} (+₹{addon.price})</span>
-                                  ))}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )
-                      })()}
-
-                      {/* Offer Display */}
-                      {item.offerTitle && (
-                        <div className="text-xs font-semibold text-blue-700 dark:text-blue-400 ml-6 mt-1">
-                          Offer: {item.offerTitle}
+                  <button
+                    type="button"
+                    onClick={() => handleItemStatusToggle(item.id, item.status)}
+                    className="flex-1 text-left min-w-0"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center">
+                          <span className="font-bold text-sm">{item.quantity || item.qty || 1}x</span>
+                          <span className="ml-2 truncate text-sm font-semibold">{item.name}</span>
+                          {(normalizeItemStatus(item.status) === 'ready' || normalizeItemStatus(item.status) === 'completed') && <Check size={14} className="inline ml-2 text-success" />}
                         </div>
-                      )}
+
+                        {/* Add-ons and Customizations */}
+                        {(() => {
+                          const variationValues = getVariationValues(item)
+                          const directCustomizations = Array.isArray(item.customizations) ? item.customizations : []
+                          const directSelected = directCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
+                          
+                          const subItems = Array.isArray(item.items) ? item.items : []
+                          
+                          const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
+                          const hasAddOns = Array.isArray(item.addOns) && item.addOns.length > 0
+                          
+                          if (variationValues.length === 0 && !hasVariations && directSelected.length === 0 && subItems.length === 0 && !hasAddOns) return null
+
+                          return (
+                            <div className="text-xs opacity-80 ml-6 mt-1 flex flex-col gap-0.5">
+                              {variationValues.map((value, i) => (
+                                <span key={`variation-${i}`}>+ {value}</span>
+                              ))}
+
+                              {/* Variations */}
+                              {Array.isArray(item.variations) && item.variations.map((v: any, i: number) => (
+                                <span key={`var-${i}`}>+ {v.name || v.option || v.type} {v.price ? `(+₹${v.price})` : ''}</span>
+                              ))}
+
+                              {/* Add-ons */}
+                              {Array.isArray(item.addOns) && item.addOns.map((addon: any, i: number) => (
+                                <span key={`addon-${i}`}>+ {addon.name} (+₹{addon.price})</span>
+                              ))}
+
+                              {/* Direct Customizations */}
+                              {directSelected.map((opt: any, i: number) => (
+                                <span key={`dcust-${i}`}>+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
+                              ))}
+
+                              {/* Sub items (e.g. B1G1 / Combo) */}
+                              {subItems.map((sub: any, i: number) => {
+                                const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : []
+                                const subSelected = subCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
+                                
+                                return (
+                                  <div key={`sub-${i}`} className="flex flex-col gap-0.5">
+                                    <span>- {sub.name}</span>
+                                    {subSelected.map((opt: any, j: number) => (
+                                      <span key={`subcust-${i}-${j}`} className="ml-2 opacity-80">+ {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</span>
+                                    ))}
+                                    {/* Sub-item Add-ons */}
+                                    {Array.isArray(sub.addOns) && sub.addOns.map((addon: any, j: number) => (
+                                      <span key={`subaddon-${i}-${j}`} className="ml-2 opacity-80">+ {addon.name} (+₹{addon.price})</span>
+                                    ))}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )
+                        })()}
+
+                        {/* Offer Display */}
+                        {item.offerTitle && (
+                          <div className="text-xs font-semibold text-blue-700 dark:text-blue-400 ml-6 mt-1">
+                            Offer: {item.offerTitle}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-xs font-medium opacity-70 flex-shrink-0 mt-0.5">
+                  </button>
+
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs font-medium opacity-70 capitalize mt-0.5">
                       {normalizeItemStatus(item.status)}
                     </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteItem(item.id)
+                      }}
+                      disabled={isDeletingItem === item.id || order.items.length <= 1}
+                      className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400"
+                      title={order.items.length <= 1 ? "Cannot remove last remaining item" : "Remove item"}
+                    >
+                      {isDeletingItem === item.id ? (
+                        <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Trash2 size={14} />
+                      )}
+                    </button>
                   </div>
-                </button>
+                </div>
               ))}
             </>
           ) : (
@@ -333,6 +403,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
 
                     {/* Add-ons and Customizations */}
                     {(() => {
+                      const variationValues = getVariationValues(item)
                       const directCustomizations = Array.isArray(item.customizations) ? item.customizations : []
                       const directSelected = directCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
                       
@@ -341,10 +412,14 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                       const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
                       const hasAddOns = Array.isArray(item.addOns) && item.addOns.length > 0
                       
-                      if (!hasVariations && directSelected.length === 0 && subItems.length === 0 && !hasAddOns) return null
+                      if (variationValues.length === 0 && !hasVariations && directSelected.length === 0 && subItems.length === 0 && !hasAddOns) return null
 
                       return (
                         <div className="text-xs text-muted-foreground ml-6 mt-0.5 flex flex-col gap-0.5">
+                          {variationValues.map((value, i) => (
+                            <span key={`variation-${i}`}>+ {value}</span>
+                          ))}
+
                           {/* Variations */}
                           {Array.isArray(item.variations) && item.variations.map((v: any, i: number) => (
                             <span key={`var-${i}`}>+ {v.name || v.option || v.type} {v.price ? `(+₹${v.price})` : ''}</span>
@@ -433,6 +508,21 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
             </Button>
           )}
         </div>
+
+        {isCancelModalOpen && (
+          <CancellationModal
+            isOpen={isCancelModalOpen}
+            onClose={() => setIsCancelModalOpen(false)}
+            orderId={order.id}
+            onSuccess={() => {
+              setIsCancelModalOpen(false)
+              deleteOrder(order.id)
+              if (onOrderUpdated) {
+                onOrderUpdated()
+              }
+            }}
+          />
+        )}
       </div>
     </Card>
   )

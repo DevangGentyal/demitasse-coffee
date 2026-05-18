@@ -104,8 +104,6 @@ export default function EditOfferPage() {
             title: offer.title || '',
             description: offer.description || '',
             type: offer.type || 'DISCOUNT',
-            category: offer.category || offer.applicableCategory || '',
-            applicableCategory: offer.applicableCategory || offer.category || '',
             startDate: parseDate(offer.startDate),
             endDate: parseDate(offer.endDate),
             minOrderValue: offer.minOrderValue ? offer.minOrderValue.toString() : '',

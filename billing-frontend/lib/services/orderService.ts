@@ -265,3 +265,130 @@ export const updateOrder = async (
     throw error
   }
 }
+
+/**
+ * Remove an item from an active order
+ */
+export const removeOrderItem = async (
+  outletId: string,
+  orderId: string,
+  itemId: string
+): Promise<any> => {
+  try {
+    if (!outletId || !orderId || !itemId) throw new Error('Outlet ID, Order ID and Item ID are required')
+
+    const idToken = await getIdToken()
+
+    console.log('📤 Removing order item:', { outletId, orderId, itemId })
+
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/removeOrderItem`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        outletId,
+        orderId,
+        itemId,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      console.error('❌ removeOrderItem error response:', errorData)
+      throw new Error(errorData.message || `Failed to remove item (${response.status})`)
+    }
+
+    const data = await response.json()
+    console.log('✅ removeOrderItem response:', data)
+    return data
+  } catch (error) {
+    console.error('Error in removeOrderItem:', error)
+    throw error
+  }
+}
+
+/**
+ * Cancel an entire order and close its table session
+ */
+export const cancelEntireOrder = async (
+  orderId: string,
+  password: string,
+  reason: string,
+  cancelledItems?: any[]
+): Promise<any> => {
+  try {
+    if (!orderId || !password || !reason) throw new Error('Order ID, password, and cancellation reason are required')
+
+    const idToken = await getIdToken()
+
+    console.log('📤 Cancelling entire order:', { orderId, reason })
+
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/cancelEntireOrder`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        orderId,
+        password,
+        reason,
+        cancelledItems: Array.isArray(cancelledItems) ? cancelledItems : undefined,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.error('❌ cancelEntireOrder error response:', errorData)
+      throw new Error(errorData.message || `Failed to cancel order (${response.status})`)
+    }
+
+    const data = await response.json()
+    console.log('✅ cancelEntireOrder response:', data)
+    return data
+  } catch (error) {
+    console.error('Error in cancelEntireOrder:', error)
+    throw error
+  }
+}
+
+/**
+ * Update the secure cancellation password
+ */
+export const updateCancellationPassword = async (
+  newPassword: string
+): Promise<any> => {
+  try {
+    if (!newPassword) throw new Error('New password is required')
+
+    const idToken = await getIdToken()
+
+    console.log('📤 Updating cancellation password...')
+
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/updateCancellationPassword`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        password: newPassword,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.error('❌ updateCancellationPassword error response:', errorData)
+      throw new Error(errorData.message || `Failed to update password (${response.status})`)
+    }
+
+    const data = await response.json()
+    console.log('✅ updateCancellationPassword response:', data)
+    return data
+  } catch (error) {
+    console.error('Error in updateCancellationPassword:', error)
+    throw error
+  }
+}

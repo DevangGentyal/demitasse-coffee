@@ -315,30 +315,37 @@ const closeSessionHandler = async (req: Request, res: Response): Promise<void> =
       const paymentRef = db.collection("payments").doc();
       const ownerId = readString(primaryOrderDoc.data().ownerId) || readString(sessionData.ownerId) || readString(primaryOrderDoc.data().userId) || null;
       
-      const paymentPayload = {
-        paymentId: paymentRef.id,
-        orderId: primaryOrderDoc.id,
-        allOrderIds: candidates.map(d => d.id),
-        outletId,
-        tableId: tableId || primaryOrderDoc.data().tableId || null,
-        sessionId,
-        ownerId,
-        placedBy: "counter_close", // Indicates payment created on session close
-        customer: {
-          name: primaryOrderDoc.data().customerName || null,
-          phone: primaryOrderDoc.data().customerPhone || null,
-          userId: ownerId,
-        },
-        items: allItems,
-        pricing: { subtotal, discount, tax, total },
-        appliedOffers,
-        paymentStatus: "PENDING_COUNTER",
-        settlementStatus: "UNPAID",
-        payAt: "COUNTER",
-        generatedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      };
-      tx.set(paymentRef, paymentPayload);
+      const isCancelled = candidates.some(doc => {
+        const d = doc.data();
+        return String(d.status || d.orderStatus || d.orderLifecycleStatus || "").toLowerCase() === "cancelled";
+      });
+
+      if (!isCancelled) {
+        const paymentPayload = {
+          paymentId: paymentRef.id,
+          orderId: primaryOrderDoc.id,
+          allOrderIds: candidates.map(d => d.id),
+          outletId,
+          tableId: tableId || primaryOrderDoc.data().tableId || null,
+          sessionId,
+          ownerId,
+          placedBy: "counter_close", // Indicates payment created on session close
+          customer: {
+            name: primaryOrderDoc.data().customerName || null,
+            phone: primaryOrderDoc.data().customerPhone || null,
+            userId: ownerId,
+          },
+          items: allItems,
+          pricing: { subtotal, discount, tax, total },
+          appliedOffers,
+          paymentStatus: "PENDING_COUNTER",
+          settlementStatus: "UNPAID",
+          payAt: "COUNTER",
+          generatedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        tx.set(paymentRef, paymentPayload);
+      }
 
       // 3. Archive and Delete ALL orders
       const archiveTimestamp = FieldValue.serverTimestamp();
@@ -354,7 +361,7 @@ const closeSessionHandler = async (req: Request, res: Response): Promise<void> =
           placedBy: orderData.placedBy || null,
           ownerId,
           items: Array.isArray(orderData.items) ? orderData.items : [],
-          orderLifecycleStatus: "COMPLETED",
+          orderLifecycleStatus: isCancelled ? "CANCELLED" : "COMPLETED",
           pricing: orderData.pricing || null,
           appliedOffers: Array.isArray(orderData.appliedOffers) ? orderData.appliedOffers : [],
           customer: {
@@ -368,7 +375,7 @@ const closeSessionHandler = async (req: Request, res: Response): Promise<void> =
           source: "customer.closeSession",
           createdAt: orderData.createdAt || null,
           updatedAt: archiveTimestamp,
-          paymentId: paymentRef.id,
+          paymentId: !isCancelled ? paymentRef.id : null,
         }, { merge: true });
 
         tx.delete(doc.ref);
@@ -392,7 +399,7 @@ const closeSessionHandler = async (req: Request, res: Response): Promise<void> =
       }
 
       // Increment used counts for applied offers (ONLY on successful close)
-      if (appliedOffers.length > 0) {
+      if (!isCancelled && appliedOffers.length > 0) {
         const userRef = ownerId ? db.collection("users").doc(ownerId) : null;
         for (const source of appliedOffers) {
           const offerRef = db.collection("offers").doc(source.offerId);
@@ -413,7 +420,7 @@ const closeSessionHandler = async (req: Request, res: Response): Promise<void> =
 
       return {
         sessionId,
-        paymentId: paymentRef.id,
+        paymentId: !isCancelled ? paymentRef.id : null,
       };
     });
 
@@ -459,6 +466,7 @@ interface CartItemInput {
   isCombo?: boolean;
   isManualB1G1?: boolean;
   isDiscount?: boolean;
+  
   isBirthday?: boolean;
   isFree?: boolean;
   offerId?: string;

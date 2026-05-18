@@ -99,9 +99,9 @@ const SelectOutlet = ({ onClose }) => {
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(lat1 * (Math.PI / 180)) *
-        Math.cos(lat2 * (Math.PI / 180)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2)
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2)
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 
@@ -397,13 +397,13 @@ const SelectOutlet = ({ onClose }) => {
         if (onClose) onClose()
 
         navigate("/home")
-      }, 50)
+      }, 0)
     } catch (error) {
       console.error("Failed to initialize table session:", error)
 
       showMsg(
         error?.message ||
-          "Unable to reserve table ownership right now. Please try again."
+        "Unable to reserve table ownership right now. Please try again."
       )
     } finally {
       setContinueLoading(false)
@@ -468,8 +468,8 @@ const SelectOutlet = ({ onClose }) => {
             {!selectedOutlet
               ? "Select outlet first"
               : tablesLoading
-              ? "Loading tables..."
-              : "Select Table"}
+                ? "Loading tables..."
+                : "Select Table"}
           </option>
 
           {tables.map((table) => (
@@ -486,11 +486,10 @@ const SelectOutlet = ({ onClose }) => {
         )}
 
         <button
-          className={`text-white w-full py-2 rounded-lg font-medium transition ${
-            continueLoading
+          className={`text-white w-full py-2 rounded-lg font-medium transition ${continueLoading
               ? "bg-gray-400 cursor-not-allowed"
               : "bg-[#6B4F4F]"
-          }`}
+            }`}
           onClick={handleContinue}
           disabled={continueLoading}
         >

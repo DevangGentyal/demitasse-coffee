@@ -15,6 +15,8 @@ const LOCATION_KEYS = [
     "selectedSessionId",
 ];
 
+const SESSION_SELECTION_GRACE_MS = 5000;
+
 // Cookie utilities for sessionId (7-day persistence)
 const setCookie = (name, value) => {
     const cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; Path=/; Max-Age=${86400 * 7}`;
@@ -40,6 +42,10 @@ const deleteCookie = (name) => {
 const clearStoredLocation = () => {
     LOCATION_KEYS.forEach((key) => localStorage.removeItem(key));
     deleteCookie("selectedSessionId");
+};
+
+const notifySessionEnded = () => {
+    window.dispatchEvent(new CustomEvent("demitasse:session-ended"));
 };
 
 export const useLocationContext = () => useContext(LocationContext);
@@ -179,40 +185,32 @@ export function LocationProvider({ children }) {
                 const data = snap.data() || {};
                 const activeSessionId = typeof data.activeSessionId === "string" ? data.activeSessionId : "";
                 const isOccupied = !!data.isOccupied;
+                const selectedAt = Number(localStorage.getItem("sessionSelectedAt") || 0);
+                const isFreshSelection = selectedAt > 0 && Date.now() - selectedAt < SESSION_SELECTION_GRACE_MS;
 
                 // If table was reset/cleared by admin, force client to reselect outlet/table
                 const currentStoredSessionId =
     localStorage.getItem("selectedSessionId") ||
     getCookie("selectedSessionId") ||
+    selectedSessionId ||
     "";
 
 const shouldClear =
-    !activeSessionId &&
-    !isOccupied &&
-    currentStoredSessionId !== "";
+    !isFreshSelection &&
+    currentStoredSessionId !== "" &&
+    (!activeSessionId || activeSessionId !== currentStoredSessionId || !isOccupied);
 
 if (shouldClear) {
-    // Prevent false resets during session creation race condition
+    notifySessionEnded();
+    clearLocation();
 
-    setTimeout(() => {
-        const latestSessionId =
-            localStorage.getItem("selectedSessionId") ||
-            getCookie("selectedSessionId") ||
-            "";
-
-        // Recheck after delay
-        if (!latestSessionId) {
-            clearLocation();
-
-            setSelectedOutletState("");
-            setOutletNameState("");
-            setTableNumberState("");
-            setSelectedTableIdState("");
-            setSelectedTableNameState("");
-            setSelectedTableOwnerIdState("");
-            setSelectedSessionIdState("");
-        }
-    }, 3000);
+    setSelectedOutletState("");
+    setOutletNameState("");
+    setTableNumberState("");
+    setSelectedTableIdState("");
+    setSelectedTableNameState("");
+    setSelectedTableOwnerIdState("");
+    setSelectedSessionIdState("");
 }
             },
             (err) => {
@@ -221,7 +219,7 @@ if (shouldClear) {
         );
 
         return () => unsub();
-    }, [selectedTableId]);
+    }, [selectedTableId, selectedSessionId]);
 
     useEffect(() => {
         const touchLastSeen = () => {
@@ -278,6 +276,7 @@ if (shouldClear) {
 
         // Store sessionId in both localStorage and cookies
         if (sessionId) {
+            localStorage.setItem("sessionSelectedAt", String(Date.now()));
             localStorage.setItem("selectedSessionId", sessionId);
             setCookie("selectedSessionId", sessionId);
             setSelectedSessionIdState(sessionId);

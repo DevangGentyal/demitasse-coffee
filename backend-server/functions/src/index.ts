@@ -70,3 +70,13 @@ export const deleteTable = tableDelete;
 
 // Floor Map Functions
 export const saveFloorMap = floorMapSave;
+
+// New Cancellation and Removal Functions
+import { removeOrderItem as custRemoveItem } from "./customer/removeOrderItem";
+import { cancelEntireOrder as custCancelOrder } from "./customer/cancelEntireOrder";
+import { updateCancellationPassword as adminUpdatePass } from "./admin/updateCancellationPassword";
+
+export const removeOrderItem = custRemoveItem;
+export const cancelEntireOrder = custCancelOrder;
+export const updateCancellationPassword = adminUpdatePass;
+

@@ -9,3 +9,6 @@ backend-server/firestore-debug.log
 backend-server/scripts/copyFirestoreToEmulator.js
 backend-server/scripts/migrateLoyaltyStructure.js
 backend-server/scripts/seedLoyaltyEmulator.js
+backend-server/functions/seedPassword.js
+billing-frontend/tsconfig.tsbuildinfo
+billing-frontend/tsconfig.tsbuildinfo

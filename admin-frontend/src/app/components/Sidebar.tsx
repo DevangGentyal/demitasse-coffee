@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
-import { LogOut, LayoutDashboard, Store, Tag, BarChart3, Users, Menu as MenuIcon } from 'lucide-react'
+import { LogOut, LayoutDashboard, Store, Tag, BarChart3, Users, Menu as MenuIcon, Lock } from 'lucide-react'
 import { useState } from 'react'
 
 export function Sidebar() {
@@ -29,6 +29,7 @@ export function Sidebar() {
     { label: 'Reports', href: '/reports', icon: BarChart3 },
     { label: 'Customers', href: '/customers', icon: Users },
     { label: 'Menu', href: '/menu', icon: MenuIcon },
+    { label: 'Security', href: '/admin/order-cancellation-access', icon: Lock },
   ]
 
   return (

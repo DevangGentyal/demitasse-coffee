@@ -78,7 +78,9 @@ export default function OffersPage() {
       case 'B1G1':
         return `${offer.config?.b1g1?.applicableProductIds?.length ?? 0} product(s)`
       case 'COMBO':
-        return `${offer.config?.combo?.items?.length ?? 0} item(s) (₹${offer.config?.combo?.comboPrice ?? 0})`
+        const groupCount = offer.config?.combo?.length ?? 0
+        const totalItems = offer.config?.combo?.reduce((acc, g) => acc + (g.items?.length || 0), 0) ?? 0
+        return `${groupCount} group(s), ${totalItems} item(s) (₹${offer.config?.comboPrice ?? 0})`
       case 'BIRTHDAY':
         return 'Birthday'
       case 'NEW_USER':
