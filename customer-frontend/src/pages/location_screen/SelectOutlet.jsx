@@ -218,7 +218,9 @@ const SelectOutlet = ({ onClose }) => {
       showMsg(
         "Geolocation is not supported by your browser. Showing all outlets instead."
       )
+
       fetchOutlets()
+
       return
     }
 
@@ -228,17 +230,23 @@ const SelectOutlet = ({ onClose }) => {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
         }
+
         setLocation(userLocation)
+
         fetchOutlets(userLocation)
       },
+
       (error) => {
         console.error("Geolocation error:", error)
+
         showMsg(
           "Unable to retrieve your location. Showing all outlets instead."
         )
+
         // IMPORTANT FIX
         fetchOutlets()
       },
+
       {
         enableHighAccuracy: true,
         timeout: 10000,
@@ -270,10 +278,12 @@ const SelectOutlet = ({ onClose }) => {
     if (!user?.uid) return ""
 
     const tableRef = doc(db, "tables", tableId)
+
     let resolvedOwnerId = user.uid
 
     await runTransaction(db, async (tx) => {
       const snap = await tx.get(tableRef)
+
       if (!snap.exists()) return
 
       const tableData = snap.data() || {}
@@ -284,6 +294,7 @@ const SelectOutlet = ({ onClose }) => {
       }
 
       resolvedOwnerId = user.uid
+
       tx.update(tableRef, {
         owner: user.uid,
         ownerAssignedAt: serverTimestamp(),
@@ -312,6 +323,7 @@ const SelectOutlet = ({ onClose }) => {
     }
 
     const selectedObj = outlets.find((o) => o.id === selectedOutlet)
+
     if (selectedObj) {
       setGlobalOutlet(selectedObj.id, selectedObj.name)
     }
@@ -407,27 +419,11 @@ const SelectOutlet = ({ onClose }) => {
         sessionId
       )
 
-      // IMPORTANT FIX
-      // Persist before navigation
-      localStorage.setItem(
-        "tableSelection",
-        JSON.stringify({
-          tableId: selectedTable.id,
-          tableName: selectedTable.name,
-          ownerId,
-          sessionId,
-          outletId: selectedOutlet,
-          outletName: selectedObj?.name || "",
-        })
-      )
-
-      // Small delay so context propagates
-      setTimeout(() => {
-        if (onClose) onClose()
-        navigate("/home")
-      }, 0)
+      if (onClose) onClose()
+      navigate("/home")
     } catch (error) {
       console.error("Failed to initialize table session:", error)
+
       showMsg(
         error?.message ||
         "Unable to reserve table ownership right now. Please try again."
@@ -454,24 +450,9 @@ const SelectOutlet = ({ onClose }) => {
       joinDialog.sessionId
     )
 
-    // Persist before navigation
-    localStorage.setItem(
-      "tableSelection",
-      JSON.stringify({
-        tableId: joinDialog.tableId,
-        tableName: joinDialog.tableName,
-        ownerId: joinDialog.ownerId,
-        sessionId: joinDialog.sessionId,
-        outletId: joinDialog.outletId,
-        outletName: joinDialog.outletName,
-      })
-    )
-
     setJoinDialog(null)
-    setTimeout(() => {
-      if (onClose) onClose()
-      navigate("/home")
-    }, 0)
+    if (onClose) onClose()
+    navigate("/home")
   }
 
   const handleJoinCancel = () => {
@@ -539,12 +520,14 @@ const SelectOutlet = ({ onClose }) => {
         )}
 
         {/* OUTLET SELECT */}
+
         <select
           className="w-full border rounded-md p-2 mb-4 outline-none focus:ring-1 focus:ring-brown-500"
           value={selectedOutlet}
           onChange={handleOutletChange}
         >
           <option value="">Select Outlet</option>
+
           {outlets.map((outlet) => (
             <option key={outlet.id} value={outlet.id}>
               {outlet.name}
@@ -556,6 +539,7 @@ const SelectOutlet = ({ onClose }) => {
         </select>
 
         {/* TABLE SELECT */}
+
         <select
           className="w-full border rounded-md p-2 mb-4 outline-none focus:ring-1 focus:ring-brown-500"
           value={selectedTableId}
@@ -569,6 +553,7 @@ const SelectOutlet = ({ onClose }) => {
                 ? "Loading tables..."
                 : "Select Table"}
           </option>
+
           {tables.map((table) => (
             <option key={table.id} value={table.id}>
               {table.name}
@@ -583,11 +568,10 @@ const SelectOutlet = ({ onClose }) => {
         )}
 
         <button
-          className={`text-white w-full py-2 rounded-lg font-medium transition ${
-            continueLoading
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-[#6B4F4F]"
-          }`}
+          className={`text-white w-full py-2 rounded-lg font-medium transition ${continueLoading
+            ? "bg-gray-400 cursor-not-allowed"
+            : "bg-[#6B4F4F]"
+            }`}
           onClick={handleContinue}
           disabled={continueLoading}
         >

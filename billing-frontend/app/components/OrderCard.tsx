@@ -253,13 +253,6 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
               <p className="text-xs text-muted-foreground font-medium">{timeElapsed} ago</p>
             </div>
           </div>
-          <button
-            onClick={() => setIsCancelModalOpen(true)}
-            className="text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 p-1 hover:bg-destructive/10 rounded"
-            title="Cancel entire order"
-          >
-            <Trash2 size={18} />
-          </button>
         </div>
 
         {/* Status badge */}
