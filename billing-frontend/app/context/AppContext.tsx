@@ -1,10 +1,11 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { db } from '@/lib/firebase/app'
-import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, Timestamp, doc, updateDoc, deleteField } from 'firebase/firestore'
 import { useAuth } from '@/context/AuthContext'
 import { floorMapService } from '@/lib/services/floorMapService'
+import { toast, Toaster } from 'sonner'
 
 export interface Table {
   id: string
@@ -19,6 +20,7 @@ export interface Table {
   y: number
   color: string
   isOccupied?: boolean // Backend uses isOccupied
+  needsPaymentCollection?: boolean // Set when customer closes ordering with bill > 0
 }
 
 export interface OrderItem {
@@ -88,6 +90,79 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const { outletId, isLoggedIn } = useAuth()
   const [tables, setTables] = useState<Table[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const prevPaymentFlagRef = useRef<Record<string, boolean>>({})
+
+  // Global Needs Payment Collection listener to trigger toast and update Firestore regardless of current manager page
+  useEffect(() => {
+    const prevFlags = prevPaymentFlagRef.current
+    const nextFlags: Record<string, boolean> = {}
+
+    tables.forEach((table) => {
+      const flag = Boolean(table.needsPaymentCollection)
+      nextFlags[table.id] = flag
+
+      // Detect false/undefined -> true transition (new payment notification)
+      if (flag && !prevFlags[table.id]) {
+        // Define unique key for this notification instance to prevent double trigger/double toasts
+        const notificationKey = `${table.id}_${(table as any).needsPaymentCollectionAt?.seconds || Date.now()}`
+        
+        let shouldToast = true
+        if (typeof window !== 'undefined') {
+          if (!(window as any).__notifiedPayments) {
+            (window as any).__notifiedPayments = new Set<string>()
+          }
+          if ((window as any).__notifiedPayments.has(notificationKey)) {
+            shouldToast = false
+          } else {
+            (window as any).__notifiedPayments.add(notificationKey)
+          }
+        }
+
+        if (shouldToast) {
+          console.log(`[PAYMENT_NOTIFICATION_DEBUG] Displaying global toast for ${table.name}. Key: ${notificationKey}`);
+          toast(
+            <div className="flex items-center gap-4 bg-red-600 text-white px-5 py-4 rounded-xl shadow-[0_8px_30px_rgba(220,38,38,0.5)] border-2 border-red-500 w-[380px] md:w-[420px] pointer-events-auto">
+              <span className="text-2xl animate-bounce">🚨</span>
+              <div className="flex-1">
+                <div className="font-extrabold text-base tracking-tight leading-snug">
+                  {table.name} ordering closed
+                </div>
+                <div className="text-xs font-semibold text-red-100 mt-1">
+                  Please collect payment immediately
+                </div>
+              </div>
+            </div>,
+            {
+              duration: 12000,
+              style: {
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                boxShadow: 'none',
+              },
+            }
+          )
+        }
+
+        console.log(`[PAYMENT_NOTIFICATION_DEBUG] Scheduling Firestore flag cleanup for ${table.id} in 10s`);
+        // Auto-clear the flag in Firestore after ~10 seconds to allow highlighting and cleanup globally
+        window.setTimeout(async () => {
+          try {
+            console.log(`[PAYMENT_NOTIFICATION_DEBUG] Executing Firestore flag cleanup for ${table.id}`);
+            const tableDocRef = doc(db, 'tables', table.id)
+            await updateDoc(tableDocRef, {
+              needsPaymentCollection: deleteField(),
+              needsPaymentCollectionAt: deleteField(),
+            })
+          } catch (err) {
+            console.error(`Failed to clear payment flag for ${table.id} globally:`, err)
+          }
+        }, 10000)
+      }
+    })
+
+    prevPaymentFlagRef.current = nextFlags
+  }, [tables])
 
   useEffect(() => {
     if (!isLoggedIn || !outletId) {
@@ -112,7 +187,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           x: toFiniteNumber(data.x, 100),
           y: toFiniteNumber(data.y, 100),
           // Map backend isOccupied to occupied for frontend compatibility
-          occupied: data.isOccupied || false
+          occupied: data.isOccupied || false,
+          needsPaymentCollection: data.needsPaymentCollection || false,
         } as Table
       })
       setTables(tablesList)
@@ -213,6 +289,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
+      <Toaster position="bottom-right" richColors />
     </AppContext.Provider>
   )
 }

@@ -264,8 +264,21 @@ export const closeSession = functions.https.onRequest(
           tx.delete(orderDoc.ref);
         }
 
+        // Compute total bill from non-cancelled orders to decide payment notification
+        let totalBillAmount = 0;
+        for (const orderDoc of candidateOrderDocs.values()) {
+          const orderData = orderDoc.data();
+          const isCancelled = String(orderData.status || orderData.orderStatus || orderData.orderLifecycleStatus || "").toLowerCase() === "cancelled";
+          if (!isCancelled) {
+            const resolvedPricing = orderData.pricing || computePricingFromItems(Array.isArray(orderData.items) ? orderData.items : []);
+            totalBillAmount += readNumber(resolvedPricing.total, 0);
+          }
+        }
+
         // Reset table first so the UI immediately reflects a free table.
-        tx.update(tableRef, {
+        // If there was an actual bill (> 0), set needsPaymentCollection flag
+        // so the manager dashboard can show a notification/highlight.
+        const tableResetPayload: Record<string, unknown> = {
           isOccupied: false,
           occupied: false,
           activeSessionId: null,
@@ -273,7 +286,14 @@ export const closeSession = functions.https.onRequest(
           billAmount: 0,
           ownerAssignedAt: FieldValue.delete(),
           updatedAt: FieldValue.serverTimestamp(),
-        });
+        };
+
+        if (totalBillAmount > 0) {
+          tableResetPayload.needsPaymentCollection = true;
+          tableResetPayload.needsPaymentCollectionAt = FieldValue.serverTimestamp();
+        }
+
+        tx.update(tableRef, tableResetPayload);
 
         const closeLogRef = db.collection("sessionCloseLogs").doc();
         tx.set(closeLogRef, {

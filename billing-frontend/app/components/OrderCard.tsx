@@ -3,7 +3,7 @@
 import { useApp, type Order } from '@/app/context/AppContext'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { X, ChevronRight, Check, Trash2, Power } from 'lucide-react'
+import { X, ChevronRight, Check, Power } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { useState } from 'react'
 import { 
@@ -22,7 +22,9 @@ interface OrderCardProps {
 }
 
 export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCardProps) {
-  const { updateOrder, deleteOrder, updateOrderItem } = useApp()
+  const { tables, updateOrder, deleteOrder, updateOrderItem } = useApp()
+  const matchingTable = tables?.find((t) => t.id === order.tableId)
+  const tableName = matchingTable ? matchingTable.name : (order.tableName || (order.tableId ? `Table ${order.tableId}` : ''))
   const [expandedItems, setExpandedItems] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [isDeletingItem, setIsDeletingItem] = useState<string | null>(null)
@@ -250,6 +252,11 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
               <span className="text-sm font-mono bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md text-slate-700 dark:text-slate-300 font-bold text-base">
                 #{order.id.slice(0, 8).toUpperCase()}
               </span>
+              {tableName && (
+                <span className="text-xs bg-[#6B4F4F] text-white px-2.5 py-1 rounded-md font-bold uppercase tracking-wider shadow-sm">
+                  {tableName}
+                </span>
+              )}
               <p className="text-xs text-muted-foreground font-medium">{timeElapsed} ago</p>
             </div>
           </div>
@@ -364,22 +371,6 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                     <span className="text-xs font-medium opacity-70 capitalize mt-0.5">
                       {normalizeItemStatus(item.status)}
                     </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteItem(item.id)
-                      }}
-                      disabled={isDeletingItem === item.id || order.items.length <= 1}
-                      className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400"
-                      title={order.items.length <= 1 ? "Cannot remove last remaining item" : "Remove item"}
-                    >
-                      {isDeletingItem === item.id ? (
-                        <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <Trash2 size={14} />
-                      )}
-                    </button>
                   </div>
                 </div>
               ))}
