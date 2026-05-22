@@ -3,8 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, logOut as firebaseLogOut } from "@/lib/firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase/app";
+import { getCurrentUserProfile } from "@/lib/services/backendApi";
 
 // Global Context
 interface AuthContextType {
@@ -38,14 +37,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const outlet = idTokenResult.claims.outlet_id || localStorage.getItem('outlet_id');
         setOutletId(outlet as string);
 
-        // Fetch role from Firestore users collection
+        // Fetch role from backend users profile
         try {
-          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-          if (userDoc.exists()) {
-            setRole(userDoc.data()?.role || null);
-          }
+          const profile = await getCurrentUserProfile();
+          setRole((profile?.role as string) || null);
         } catch (error) {
-          console.error("Error fetching user role:", error);
+          console.error("Error fetching user role from backend:", error);
         }
       } else {
         setOutletId(null);

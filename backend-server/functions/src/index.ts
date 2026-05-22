@@ -6,77 +6,113 @@ if (admin.apps.length === 0) {
 }
 
 // Now import the actual function handlers with explicit imports to control execution order
-import { openSession as adminOpenSession } from "./tableSessions/openSession";
-import { closeSession as adminCloseSession } from "./tableSessions/closeSession";
-import { createProduct as prodCreate } from "./products/createProduct";
-import { updateProduct as prodUpdate } from "./products/updateProduct";
-import { deleteProduct as prodDelete } from "./products/deleteProduct";
-import { createOrder as ordCreate } from "./orders/createOrder";
-import { updateOrder as ordUpdate } from "./orders/updateOrder";
-import { deleteOrder as ordDelete } from "./orders/deleteOrder";
-import { syncOrderCreated as ordSync } from "./orders/syncOrderCreated";
-import { openSession as custOpenSession } from "./customer/sessions.customer";
-import { addItemsToOrder as custAddItems } from "./customer/orders.customer";
-import { 
-  generateBill as billGen, 
-  closeSession as billClose, 
-  validateAndCalculateBill as billVal, 
-  finalizeAndClose as billFinal 
-} from "./customer/billing.customer";
-import { checkRewards as loyaltyCheck } from "./loyalty/checkRewards";
-import { redeemReward as loyaltyRedeem } from "./loyalty/redeemReward";
-import { createOffer as offerCreate } from "./offers/createOffer";
-import { updateOffer as offerUpdate } from "./offers/updateOffer";
-import { addTable as tableAdd } from "./tables/addTable";
-import { updateTable as tableUpdate } from "./tables/updateTable";
-import { deleteTable as tableDelete } from "./tables/deleteTable";
-import { saveFloorMap as floorMapSave } from "./floorMap/saveFloorMap";
+import { openSession as adminOpenSessionFn } from "./admin/sessions/openSession";
+import { closeSession as adminCloseSessionFn } from "./admin/sessions/closeSession";
+import { createProduct as adminCreateProductFn } from "./admin/products/createProduct";
+import { updateProduct as adminUpdateProductFn } from "./admin/products/updateProduct";
+import { deleteProduct as adminDeleteProductFn } from "./admin/products/deleteProduct";
+import { saveFloorMap as adminSaveFloorMapFn } from "./admin/floorMap/saveFloorMap";
+import { getItemInvoiceDetailsReport as adminReportItemInvoiceDetailsFn } from "./admin/reports/itemInvoiceDetails";
+import { updateCancellationPassword as adminUpdateCancellationPasswordFn } from "./admin/security/updateCancellationPassword";
+import { createOffer as adminCreateOfferFn } from "./admin/offers/create";
+import { updateOffer as adminUpdateOfferFn } from "./admin/offers/update";
+import { readAppData as sharedReadAppDataFn } from "./shared/data/readAppData";
+import { registerOutletOwner as sharedRegisterOutletOwnerFn, upsertUserProfile as sharedUpsertUserProfileFn } from "./shared/data/userProfile";
+import { claimTableOwner as sharedClaimTableOwnerFn } from "./shared/data/claimTableOwner";
 
-// Admin Functions
-export const openSession = adminOpenSession;
-export const closeSession = adminCloseSession;
+import { openSession as customerOpenSessionFn } from "./customer/sessions/openSession";
+import { createOrder as customerCreateOrderFn } from "./customer/orders/createOrder";
+import { addItemsToOrder as customerAddItemsFn } from "./customer/orders/addItemsToOrder";
+import { removeOrderItem as customerRemoveOrderItemFn } from "./customer/orders/removeOrderItem";
+import { cancelEntireOrder as customerCancelEntireOrderFn } from "./customer/orders/cancelEntireOrder";
+import { generateBill as customerGenerateBillFn } from "./customer/bill/generateBill";
+import { validateAndCalculateBill as customerValidateAndCalculateBillFn } from "./customer/bill/validateAndCalculateBill";
+import { checkRewards as customerCheckRewardsFn } from "./customer/loyalty/checkRewards";
+import { redeemReward as customerRedeemRewardFn } from "./customer/loyalty/redeemReward";
+import { earnPoints as customerEarnPointsFn } from "./customer/loyalty/earnPoints";
 
-// Product Functions
-export const createProduct = prodCreate;
-export const updateProduct = prodUpdate;
-export const deleteProduct = prodDelete;
+import { createOrder as billingCreateOrderFn } from "./billing/orders/create";
+import { updateOrder as billingUpdateOrderFn } from "./billing/orders/update";
+import { deleteOrder as billingDeleteOrderFn } from "./billing/orders/delete";
+import { syncOrderCreated as billingSyncOrderCreatedFn } from "./billing/orders/read";
+import { addTable as billingAddTableFn } from "./billing/tables/addTable";
+import { updateTable as billingUpdateTableFn } from "./billing/tables/updateTable";
+import { deleteTable as billingDeleteTableFn } from "./billing/tables/deleteTable";
+import { openSession as billingOpenSessionFn } from "./billing/sessions/openSession";
+import { closeSession as billingCloseSessionFn } from "./billing/sessions/closeSession";
+import { saveFloorMap as billingSaveFloorMapFn } from "./billing/floorMap/saveFloorMap";
+import { createOffer as billingCreateOfferFn } from "./billing/offers/create";
+import { updateOffer as billingUpdateOfferFn } from "./billing/offers/update";
 
-// Order Functions
-export const createOrder = ordCreate;
-export const syncOrderCreated = ordSync;
-export const updateOrder = ordUpdate;
-export const deleteOrder = ordDelete;
+// Backward-compatible exports
+export const openSession = adminOpenSessionFn;
+export const closeSession = adminCloseSessionFn;
+export const createProduct = adminCreateProductFn;
+export const updateProduct = adminUpdateProductFn;
+export const deleteProduct = adminDeleteProductFn;
+export const createOrder = billingCreateOrderFn;
+export const syncOrderCreated = billingSyncOrderCreatedFn;
+export const updateOrder = billingUpdateOrderFn;
+export const deleteOrder = billingDeleteOrderFn;
+export const customerOpenSession = customerOpenSessionFn;
+export const customerOrdersCreate = customerCreateOrderFn;
+export const addItemsToOrder = customerAddItemsFn;
+export const generateBill = customerGenerateBillFn;
+export const validateAndCalculateBill = customerValidateAndCalculateBillFn;
+export const checkRewards = customerCheckRewardsFn;
+export const redeemReward = customerRedeemRewardFn;
+export const createOffer = adminCreateOfferFn;
+export const updateOffer = adminUpdateOfferFn;
+export const addTable = billingAddTableFn;
+export const updateTable = billingUpdateTableFn;
+export const deleteTable = billingDeleteTableFn;
+export const saveFloorMap = adminSaveFloorMapFn;
+export const getItemInvoiceDetailsReport = adminReportItemInvoiceDetailsFn;
+export const removeOrderItem = customerRemoveOrderItemFn;
+export const cancelEntireOrder = customerCancelEntireOrderFn;
+export const updateCancellationPassword = adminUpdateCancellationPasswordFn;
 
-// Customer Functions
-export const customerOpenSession = custOpenSession;
-export const addItemsToOrder = custAddItems;
-export const generateBill = billGen;
-export const closeCustomerSession = billClose;
-export const validateAndCalculateBill = billVal;
-export const finalizeAndClose = billFinal;
+// Modular aliases
+export const adminOpenSession = adminOpenSessionFn;
+export const adminCloseSession = adminCloseSessionFn;
+export const adminCreateProduct = adminCreateProductFn;
+export const adminUpdateProduct = adminUpdateProductFn;
+export const adminDeleteProduct = adminDeleteProductFn;
+export const adminSaveFloorMap = adminSaveFloorMapFn;
+export const adminReportItemInvoiceDetails = adminReportItemInvoiceDetailsFn;
+export const adminUpdateCancellationPassword = adminUpdateCancellationPasswordFn;
+export const adminCreateOffer = adminCreateOfferFn;
+export const adminUpdateOffer = adminUpdateOfferFn;
+export const readAppData = sharedReadAppDataFn;
+export const registerOutletOwner = sharedRegisterOutletOwnerFn;
+export const upsertUserProfile = sharedUpsertUserProfileFn;
+export const claimTableOwner = sharedClaimTableOwnerFn;
 
-// Loyalty Functions
-export const checkRewards = loyaltyCheck;
-export const redeemReward = loyaltyRedeem;
+export const customerSessionOpen = customerOpenSessionFn;
+export const customerOrdersAddItems = customerAddItemsFn;
+export const customerOrdersRemoveItem = customerRemoveOrderItemFn;
+export const customerOrdersCancelEntire = customerCancelEntireOrderFn;
+export const customerBillingGenerateBill = customerGenerateBillFn;
+export const customerBillingValidateAndCalculateBill = customerValidateAndCalculateBillFn;
+export const customerLoyaltyCheckRewards = customerCheckRewardsFn;
+export const customerLoyaltyRedeemReward = customerRedeemRewardFn;
+export const customerLoyaltyEarnPoints = customerEarnPointsFn;
 
-// Offer Functions
-export const createOffer = offerCreate;
-export const updateOffer = offerUpdate;
+export const billingOrdersCreate = billingCreateOrderFn;
+export const billingOrdersUpdate = billingUpdateOrderFn;
+export const billingOrdersDelete = billingDeleteOrderFn;
+export const billingOrdersRead = billingSyncOrderCreatedFn;
+export const billingTablesAdd = billingAddTableFn;
+export const billingTablesUpdate = billingUpdateTableFn;
+export const billingTablesDelete = billingDeleteTableFn;
+export const billingSessionsOpen = billingOpenSessionFn;
+export const billingSessionsClose = billingCloseSessionFn;
+export const billingFloorMapSave = billingSaveFloorMapFn;
+export const billingOffersCreate = billingCreateOfferFn;
+export const billingOffersUpdate = billingUpdateOfferFn;
 
-// Table Functions
-export const addTable = tableAdd;
-export const updateTable = tableUpdate;
-export const deleteTable = tableDelete;
-
-// Floor Map Functions
-export const saveFloorMap = floorMapSave;
-
-// New Cancellation and Removal Functions
-import { removeOrderItem as custRemoveItem } from "./customer/removeOrderItem";
-import { cancelEntireOrder as custCancelOrder } from "./customer/cancelEntireOrder";
-import { updateCancellationPassword as adminUpdatePass } from "./admin/updateCancellationPassword";
-
-export const removeOrderItem = custRemoveItem;
-export const cancelEntireOrder = custCancelOrder;
-export const updateCancellationPassword = adminUpdatePass;
+export const offerCreate = adminCreateOfferFn;
+export const offerUpdate = adminUpdateOfferFn;
+export const loyaltyCheckRewards = customerCheckRewardsFn;
+export const loyaltyRedeemReward = customerRedeemRewardFn;
 

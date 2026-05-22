@@ -1,11 +1,5 @@
-import { db } from '@/lib/firebase/app'
 import { auth } from '@/lib/firebase/auth'
-import {
-  collection,
-  query,
-  getDocs,
-  where,
-} from 'firebase/firestore'
+import { getOffersByOutletId as getOffersByOutletIdFromBackend } from './backendApi'
 
 export interface Offer {
   id: string
@@ -60,22 +54,7 @@ export interface Offer {
 // 🔥 SAME AS PRODUCT → FIRESTORE DIRECT FETCH
 export const getOffersByOutletId = async (outletId: string): Promise<Offer[]> => {
   try {
-    const ref = collection(db, "offers")
-
-    const q = query(ref, where("outletId", "==", outletId))
-
-    const snapshot = await getDocs(q)
-
-    const offers: Offer[] = []
-
-    snapshot.forEach(doc => {
-      offers.push({
-        id: doc.id,
-        ...doc.data(),
-      } as Offer)
-    })
-
-    return offers
+    return await getOffersByOutletIdFromBackend<Offer>(outletId)
   } catch (error) {
     console.error("Error fetching offers:", error)
     throw error
@@ -86,7 +65,7 @@ export const getOffersByOutletId = async (outletId: string): Promise<Offer[]> =>
 export const createOffer = async (outletId: string, data: any): Promise<string> => {
   const token = await auth.currentUser?.getIdToken()
 
-  const res = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/createOffer`, {
+  const res = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/billingOffersCreate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -112,7 +91,7 @@ export const createOffer = async (outletId: string, data: any): Promise<string> 
 export const updateOffer = async (offerId: string, updates: any) => {
   const token = await auth.currentUser?.getIdToken()
 
-  const res = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/updateOffer`, {
+  const res = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/billingOffersUpdate`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",

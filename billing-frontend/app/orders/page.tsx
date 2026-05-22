@@ -35,7 +35,7 @@ export default function OrdersPage() {
       return Number.isNaN(ts) ? 0 : ts
     }
 
-    const normalized = liveOrders.map((order) => ({
+    const normalized = liveOrders.map( (order: any) => ({
       ...order,
       orderStatus: (order as any).orderStatus || order.status || 'in-progress',
       timeOfOrder: new Date(
@@ -45,7 +45,7 @@ export default function OrdersPage() {
       ),
     }))
 
-    return normalized.sort((a, b) => {
+    return normalized.sort( (a: any, b: any) => {
       const delta = b.timeOfOrder.getTime() - a.timeOfOrder.getTime()
       if (delta !== 0) return delta
       return String(b.id).localeCompare(String(a.id))
@@ -80,8 +80,8 @@ export default function OrdersPage() {
     )
   }
 
-  const inProgressOrders = orders.filter(o => o.orderStatus === 'in-progress')
-  const readyOrders = orders.filter(o => o.orderStatus === 'ready')
+  const inProgressOrders = orders.filter( (o: any) => o.orderStatus === 'in-progress')
+  const readyOrders = orders.filter( (o: any) => o.orderStatus === 'ready')
 
   return (
     <div className="flex h-screen">
@@ -120,7 +120,7 @@ export default function OrdersPage() {
                 {inProgressOrders.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">No orders in progress</p>
                 ) : (
-                  inProgressOrders.map(order => (
+                  inProgressOrders.map( (order: any) => (
                     <OrderCard key={order.id} order={order} status={order.orderStatus} outletId={outletId} />
                   ))
                 )}

@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { db } from "@/firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { getProductsByOutletId } from "../lib/backendApi";
 
 const MenuContext = createContext();
 
@@ -24,31 +23,26 @@ export function MenuProvider({ children }) {
       }
 
       // ✅ ALWAYS fetch latest
-      const q = query(
-        collection(db,"products"),
-        where("outletId","==",OUTLET_ID)
-      );
+      const snapshot = await getProductsByOutletId(OUTLET_ID);
 
-      const snapshot = await getDocs(q);
+      const menu = snapshot.map(item=>{
+        const data = item;
+        console.log("BACKEND PRODUCT:", data);
 
-      const menu = snapshot.docs.map(doc=>{
-        const data = doc.data();
-        console.log("FIRESTORE PRODUCT:", data);
-
-        const product = {
-          id:doc.id,
+        const normalized = {
+          id: data.id,
           ...data,
-          desc:data.description || "",
-          image:data.imageUrl,
+          desc: data.description || "",
+          image: data.imageUrl,
           variations: Array.isArray(data.variations) ? data.variations : [],
           customizations: Array.isArray(data.customizations) ? data.customizations : [],
-          sortOrder:data.sortOrder || 0
+          sortOrder: data.sortOrder || 0,
         };
 
         // FORCE NORMALIZATION
-        product.isAvailable = product.isAvailable === false ? false : true;
+        normalized.isAvailable = normalized.isAvailable === false ? false : true;
 
-        return product;
+        return normalized;
       });
 
       menu.sort((a,b)=>a.sortOrder-b.sortOrder);

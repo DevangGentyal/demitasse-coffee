@@ -16,7 +16,7 @@ export const updateCancellationPassword = async (
 
     console.log('📤 Updating cancellation password in admin-frontend...')
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateCancellationPassword`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateCancellationPassword`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

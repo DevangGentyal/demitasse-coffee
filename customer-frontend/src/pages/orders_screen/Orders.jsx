@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth } from "../../lib/firebase";
-import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { getOrdersByOutletId, getTableById, getOrdersHistoryByOwnerId } from "../../lib/backendApi";
 import { useLocationContext } from "../../context/LocationContext";
 import { useAuth } from "../../context/AuthContext";
 
@@ -44,23 +43,29 @@ const resolveStatus = (order) => {
   return "In Progress";
 };
 
-const isBillReadyOrder = (order) => normalizeStatus(order.orderStatus || order.status) === "completed";
+const isBillReadyOrder = (order) => {
+  if (normalizeStatus(order.orderStatus || order.status) === "completed") return true;
+  const items = Array.isArray(order.items) ? order.items : [];
+  return items.length > 0 && items.every((item) => normalizeStatus(item.status || order.orderStatus || order.status) === "completed");
+};
 
 const getOrderTotal = (order) => {
-  // Always compute from raw item prices to keep green cards showing original order values.
-  // Never use order.pricing.total — that may contain bill-calculated values (with discount/tax).
+  // Prefer the order-level total stored by Firestore for completed orders.
+  const directTotal = Number(order.totalAmount ?? order.grandTotal ?? order.itemTotal ?? NaN);
+  if (Number.isFinite(directTotal) && directTotal >= 0) return directTotal;
+
+  // Fall back to summing item totals when the order-level total is missing.
   const items = Array.isArray(order.items) ? order.items : [];
   if (items.length > 0) {
     return items.reduce((sum, item) => {
-      const quantity = Number(item.quantity ?? item.qty ?? 1) || 1;
-      const price = Number(item.price ?? item.totalPrice ?? 0) || 0;
-      return sum + quantity * price;
+      const totalPrice = Number(item.totalPrice ?? 0) || 0;
+      return sum + totalPrice;
     }, 0);
   }
 
   // Fallback for history orders that may not have items array
-  const directTotal = Number(order.totalAmount ?? order.grandTotal ?? order.itemTotal ?? 0);
-  return Number.isFinite(directTotal) ? directTotal : 0;
+  const fallbackTotal = Number(order.totalAmount ?? order.grandTotal ?? order.itemTotal ?? 0);
+  return Number.isFinite(fallbackTotal) ? fallbackTotal : 0;
 };
 
 const getOrderItemCount = (order) => {
@@ -101,6 +106,7 @@ const normalizeHistoryOrders = (docs) => {
 function OrderCard({ order, accent = "green" }) {
   const itemCount = Array.isArray(order.items) ? order.items.length : 0;
   const chip = accent === "green" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800";
+  const orderTotal = getOrderTotal(order);
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -110,14 +116,12 @@ function OrderCard({ order, accent = "green" }) {
           <h3 className="text-base font-semibold text-gray-900">{order.id.slice(0, 8)}</h3>
           <p className="text-xs text-gray-500 mt-1">{toDate(order.createdAt).toLocaleString()}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${chip}`}>
-          {order.statusLabel}
-        </span>
+
       </div>
 
       <div className="mt-3 flex items-center justify-between text-sm text-gray-600">
         <span>{itemCount} item{itemCount === 1 ? "" : "s"}</span>
-        <span className="font-semibold text-gray-900">{currency.format(order.total || 0)}</span>
+        <span className="font-semibold text-gray-900">{currency.format(orderTotal)}</span>
       </div>
 
       <div className="mt-3 space-y-2">
@@ -207,7 +211,7 @@ function OrderCard({ order, accent = "green" }) {
 export default function Orders() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { selectedOutlet, selectedTableId, selectedTableName, tableNumber, selectedTableOwnerId, selectedSessionId, clearLocation } = useLocationContext();
+  const { selectedOutlet, selectedTableId, selectedTableName, tableNumber, selectedTableOwnerId, selectedSessionId, requestPaymentLock, clearPaymentLock } = useLocationContext();
   const [liveOrders, setLiveOrders] = useState([]);
   const [historyOrders, setHistoryOrders] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -219,7 +223,6 @@ export default function Orders() {
   const [showPayOverlay, setShowPayOverlay] = useState(false);
   const [overlayCountdown, setOverlayCountdown] = useState(10);
   const [isClosingAfterBill, setIsClosingAfterBill] = useState(false);
-  const [showFinalConfirmation, setShowFinalConfirmation] = useState(false);
   const [expandedBillItems, setExpandedBillItems] = useState({});
 
   const toggleBillItem = (idx) => {
@@ -230,6 +233,7 @@ export default function Orders() {
   const viewerId = String(user?.uid || selectedTableOwnerId || "");
   const effectiveTableOwnerId = String(currentTableOwnerId || selectedTableOwnerId || "");
   const isCurrentOwner = !!viewerId && !!effectiveTableOwnerId && viewerId === effectiveTableOwnerId;
+  const currentSessionId = String(selectedSessionId || "").trim();
 
   // CHANGE 2: All participants see all live orders (removed ownerId-based filtering)
   const visibleLiveOrders = liveOrders;
@@ -237,6 +241,8 @@ export default function Orders() {
     () => visibleLiveOrders.filter(isBillReadyOrder),
     [visibleLiveOrders]
   );
+
+  const allLiveOrdersCompleted = visibleLiveOrders.length > 0 && visibleLiveOrders.every(isBillReadyOrder);
 
   const mergedHistoryOrders = useMemo(() => {
     const byId = new Map();
@@ -246,49 +252,37 @@ export default function Orders() {
     return [...byId.values()].sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime());
   }, [historyOrders]);
 
-  const activeOrder = billReadyOrders[0] || null;
+  const activeOrder = allLiveOrdersCompleted ? (billReadyOrders[0] || visibleLiveOrders[0] || null) : null;
 
   const dismissBanner = () => setBanner(null);
 
   const resetSessionAndTable = async () => {
     if (!selectedTableId && !selectedSessionId) return;
 
-    // Support both authenticated owners and guest participants
-    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-    const guestId = localStorage.getItem("guestId");
-
-    if (!idToken && !guestId) {
-      throw new Error("User not authenticated");
-    }
-
-    const payload = {
-      sessionId: selectedSessionId || undefined,
-      tableId: selectedTableId || undefined,
-    };
-
-    try {
-      const headers = { "Content-Type": "application/json" };
-      if (idToken) {
-        headers.Authorization = `Bearer ${idToken}`;
-      }
-
-      const response = await fetch(`${API_BASE}/closeSession`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result?.message || "Failed to close session after bill");
-      }
-    } finally {
-      setShowPayOverlay(false);
-      setOverlayCountdown(10);
-    }
+    clearPaymentLock();
+    setShowPayOverlay(false);
+    setOverlayCountdown(10);
   };
 
   const toBillDetails = (value) => {
+    const normalizeBillItem = (item) => ({
+      id: String(item.id || item.productId || item.name || Math.random().toString(36).slice(2)),
+      name: String(item.name || item.title || item.productName || "Item"),
+      qty: Number(item.qty ?? item.quantity ?? 1) || 1,
+      unitPrice: Number(item.unitPrice ?? item.finalUnitPrice ?? item.price ?? (Number(item.totalPrice ?? 0) && (Number(item.qty ?? item.quantity ?? 1) > 0 ? Number(item.totalPrice ?? 0) / Number(item.qty ?? item.quantity ?? 1) : 0)) ?? 0) || 0,
+      totalPrice: Number(item.totalPrice ?? item.totalAmount ?? item.itemTotal ?? 0) || 0,
+      addOns: Array.isArray(item.addOns) ? item.addOns : (Array.isArray(item.addons) ? item.addons : []),
+      variations: Array.isArray(item.variations) ? item.variations : [],
+      customizations: Array.isArray(item.customizations) ? item.customizations : [],
+      items: Array.isArray(item.items) ? item.items.map(normalizeBillItem) : [],
+      isCombo: Boolean(item.isCombo),
+      isManualB1G1: Boolean(item.isManualB1G1),
+      isDiscount: Boolean(item.isDiscount),
+      isBirthday: Boolean(item.isBirthday),
+      isFree: Boolean(item.isFree),
+      offerTitle: String(item.offerTitle || ""),
+    });
+
     if (!value) return null;
     return {
       orderId: String(value.orderId || value.id || ""),
@@ -297,13 +291,13 @@ export default function Orders() {
       sessionId: String(value.sessionId || ""),
       createdAt: toDate(value.generatedAt || value.createdAt || value.updatedAt),
       paymentStatus: String(value.paymentStatus || "PENDING_COUNTER"),
-      items: Array.isArray(value.items) ? value.items : [],
+      items: Array.isArray(value.items) ? value.items.map(normalizeBillItem) : [],
       appliedOffers: Array.isArray(value.appliedOffers) ? value.appliedOffers : [],
       pricing: {
-        subtotal: Number(value?.pricing?.subtotal || 0),
+        subtotal: Number(value?.pricing?.subtotal ?? value.itemTotal ?? value.totalAmount ?? value.grandTotal ?? 0),
         discount: Number(value?.pricing?.discount || 0),
         tax: Number(value?.pricing?.tax || 0),
-        total: Number(value?.pricing?.total || 0),
+        total: Number(value?.pricing?.total ?? value.totalAmount ?? value.grandTotal ?? value.itemTotal ?? 0),
       },
       noteToCustomer: String(value.noteToCustomer || "Please pay at the counter. Your bill is ready."),
     };
@@ -312,8 +306,8 @@ export default function Orders() {
   const handleGenerateBill = async () => {
     // CHANGE 3: Any participant can generate the bill (removed isCurrentOwner check)
 
-    if (!activeOrder) {
-      setBanner({ type: "error", text: "No completed order found to generate bill." });
+    if (!allLiveOrdersCompleted || !activeOrder) {
+      setBanner({ type: "error", text: "Bill is available only after all live orders are completed." });
       return;
     }
 
@@ -334,7 +328,7 @@ export default function Orders() {
         console.warn("No active sessionId found; using tableId+ownerId for bill lookup (session may have been closed after app restart)");
       }
 
-      const response = await fetch(`${API_BASE}/generateBill`, {
+      const response = await fetch(`${API_BASE}/customerBillingGenerateBill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -364,19 +358,28 @@ export default function Orders() {
       return undefined;
     }
 
-    const q = query(collection(db, "orders"), where("tableId", "==", selectedTableId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // CHANGE 2: Show ALL orders for this table to every participant (removed ownerId filter)
-      const rows = groupLiveOrders(snapshot.docs).filter((order) => {
-        if (!hasBillableItems(order)) return false;
-        return true;
-      });
-      rows.sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime());
-      setLiveOrders(rows);
-    });
+    let cancelled = false
 
-    return () => unsubscribe();
-  }, [selectedOutlet, selectedTableId, viewerId]);
+    const fetchOnce = async () => {
+      try {
+        const all = await getOrdersByOutletId(selectedOutlet)
+        // Filter for the current table, and prefer the active session when it exists.
+        const rows = (all || [])
+          .filter(o => String(o.tableId || o.table || "") === String(selectedTableId))
+          .filter(o => !currentSessionId || String(o.sessionId || "") === currentSessionId)
+          .map(o => ({ id: o.id, ...o, createdAt: toDate(o.createdAt || o.timeOfOrder || o.updatedAt) }))
+        const filtered = rows.filter((order) => hasBillableItems(order))
+        filtered.sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime())
+        if (!cancelled) setLiveOrders(filtered)
+      } catch (err) {
+        console.error('Failed to fetch live orders via backend:', err)
+      }
+    }
+
+    fetchOnce()
+    const id = setInterval(fetchOnce, 5000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [selectedOutlet, selectedTableId, viewerId, currentSessionId]);
 
   useEffect(() => {
     if (!selectedTableId) {
@@ -384,16 +387,20 @@ export default function Orders() {
       return undefined;
     }
 
-    const unsubscribe = onSnapshot(doc(db, "tables", selectedTableId), (tableSnap) => {
-      if (!tableSnap.exists()) {
-        setCurrentTableOwnerId("");
-        return;
+    let cancelled = false
+    const fetchOwner = async () => {
+      try {
+        const items = await getTableById(selectedTableId)
+        const table = items[0]
+        if (!cancelled) setCurrentTableOwnerId(String(table?.owner || ""))
+      } catch (err) {
+        console.error('Failed to fetch table via backend:', err)
       }
-      const tableData = tableSnap.data() || {};
-      setCurrentTableOwnerId(String(tableData.owner || ""));
-    });
+    }
 
-    return () => unsubscribe();
+    fetchOwner()
+    const id = setInterval(fetchOwner, 5000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [selectedTableId]);
 
   useEffect(() => {
@@ -403,15 +410,15 @@ export default function Orders() {
     const loadHistory = async () => {
       setIsLoadingHistory(true);
       try {
-        const historyQuery = query(
-          collection(db, "ordersHistory"),
-          where("ownerId", "==", viewerId)
-        );
-        const snapshot = await getDocs(historyQuery);
-        if (!isMounted) return;
-        const rows = normalizeHistoryOrders(snapshot.docs).filter(hasBillableItems);
-        rows.sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime());
-        setHistoryOrders(rows);
+        try {
+          const items = await getOrdersHistoryByOwnerId(viewerId)
+          const rows = (items || []).map(i => ({ id: i.id, ...i, createdAt: toDate(i.createdAt || i.finalizedAt || i.archivedAt) })).filter(hasBillableItems)
+          rows.sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime())
+          if (!isMounted) return
+          setHistoryOrders(rows)
+        } catch (err) {
+          console.error('Failed to load order history via backend:', err)
+        }
       } catch (error) {
         console.error("Failed to load order history:", error);
       } finally {
@@ -462,7 +469,7 @@ export default function Orders() {
   }, [showPayOverlay, overlayCountdown]);
 
   const ongoingTotal = useMemo(
-    () => visibleLiveOrders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+    () => visibleLiveOrders.reduce((sum, order) => sum + getOrderTotal(order), 0),
     [visibleLiveOrders]
   );
 
@@ -476,7 +483,7 @@ export default function Orders() {
   const hasLiveOrders = visibleLiveOrders.length > 0;
 
   const lifetimeTotal = useMemo(
-    () => mergedHistoryOrders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+    () => mergedHistoryOrders.reduce((sum, order) => sum + Number(order.total ?? order.totalAmount ?? getOrderTotal(order) ?? 0), 0),
     [mergedHistoryOrders]
   );
 
@@ -514,17 +521,6 @@ export default function Orders() {
                 {isClosingAfterBill ? "Resetting table..." : "Preparing automatic reset"}
               </p>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showFinalConfirmation && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4 backdrop-blur-md transition-opacity">
-          <div className="w-full max-w-sm rounded-[2rem] bg-white p-8 text-center shadow-2xl">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-3xl">✅</div>
-            <h2 className="text-2xl font-bold text-gray-900">Ordering Closed</h2>
-            <p className="mt-3 text-base text-gray-600 font-medium">Thank you! Please pay your bill at the counter.</p>
-            <p className="mt-6 text-sm font-semibold text-gray-400">Redirecting to menu in a moment...</p>
           </div>
         </div>
       )}
@@ -567,9 +563,9 @@ export default function Orders() {
                 </div>
               </div>
               
-              <div className="mt-2 text-[11px] text-emerald-700 bg-white/40 rounded-lg px-2 py-1 inline-block border border-emerald-200">
+              {/* <div className="mt-2 text-[11px] text-emerald-700 bg-white/40 rounded-lg px-2 py-1 inline-block border border-emerald-200">
                 💡 Generate bill and close session below
-              </div>
+              </div> */}
 
               <div className="mt-4 space-y-3">
                 {visibleLiveOrders.map((order) => <OrderCard key={order.id} order={order} accent="green" />)}
@@ -635,7 +631,7 @@ export default function Orders() {
                                   </span>
                                 )}
                               </p>
-                              <p className="text-xs text-gray-500 mt-0.5">Qty: {item.qty} × {currency.format(item.finalUnitPrice || item.price || 0)}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">Qty: {item.qty} × {currency.format(item.unitPrice || 0)}</p>
                             </div>
                             <p className="font-bold text-gray-900 mt-0.5">{currency.format(item.totalPrice || 0)}</p>
                           </div>
@@ -738,7 +734,7 @@ export default function Orders() {
                     </div>
                   </div>
 
-                  {/* Ref info */}
+                  {/* Ref info
                   <div className="bg-gray-50 rounded-2xl p-4 mt-6 flex flex-col gap-1.5">
                     <div className="flex justify-between text-[10px] text-gray-400 font-bold uppercase tracking-wider">
                       <span>Order Ref</span>
@@ -748,7 +744,7 @@ export default function Orders() {
                       <span>Payment Ref</span>
                       <span>{billDetails.paymentId.slice(0, 12)}</span>
                     </div>
-                  </div>
+                  </div> */}
                 </div>
               </div>
             </div>
@@ -759,27 +755,41 @@ export default function Orders() {
         <div className="sticky bottom-4 z-10 flex w-full gap-3 mt-4">
           <button
             onClick={handleGenerateBill}
-            disabled={isGeneratingBill || !activeOrder}
+            disabled={isGeneratingBill || !allLiveOrdersCompleted || !activeOrder}
             className="flex-1 rounded-2xl bg-gray-900 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-black/15 disabled:opacity-50"
           >
             {isGeneratingBill ? "Loading..." : "View Final Bill"}
           </button>
           <button
-            disabled={isClosingAfterBill}
+            disabled={isClosingAfterBill || !allLiveOrdersCompleted}
             onClick={async () => {
               setIsClosingAfterBill(true);
               try {
-                localStorage.setItem("isClosingSession", "true");
-                await resetSessionAndTable();
-                setShowFinalConfirmation(true);
-                setTimeout(() => {
-                  localStorage.removeItem("isClosingSession");
-                  clearLocation();
-                  navigate("/select-outlet");
-                }, 10000);
+                const sessionIdToUse = currentSessionId || activeOrder?.sessionId || "";
+                const response = await fetch(`${API_BASE}/billingSessionsClose`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    sessionId: sessionIdToUse || undefined,
+                    tableId: selectedTableId || undefined,
+                    paymentStatus: "BILL",
+                  }),
+                });
+
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result?.success) {
+                  throw new Error(result?.message || "Failed to request payment.");
+                }
+
+                requestPaymentLock({
+                  sessionId: sessionIdToUse,
+                  tableId: selectedTableId || "",
+                  tableName: resolvedTableName,
+                });
+                setBanner({ type: "success", text: "Payment requested. Please wait for billing confirmation." });
               } catch (err) {
-                localStorage.removeItem("isClosingSession");
-                setBanner({ type: "error", text: "Failed to close ordering session." });
+                setBanner({ type: "error", text: err instanceof Error ? err.message : "Failed to request payment." });
+              } finally {
                 setIsClosingAfterBill(false);
               }
             }}
@@ -788,6 +798,8 @@ export default function Orders() {
             {isClosingAfterBill ? "Closing..." : "Close Ordering"}
           </button>
         </div>
+
+        
       </div>
     </div>
   );

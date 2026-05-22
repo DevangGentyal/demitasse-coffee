@@ -1,14 +1,5 @@
 import React, { useState, useEffect } from "react"
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  doc,
-  runTransaction,
-  serverTimestamp,
-} from "firebase/firestore"
-import { db } from "../../lib/firebase"
+import { getOutlets, getTablesByOutletId, claimTableOwner } from "../../lib/backendApi"
 import { useNavigate } from "react-router-dom"
 import { useLocationContext } from "../../context/LocationContext"
 import { useAuth } from "../../context/AuthContext"
@@ -126,10 +117,10 @@ const SelectOutlet = ({ onClose }) => {
 
   const fetchOutlets = async (userLocation = null) => {
     try {
-      const querySnapshot = await getDocs(collection(db, "outlets"))
+      const outletListRaw = await getOutlets()
 
-      const outletList = querySnapshot.docs.map((docSnap) => {
-        const data = docSnap.data()
+      const outletList = outletListRaw.map((docSnap) => {
+        const data = docSnap || {}
 
         let distance = null
 
@@ -175,16 +166,11 @@ const SelectOutlet = ({ onClose }) => {
     try {
       setTablesLoading(true)
 
-      const tableQuery = query(
-        collection(db, "tables"),
-        where("outletId", "==", outletId)
-      )
+      const tableDocs = await getTablesByOutletId(outletId)
 
-      const tableSnapshot = await getDocs(tableQuery)
-
-      const tableList = tableSnapshot.docs
+      const tableList = tableDocs
         .map((tableDoc) => {
-          const data = tableDoc.data()
+          const data = tableDoc || {}
 
           return {
             id: tableDoc.id,
@@ -276,33 +262,13 @@ const SelectOutlet = ({ onClose }) => {
 
   const claimTableOwnerIfMissing = async (tableId) => {
     if (!user?.uid) return ""
-
-    const tableRef = doc(db, "tables", tableId)
-
-    let resolvedOwnerId = user.uid
-
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(tableRef)
-
-      if (!snap.exists()) return
-
-      const tableData = snap.data() || {}
-
-      if (tableData.owner) {
-        resolvedOwnerId = tableData.owner
-        return
-      }
-
-      resolvedOwnerId = user.uid
-
-      tx.update(tableRef, {
-        owner: user.uid,
-        ownerAssignedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      })
-    })
-
-    return resolvedOwnerId
+    try {
+      const payload = await claimTableOwner(tableId)
+      return payload.ownerId || ""
+    } catch (err) {
+      console.error('claimTableOwner failed', err)
+      return ""
+    }
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -340,8 +306,17 @@ const SelectOutlet = ({ onClose }) => {
     try {
       setContinueLoading(true)
 
+      console.info('[customer/select-outlet] continue clicked', {
+        selectedOutlet,
+        selectedTableId,
+        selectedTableName: selectedTable?.name || null,
+        currentUserId: user?.uid || null,
+        hasGuestId: Boolean(localStorage.getItem('guestId')),
+      })
+
       // Resolve participant identity (userId for registered, guestId for guests)
       const participantFields = getParticipantId()
+      console.info('[customer/select-outlet] participant resolved', participantFields)
       if (!participantFields.userId && !participantFields.guestId) {
         showMsg("Please log in or continue as guest to proceed.")
         return
@@ -352,7 +327,7 @@ const SelectOutlet = ({ onClose }) => {
 
       // Open/join session via backend — this is the source of truth
       const sessionResponse = await fetch(
-        `${API_BASE}/customerOpenSession`,
+        `${API_BASE}/customerSessionOpen`,
         {
           method: "POST",
           headers: {
@@ -370,6 +345,12 @@ const SelectOutlet = ({ onClose }) => {
         .json()
         .catch(() => ({}))
 
+      console.info('[customer/select-outlet] session response', {
+        ok: sessionResponse.ok,
+        status: sessionResponse.status,
+        payload: sessionPayload,
+      })
+
       if (
         !sessionResponse.ok ||
         !sessionPayload?.success ||
@@ -382,6 +363,11 @@ const SelectOutlet = ({ onClose }) => {
 
       const sessionId = String(sessionPayload.sessionId)
       const isJoining = sessionPayload.created === false
+      console.info('[customer/select-outlet] session resolved', {
+        sessionId,
+        created: sessionPayload.created,
+        isJoining,
+      })
 
       // Resolve ownerId: for guests, claimTableOwnerIfMissing returns empty.
       // For new sessions, the current participant IS the owner. 

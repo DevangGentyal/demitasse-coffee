@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { getSessionById, getTableById } from "../lib/backendApi";
 
 const LocationContext = createContext();
 
@@ -13,6 +12,10 @@ const LOCATION_KEYS = [
     "tableNumber",
     "locationLastSeenAt",
     "selectedSessionId",
+    "isClosingSession",
+    "paymentLockSessionId",
+    "paymentLockTableId",
+    "paymentLockTableName",
 ];
 
 const SESSION_SELECTION_GRACE_MS = 5000;
@@ -79,11 +82,21 @@ export function LocationProvider({ children }) {
         localStorage.getItem("selectedSessionId") || getCookie("selectedSessionId") || ""
     );
 
+    const [paymentLockActive, setPaymentLockActive] = useState(
+        localStorage.getItem("isClosingSession") === "true"
+    );
+
     useEffect(() => {
         const verifyStoredSession = async () => {
             const storedSessionId = localStorage.getItem("selectedSessionId") || getCookie("selectedSessionId");
             const storedTableId = localStorage.getItem("selectedTableId") || "";
             const storedOutletId = localStorage.getItem("selectedOutlet") || "";
+
+            console.info("[customer/location] verify stored session", {
+                storedSessionId: storedSessionId || null,
+                storedTableId: storedTableId || null,
+                storedOutletId: storedOutletId || null,
+            });
 
             // Verify table exists and outlet matches
             if (!storedTableId || !storedOutletId) {
@@ -91,8 +104,9 @@ export function LocationProvider({ children }) {
             }
 
             try {
-                const tableSnap = await getDoc(doc(db, "tables", storedTableId));
-                if (!tableSnap.exists()) {
+                const tableDocs = await getTableById(storedTableId);
+                const tableData = tableDocs[0] || null;
+                if (!tableData) {
                     clearStoredLocation();
                     setSelectedOutletState("");
                     setOutletNameState("");
@@ -104,7 +118,6 @@ export function LocationProvider({ children }) {
                     return;
                 }
 
-                const tableData = tableSnap.data() || {};
                 const tableOutletId = typeof tableData.outletId === "string" ? tableData.outletId : "";
                 if (tableOutletId && tableOutletId !== storedOutletId) {
                     clearStoredLocation();
@@ -127,13 +140,22 @@ export function LocationProvider({ children }) {
                 // Verify session is still active (if stored)
                 if (storedSessionId) {
                     try {
-                        const sessionSnap = await getDoc(doc(db, "sessions", storedSessionId));
-                        if (sessionSnap.exists()) {
-                            const sessionData = sessionSnap.data() || {};
+                        const sessionDocs = await getSessionById(storedSessionId);
+                        const sessionData = sessionDocs[0] || null;
+                        if (sessionData) {
                             const sessionStatus = typeof sessionData.status === "string" ? sessionData.status : "";
+                            const sessionDocId = typeof sessionData.id === "string" ? sessionData.id : "";
+                            const sessionFieldId = String(sessionData.sessionId || "").trim();
                             const sessionTableId = typeof sessionData.tableId === "string" ? sessionData.tableId : "";
-                            if (sessionStatus === "ACTIVE" && (!sessionTableId || sessionTableId === storedTableId)) {
+                            if (sessionStatus === "ACTIVE" && (!sessionTableId || sessionTableId === storedTableId) && (sessionDocId === storedSessionId || sessionFieldId === storedSessionId)) {
                                 // Session is still active, restore it
+                                console.info("[customer/location] restored stored session", {
+                                    storedSessionId,
+                                    sessionDocId,
+                                    sessionFieldId,
+                                    sessionTableId,
+                                    sessionStatus,
+                                });
                                 localStorage.setItem("selectedSessionId", storedSessionId);
                                 setCookie("selectedSessionId", storedSessionId);
                                 setSelectedSessionIdState(storedSessionId);
@@ -166,12 +188,11 @@ export function LocationProvider({ children }) {
         if (!selectedTableId) return undefined;
         let clearTimer = null;
 
-        const tableRef = doc(db, "tables", selectedTableId);
-        const unsub = onSnapshot(
-            tableRef,
-            (snap) => {
-                if (!snap.exists()) {
-                    // Table removed remotely — clear everything
+        const pollTable = async () => {
+            try {
+                const tableDocs = await getTableById(selectedTableId);
+                const data = tableDocs[0] || null;
+                if (!data) {
                     clearLocation();
                     setSelectedOutletState("");
                     setOutletNameState("");
@@ -183,16 +204,34 @@ export function LocationProvider({ children }) {
                     return;
                 }
 
-                const data = snap.data() || {};
                 const activeSessionId = typeof data.activeSessionId === "string" ? data.activeSessionId : "";
                 const isOccupied = !!data.isOccupied;
                 const selectedAt = Number(localStorage.getItem("sessionSelectedAt") || 0);
                 const isFreshSelection = selectedAt > 0 && Date.now() - selectedAt < SESSION_SELECTION_GRACE_MS;
 
-                // If table was reset/cleared by admin, force client to reselect outlet/table
-                // Check if client is intentionally closing the session locally
-                if (localStorage.getItem("isClosingSession") === "true") {
-                    return; // Prevent clearing during the 10-second confirmation screen
+                const isPaymentLocked = localStorage.getItem("isClosingSession") === "true";
+                const lockSessionId = localStorage.getItem("paymentLockSessionId") || selectedSessionId || "";
+
+                if (isPaymentLocked) {
+                    const lockStillActive = Boolean(activeSessionId && activeSessionId === lockSessionId && isOccupied);
+                    if (lockStillActive) {
+                        if (clearTimer) {
+                            clearTimeout(clearTimer);
+                            clearTimer = null;
+                        }
+                        return;
+                    }
+
+                    clearPaymentLock();
+                    clearLocation();
+                    setSelectedOutletState("");
+                    setOutletNameState("");
+                    setTableNumberState("");
+                    setSelectedTableIdState("");
+                    setSelectedTableNameState("");
+                    setSelectedTableOwnerIdState("");
+                    setSelectedSessionIdState("");
+                    return;
                 }
 
                 const currentStoredSessionId =
@@ -206,11 +245,7 @@ export function LocationProvider({ children }) {
                     currentStoredSessionId !== "" &&
                     (!activeSessionId || activeSessionId !== currentStoredSessionId || !isOccupied);
 
-                // If table was reset/cleared by admin, force client to reselect outlet/table
                 if (shouldClear) {
-                    // Prevent false resets during session creation race condition
-                    // We wait 3 seconds. If the backend update arrives (from session creation),
-                    // it will trigger a new snapshot and cancel this clear operation.
                     if (!clearTimer) {
                         clearTimer = setTimeout(() => {
                             notifySessionEnded();
@@ -224,24 +259,23 @@ export function LocationProvider({ children }) {
                             setSelectedSessionIdState("");
                         }, 3000);
                     }
-                } else {
-                    // Table is valid and occupied. Cancel any pending reset.
-                    if (clearTimer) {
-                        clearTimeout(clearTimer);
-                        clearTimer = null;
-                    }
+                } else if (clearTimer) {
+                    clearTimeout(clearTimer);
+                    clearTimer = null;
                 }
-            },
-            (err) => {
-                console.warn("Table listener error:", err);
+            } catch (err) {
+                console.warn("Table polling error:", err);
             }
-        );
+        };
+
+        pollTable();
+        const intervalId = setInterval(pollTable, 5000);
 
         return () => {
-            unsub();
+            clearInterval(intervalId);
             if (clearTimer) clearTimeout(clearTimer);
         };
-    }, [selectedTableId, selectedSessionId]);
+    }, [selectedTableId, selectedSessionId, paymentLockActive]);
 
     useEffect(() => {
         const touchLastSeen = () => {
@@ -298,6 +332,12 @@ export function LocationProvider({ children }) {
 
         // Store sessionId in both localStorage and cookies
         if (sessionId) {
+            console.info("[customer/location] set table selection with session", {
+                tableId: resolvedId,
+                tableName: resolvedName,
+                ownerId: resolvedOwnerId || null,
+                sessionId,
+            });
             localStorage.setItem("sessionSelectedAt", String(Date.now()));
             localStorage.setItem("selectedSessionId", sessionId);
             setCookie("selectedSessionId", sessionId);
@@ -314,6 +354,23 @@ export function LocationProvider({ children }) {
         setSelectedTableNameState("");
         setSelectedTableOwnerIdState("");
         setSelectedSessionIdState("");
+        setPaymentLockActive(false);
+    };
+
+    const requestPaymentLock = ({ sessionId = "", tableId = "", tableName = "" } = {}) => {
+        localStorage.setItem("isClosingSession", "true");
+        localStorage.setItem("paymentLockSessionId", sessionId);
+        localStorage.setItem("paymentLockTableId", tableId);
+        localStorage.setItem("paymentLockTableName", tableName);
+        setPaymentLockActive(true);
+    };
+
+    const clearPaymentLock = () => {
+        localStorage.removeItem("isClosingSession");
+        localStorage.removeItem("paymentLockSessionId");
+        localStorage.removeItem("paymentLockTableId");
+        localStorage.removeItem("paymentLockTableName");
+        setPaymentLockActive(false);
     };
 
     return (
@@ -328,7 +385,10 @@ export function LocationProvider({ children }) {
                 selectedTableName,
                 selectedTableOwnerId,
                 selectedSessionId,
+                paymentLockActive,
                 setTableSelection,
+                requestPaymentLock,
+                clearPaymentLock,
                 clearLocation,
             }}
         >

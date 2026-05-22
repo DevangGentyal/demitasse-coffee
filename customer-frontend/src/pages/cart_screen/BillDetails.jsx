@@ -1,7 +1,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { collection, addDoc, doc, updateDoc, getDoc } from "firebase/firestore";
-import { auth, db } from "../../lib/firebase";
+import { auth } from "../../lib/firebase";
+import { getOutletById } from "../../lib/backendApi";
 import { useLocationContext } from "../../context/LocationContext";
 import { useOffers } from "../../context/OfferContext";
 import { useCart } from "../../context/CartContext";
@@ -45,11 +45,9 @@ const BillDetails = () => {
         return;
       }
       try {
-        const outletRef = doc(db, "outlets", selectedOutlet);
-        const outletSnap = await getDoc(outletRef);
-        if (outletSnap.exists()) {
-          setOutletName(outletSnap.data()?.name || "Unknown Outlet");
-        }
+        const items = await getOutletById(selectedOutlet)
+        const outlet = items[0]
+        setOutletName(outlet?.name || "Unknown Outlet")
       } catch (error) {
         console.error("Error fetching outlet:", error);
       }

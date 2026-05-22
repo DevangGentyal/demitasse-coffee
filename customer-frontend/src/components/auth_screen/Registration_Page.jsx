@@ -6,8 +6,8 @@ import {
   EmailAuthProvider,
   linkWithCredential,
 } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import { auth, db, googleProvider } from "../../lib/firebase";
+import { auth, googleProvider } from "../../lib/firebase";
+import { getCurrentUserProfile, upsertUserProfile } from "../../lib/backendApi";
 
 // 🎨 Friendly error messages for Firebase error codes
 const getFriendlyError = (errorCode) => {
@@ -81,13 +81,13 @@ const RegisterForm = () => {
 
       const user = userCredential.user;
 
-      await setDoc(doc(db, "users", user.uid), {
+      await upsertUserProfile({
         uid: user.uid,
         name,
         email,
         provider: "email",
         isProfileComplete: false,
-        hasPlacedFirstOrder: false, 
+        hasPlacedFirstOrder: false,
         createdAt: new Date(),
       });
 
@@ -112,11 +112,9 @@ const RegisterForm = () => {
 
       console.log("Google User:", user);
 
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
-
-      if (!userSnap.exists()) {
-        await setDoc(userRef, {
+      const profile = await getCurrentUserProfile();
+      if (!profile) {
+        await upsertUserProfile({
           uid: user.uid,
           name: user.displayName,
           email: user.email,
@@ -127,15 +125,10 @@ const RegisterForm = () => {
         });
 
         navigate("/complete-profile");
-
+      } else if (!profile.isProfileComplete) {
+        navigate("/complete-profile");
       } else {
-        const userData = userSnap.data();
-
-        if (!userData.isProfileComplete) {
-          navigate("/complete-profile");
-        } else {
-          navigate("/select-outlet");
-        }
+        navigate("/select-outlet");
       }
 
     } catch (error) {

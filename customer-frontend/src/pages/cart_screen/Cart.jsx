@@ -3,14 +3,28 @@ import { useCart } from "../../context/CartContext";
 import { useNavigate } from "react-router-dom";
 import { useLocationContext } from "../../context/LocationContext";
 import { useOffers } from "../../context/OfferContext";
-import { auth, db } from "../../lib/firebase";
-import { collection, addDoc, doc, updateDoc, getDoc } from "firebase/firestore";
+import { auth } from "../../lib/firebase";
+import { getProductById } from "../../lib/backendApi";
 import { revalidateCart } from "../../lib/offerUtils";
 
 import CartHeader from "../../components/cart_screen/CartHeader.jsx";
 import CartItem from "../../components/cart_screen/CartItem.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
+
+const serializeOrderItem = (item) => ({
+  id: item.id || item.productId || null,
+  productId: item.productId || item.id || null,
+  name: item.name || item.title || item.productName || '',
+  quantity: item.qty || item.quantity || 1,
+  // Do not send frontend-calculated prices. Backend will fetch authoritative product price.
+  // price: item.price || item.finalUnitPrice || 0,
+  status: item.status || 'in-progress',
+  addOns: Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [],
+  notes: item.notes || '',
+  offerId: item.offerId || null,
+  ...(Array.isArray(item.items) ? { items: item.items.map(subItem => serializeOrderItem(subItem)) } : {}),
+});
 
 const Cart = () => {
   const navigate = useNavigate();
@@ -31,7 +45,6 @@ const Cart = () => {
 
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState("");
-
   // ✅ Check if combo is in cart (for priority logic)
   const hasComboInCart = cart.some(item => item.isCombo);
 
@@ -87,18 +100,71 @@ const Cart = () => {
     try {
       const userId = auth.currentUser?.uid || null;
 
-      const res = await fetch(`${API_BASE}/validateAndCalculateBill`, {
+      // Ensure an active session exists for table-based orders (support guests)
+      const participantFields = auth.currentUser?.uid
+        ? { userId: auth.currentUser.uid }
+        : (() => {
+            let guestId = localStorage.getItem("guestId");
+            if (!guestId) {
+              guestId = "guest_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+              localStorage.setItem("guestId", guestId);
+            }
+            return { guestId };
+          })();
+
+      let activeSessionId = selectedSessionId || null;
+      console.info('[customer/cart] place order start', {
+        selectedOutlet,
+        selectedTableId,
+        selectedSessionId,
+        cartCount: cart.length,
+        userId,
+      })
+      // Create session if table selected and no session exists
+      if (!activeSessionId && selectedOutlet && selectedTableId && (participantFields.userId || participantFields.guestId)) {
+        console.info('[customer/cart] opening session before order create', participantFields)
+        const sessionResponse = await fetch(`${API_BASE}/customerSessionOpen`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            outletId: selectedOutlet,
+            tableId: selectedTableId,
+            ...participantFields,
+          }),
+        });
+        const sessionPayload = await sessionResponse.json().catch(() => ({}));
+        console.info('[customer/cart] session response', {
+          ok: sessionResponse.ok,
+          status: sessionResponse.status,
+          payload: sessionPayload,
+        })
+        if (!sessionResponse.ok || !sessionPayload?.success || !sessionPayload?.sessionId) {
+          throw new Error(sessionPayload?.message || "Failed to initialize active session");
+        }
+        activeSessionId = String(sessionPayload.sessionId);
+        console.info('[customer/cart] session created', { activeSessionId })
+        setTableSelection(selectedTableId, tableNumber || selectedTableId, selectedTableOwnerId || "", activeSessionId);
+      }
+
+      const res = await fetch(`${API_BASE}/customerBillingValidateAndCalculateBill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cartItems: cart,
           outletId: selectedOutlet,
+          tableId: selectedTableId || null,
+          sessionId: activeSessionId || null,
           autoAppliedOfferId: autoAppliedOffer?.offerId || null,
           userId,
         }),
       });
 
       const result = await res.json().catch(() => ({}));
+      console.info('[customer/cart] bill validation response', {
+        ok: res.ok,
+        status: res.status,
+        payload: result,
+      })
 
       if (!res.ok || !result?.success) {
         setValidationError(result?.message || "Cart validation failed. Please check your items.");
@@ -147,16 +213,18 @@ const Cart = () => {
         for (const freeSub of freeSubs) {
           const freeProductId = String(freeSub.productId || "");
           if (!freeProductId) continue;
-          const freeSnap = await getDoc(doc(db, "products", freeProductId));
+          const freeItems = await getProductById(freeProductId)
+          const freeProd = freeItems[0]
 
           for (const paidSub of paidSubs) {
             const paidProductId = String(paidSub.productId || "");
             if (!paidProductId) continue;
-            const paidSnap = await getDoc(doc(db, "products", paidProductId));
+            const paidItems = await getProductById(paidProductId)
+            const paidProd = paidItems[0]
 
-            if (freeSnap.exists() && paidSnap.exists()) {
-              const liveFreePrice = freeSnap.data().price;
-              const livePaidPrice = paidSnap.data().price;
+            if (freeProd && paidProd) {
+              const liveFreePrice = freeProd.price
+              const livePaidPrice = paidProd.price
 
               if (liveFreePrice > livePaidPrice) {
                 setValidationError("B1G1 validation failed: Cheapest item must be free. Please re-add the offer.");
@@ -167,78 +235,56 @@ const Cart = () => {
         }
       }
 
-      const resolvedOwnerId = selectedTableOwnerId || auth.currentUser?.uid || null;
-      let activeSessionId = selectedSessionId || null;
-
-      if (!activeSessionId && selectedOutlet && selectedTableId && auth.currentUser?.uid) {
-        const sessionResponse = await fetch(`${API_BASE}/customerOpenSession`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            outletId: selectedOutlet,
-            tableId: selectedTableId,
-            userId: auth.currentUser.uid,
-          }),
-        });
-        const sessionPayload = await sessionResponse.json().catch(() => ({}));
-        if (!sessionResponse.ok || !sessionPayload?.success || !sessionPayload?.sessionId) {
-          throw new Error(sessionPayload?.message || "Failed to initialize active session");
-        }
-        activeSessionId = String(sessionPayload.sessionId);
-        setTableSelection(selectedTableId, tableNumber || selectedTableId, resolvedOwnerId || "", activeSessionId);
-      }
-
-      const orderData = {
-        tableId: selectedTableId || null,
-        outletId: selectedOutlet || null,
-        ownerId: resolvedOwnerId,
-        userId: resolvedOwnerId,
-        sessionId: activeSessionId,
-        placedBy: "customer",
-        items: cart.map(item => item),
-        itemTotal: totalPrice,
-        tax: 0,
-        discount: totalDiscount,
-        grandTotal,
-        status: "in-progress",
-        createdAt: new Date(),
-        appliedOffers: appliedOffers.map(o => ({ offerId: o.offerId, type: o.type }))
-      };
-
-      if (appliedOffers && appliedOffers.length > 0) {
-        orderData.offerId = appliedOffers[0].offerId;
-      }
-
-      if (autoAppliedOffer) {
-        orderData.autoAppliedOffer = {
-          offerId: autoAppliedOffer.offerId,
-          offerType: autoAppliedOffer.offerType,
-          discountValue: autoAppliedOffer.discountValue,
-          autoApplied: true
-        };
-      }
-
       if (userType === "guest") {
-        orderData.userType = "guest";
-      } else {
-        const user = auth.currentUser;
-        if (!user) throw new Error("User not authenticated");
-        orderData.userId = user.uid;
-        orderData.userType = "registered";
+        const guestUser = auth.currentUser;
+        if (!guestUser) throw new Error("User not authenticated");
       }
 
-      const orderRef = await addDoc(collection(db, "orders"), orderData);
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error("User not authenticated");
+      }
+
+      const createOrderRes = await fetch(`${API_BASE}/customerOrdersCreate`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          outletId: selectedOutlet,
+          tableId: selectedTableId,
+          sessionId: activeSessionId,
+          placedBy: 'customer',
+          customerId: auth.currentUser?.uid || null,
+          items: cart.map(item => serializeOrderItem(item)),
+          totalAmount: grandTotal,
+        }),
+      })
+      const b = await createOrderRes.json().catch(() => ({}))
+      console.info('[customer/cart] create order response', {
+        ok: createOrderRes.ok,
+        status: createOrderRes.status,
+        payload: b,
+        activeSessionId,
+      })
+      if (!createOrderRes.ok || !b?.success) {
+        throw new Error(b?.message || 'Failed to create order')
+      }
 
       if (selectedTableId) {
-        await updateDoc(doc(db, "tables", selectedTableId), {
-          isOccupied: true,
-          occupied: true,
-          updatedAt: new Date(),
-        });
+        try {
+          await fetch(`${API_BASE}/updateTable`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tableId: selectedTableId, isOccupied: true, occupied: true }),
+          })
+        } catch (err) {
+          console.warn('Failed to update table occupancy via backend:', err)
+        }
       }
 
       if (userType !== "guest" && auth.currentUser) {
-        const userRef = doc(db, "users", auth.currentUser.uid);
         const updates = {};
         
         if (!fullUser?.hasPlacedFirstOrder) {
@@ -253,7 +299,15 @@ const Cart = () => {
         }
 
         if (Object.keys(updates).length > 0) {
-          await updateDoc(userRef, updates);
+          try {
+            await fetch(`${API_BASE}/upsertUserProfile`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: auth.currentUser.uid, profile: updates }),
+            })
+          } catch (err) {
+            console.warn('Failed to upsert user profile via backend:', err)
+          }
         }
       }
 
@@ -278,18 +332,70 @@ const Cart = () => {
     try {
       const userId = auth.currentUser?.uid || null;
 
-      const res = await fetch(`${API_BASE}/validateAndCalculateBill`, {
+      // Ensure session exists for table-based view (support guests)
+      const participantFields = auth.currentUser?.uid
+        ? { userId: auth.currentUser.uid }
+        : (() => {
+            let guestId = localStorage.getItem("guestId");
+            if (!guestId) {
+              guestId = "guest_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+              localStorage.setItem("guestId", guestId);
+            }
+            return { guestId };
+          })();
+
+      let activeSessionId = selectedSessionId || null;
+      console.info('[customer/cart] view bill start', {
+        selectedOutlet,
+        selectedTableId,
+        selectedSessionId,
+        cartCount: cart.length,
+        userId,
+      })
+      if (!activeSessionId && selectedOutlet && selectedTableId && (participantFields.userId || participantFields.guestId)) {
+        console.info('[customer/cart] opening session before bill validation', participantFields)
+        const sessionResponse = await fetch(`${API_BASE}/customerSessionOpen`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            outletId: selectedOutlet,
+            tableId: selectedTableId,
+            ...participantFields,
+          }),
+        });
+        const sessionPayload = await sessionResponse.json().catch(() => ({}));
+        console.info('[customer/cart] view-bill session response', {
+          ok: sessionResponse.ok,
+          status: sessionResponse.status,
+          payload: sessionPayload,
+        })
+        if (!sessionResponse.ok || !sessionPayload?.success || !sessionPayload?.sessionId) {
+          throw new Error(sessionPayload?.message || "Failed to initialize active session");
+        }
+        activeSessionId = String(sessionPayload.sessionId);
+        console.info('[customer/cart] view-bill session created', { activeSessionId })
+        setTableSelection(selectedTableId, tableNumber || selectedTableId, selectedTableOwnerId || "", activeSessionId);
+      }
+
+      const res = await fetch(`${API_BASE}/customerBillingValidateAndCalculateBill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cartItems: cart,
           outletId: selectedOutlet,
+          tableId: selectedTableId || null,
+          sessionId: activeSessionId || null,
           autoAppliedOfferId: autoAppliedOffer?.offerId || null,
           userId,
         }),
       });
 
       const result = await res.json().catch(() => ({}));
+      console.info('[customer/cart] view bill validation response', {
+        ok: res.ok,
+        status: res.status,
+        payload: result,
+      })
 
       if (!res.ok || !result?.success) {
         setValidationError(result?.message || "Cart validation failed. Please check your items.");

@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Timestamp, doc, getDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { getProductById } from "../../lib/backendApi";
 import { useCart } from "../../context/CartContext";
 import { useOffers } from "../../context/OfferContext";
 import { useMenu } from "../../context/MenuContext";
@@ -27,8 +26,8 @@ interface Offer {
   applicableItems?: { productId?: string; name: string }[];
   rewardItems?: RewardItem[];
   minOrderValue?: number;
-  endDate?: Timestamp | Date;
-  startDate?: Timestamp | Date;
+  endDate?: any;
+  startDate?: any;
   applicableFor?: string;
   isActive?: boolean;
   isTrending?: boolean;
@@ -468,15 +467,16 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
         }
       }
 
-      // Fetch missing products directly from Firestore (include customizations data)
+      // Fetch missing products from backend (includes customizations data)
       if (missingIds.length > 0) {
         for (const id of missingIds) {
           try {
-            const snap = await getDoc(doc(db, "products", id));
-            if (snap.exists()) {
-              const data = snap.data();
+            const items = await getProductById(id)
+            const prod = items[0]
+            if (prod) {
+              const data = prod
               results.push({
-                id: snap.id,
+                id: prod.id,
                 name: data.name || "Item",
                 price: data.price || 0,
                 image: data.imageUrl || data.image || "",

@@ -44,14 +44,24 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   const [error, setError] = useState<string | null>(null)
   const [outletId, setOutletId] = useState<string | null>(null)
 
+  const serializeOrderItem = (item: OrderItem) => ({
+    id: item.id,
+    name: item.name,
+    quantity: item.quantity,
+    price: item.price,
+    status: item.status,
+    addOns: Array.isArray(item.addOns) ? item.addOns : [],
+    notes: item.notes || '',
+  })
+
   const activeTable = useMemo(() => {
     if (!initialTableId) return undefined
-    return tables.find(table => table.id === initialTableId)
+    return tables.find( (table: any) => table.id === initialTableId)
   }, [initialTableId, tables])
 
   const tableOrders = useMemo(() => {
     if (!initialTableId) return []
-    return orders.filter(order => {
+    return orders.filter( (order: any) => {
       if (order.tableId === initialTableId) return true
       if (activeTable?.activeSessionId && order.sessionId === activeTable.activeSessionId) return true
       return false
@@ -205,7 +215,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
         customerPhone: resolvedCustomerPhone,
         placedBy: 'billing',
         tableId: initialTableId || undefined,
-        items,
+        items: items.map(item => serializeOrderItem(item)),
         orderStatus: 'in-progress',
         totalAmount,
       })

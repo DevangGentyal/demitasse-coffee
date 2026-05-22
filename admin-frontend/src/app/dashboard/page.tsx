@@ -5,9 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { collection, getDocs, query, where } from 'firebase/firestore'
-import { db } from '@/lib/firebase/app'
-import { getOutletIdForCurrentUser } from '@/lib/services/productService'
+import { getOffersByOutletId, getOrdersByOutletId, getProductsByOutletId, getOutletIdForCurrentUser } from '@/lib/services/backendApi'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -25,15 +23,16 @@ export default function DashboardPage() {
     const fetchStats = async () => {
       try {
         const outletId = await getOutletIdForCurrentUser()
-
-        const offersSnap = await getDocs(query(collection(db, 'offers'), where('outletId', '==', outletId)))
-        const ordersSnap = await getDocs(query(collection(db, 'orders'), where('outletId', '==', outletId)))
-        const productsSnap = await getDocs(query(collection(db, 'products'), where('outletId', '==', outletId)))
+        const [offers, orders, products] = await Promise.all([
+          getOffersByOutletId(outletId),
+          getOrdersByOutletId(outletId),
+          getProductsByOutletId(outletId),
+        ])
 
         setStats({
-          totalOffers: offersSnap.size,
-          totalOrders: ordersSnap.size,
-          totalProducts: productsSnap.size,
+          totalOffers: offers.length,
+          totalOrders: orders.length,
+          totalProducts: products.length,
         })
       } catch (e) {
         console.error('Error fetching stats:', e)

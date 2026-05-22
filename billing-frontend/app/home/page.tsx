@@ -28,9 +28,9 @@ export default function HomePage() {
     return null
   }
 
-  const availableTables = tables.filter(t => !t.occupied).length
-  const occupiedTables = tables.filter(t => t.occupied).length
-  const totalRevenue = tables.reduce((sum, t) => sum + t.billAmount, 0)
+  const availableTables = tables.filter( (t: any) => !t.occupied).length
+  const occupiedTables = tables.filter( (t: any) => t.occupied).length
+  const totalRevenue = tables.reduce( (sum: number, t: any) => sum + t.billAmount, 0)
 
   return (
     <div className="flex h-screen">

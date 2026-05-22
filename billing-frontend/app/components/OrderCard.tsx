@@ -84,20 +84,6 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
     const currentStatus = status || order.orderStatus || 'in-progress';
     const newStatus = statusFlow[currentStatus] || 'ready'
     
-    const syncedItems = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
-      const itemStatus = normalizeItemStatus(item?.status)
-      if (newStatus === 'completed') {
-        return { ...item, status: 'completed' }
-      }
-      if (newStatus === 'ready' && itemStatus !== 'completed') {
-        return { ...item, status: 'ready' }
-      }
-      if (newStatus === 'in-progress') {
-        return { ...item, status: 'in-progress' }
-      }
-      return { ...item, status: itemStatus }
-    })
-    
     setIsUpdating(true)
     try {
       console.log(`[FRONTEND] 📤 Attempting to update order ${order.id} from ${currentStatus} to ${newStatus}`);
@@ -107,7 +93,6 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
         console.log('[FRONTEND] 📤 Calling updateOrder service...');
         await updateOrderService(outletId, order.id, {
           orderStatus: newStatus as any,
-          items: syncedItems,
         })
         console.log('[FRONTEND] ✅ updateOrder service call successful');
       } else {

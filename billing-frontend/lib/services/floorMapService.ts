@@ -34,7 +34,7 @@ export interface TablePosition {
 export const floorMapService = {
   async saveFloorMap(outletId: string, walls: Wall[], tablePositions: TablePosition[]) {
     const idToken = await getIdToken()
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/saveFloorMap`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/billingFloorMapSave`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -48,7 +48,7 @@ export const floorMapService = {
 
   async addTable(tableData: TableData) {
     const idToken = await getIdToken()
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/addTable`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/billingTablesAdd`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,7 +62,7 @@ export const floorMapService = {
 
   async updateTable(tableId: string, updates: Partial<TableData>) {
     const idToken = await getIdToken()
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateTable`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/billingTablesUpdate`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -76,7 +76,7 @@ export const floorMapService = {
 
   async deleteTable(tableId: string) {
     const idToken = await getIdToken()
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/deleteTable`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/billingTablesDelete`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',

@@ -1,12 +1,6 @@
-import { db } from '@/lib/firebase/app'
 import { auth } from '@/lib/firebase/auth'
-import {
-  collection,
-  query,
-  getDocs,
-  Timestamp,
-  where,
-} from 'firebase/firestore'
+import { Timestamp } from 'firebase/firestore'
+import { getProductsByOutletId as getProductsByOutletIdFromBackend } from './backendApi'
 
 export interface CustomizationOption {
   name: string
@@ -59,25 +53,7 @@ const getIdToken = async (): Promise<string> => {
  */
 export const getProductsByOutletId = async (outletId: string): Promise<Product[]> => {
   try {
-    console.log("Querying with outletId:", outletId);
-    const productsRef = collection(db, "products");
-
-    const q = query(
-    productsRef,
-    where("outletId", "==", outletId)
-    );
-
-    const snapshot = await getDocs(q);
-
-    const products: Product[] = []
-    snapshot.forEach(doc => {
-      products.push({
-        id: doc.id,
-        ...doc.data(),
-      } as Product)
-    })
-
-    return products
+    return await getProductsByOutletIdFromBackend<Product>(outletId)
   } catch (error) {
     console.error('Error fetching products:', error)
     throw error
@@ -96,7 +72,7 @@ export const createProduct = async (
     
     console.log('📥 CREATE PRODUCT - Request:', { outletId, name: productData.name, price: productData.price })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/createProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminCreateProduct`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -135,7 +111,7 @@ export const updateProduct = async (
     
     console.log('📥 UPDATE PRODUCT - Request:', { outletId, productId, updates: Object.keys(updates) })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateProduct`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -173,7 +149,7 @@ export const updateProductAvailability = async (
     
     console.log('📥 UPDATE AVAILABILITY - Request:', { outletId, productId, available })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateProduct`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -207,7 +183,7 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
     
     console.log('📥 DELETE PRODUCT - Request:', { outletId, productId })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/deleteProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminDeleteProduct`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',

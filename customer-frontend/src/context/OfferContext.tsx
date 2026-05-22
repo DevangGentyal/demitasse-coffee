@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { getCurrentUserProfile, getOffers } from "../lib/backendApi";
 import { useLocationContext } from "./LocationContext";
 
 import {
@@ -40,7 +39,7 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
   children,
   user,
 }) => {
-  // All raw offers fetched from Firestore
+  // All raw offers fetched from the backend
   const [allOffers, setAllOffers] = useState<Offer[]>([]);
 
   // Offers filtered by the currently selected outlet
@@ -61,12 +60,7 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
   useEffect(() => {
     const fetchOffers = async () => {
       try {
-        const snapshot = await getDocs(collection(db, "offers"));
-
-        const offersData: Offer[] = snapshot.docs.map((doc: any) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Offer[];
+        const offersData = (await getOffers()) as Offer[];
 
         setAllOffers(offersData);
       } catch (err) {
@@ -103,14 +97,12 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
       if (!user?.uid) return;
 
       try {
-        const userRef = doc(db, "users", user.uid);
-        const snap = await getDoc(userRef);
-
-        if (snap.exists()) {
-          setFullUser(snap.data() as User);
+        const profile = await getCurrentUserProfile();
+        if (profile) {
+          setFullUser(profile as User);
         }
       } catch (error) {
-        console.error("Error fetching user:", error);
+        console.error("Error fetching user from backend:", error);
       }
     };
 

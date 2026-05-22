@@ -7,12 +7,11 @@ import { Plus, Trash2, Edit2, Check, Eye, Pencil, Printer, X, Power } from 'luci
 import { useAuth } from '@/context/AuthContext'
 import { floorMapService, type Wall as IWall } from '@/lib/services/floorMapService'
 import { tableSessionService } from '@/lib/services/tableSessionService'
-import { db } from '@/lib/firebase/app'
-import { doc, onSnapshot } from 'firebase/firestore'
 import { toast } from 'sonner'
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
 import { CancellationModal } from '@/app/components/CancellationModal'
 import { removeOrderItem } from '@/lib/services/orderService'
+import { getFloorMap } from '@/lib/services/backendApi'
 
 const TABLE_WIDTH = 108
 const TABLE_HEIGHT = 92
@@ -37,7 +36,9 @@ interface OrderItem {
   orderId?: string
   name: string
   qty: number
-  price: number
+  unitPrice: number
+  totalAmount: number
+  orderTotalAmount?: number
 }
 
 interface TableOrder {
@@ -54,8 +55,37 @@ const toSafeNumber = (value: unknown, fallback = 0): number => {
 const getItemQuantity = (item: { quantity?: unknown; qty?: unknown }): number =>
   toSafeNumber(item.quantity ?? item.qty, 0)
 
-const getItemPrice = (item: { price?: unknown }): number =>
-  toSafeNumber(item.price, 0)
+const getItemUnitPrice = (item: { unitPrice?: unknown; price?: unknown; totalAmount?: unknown }): number =>
+  toSafeNumber(item.unitPrice ?? item.price ?? item.totalAmount, 0)
+
+const getItemtotalAmount = (item: { totalAmount?: unknown; unitPrice?: unknown; price?: unknown; quantity?: unknown; qty?: unknown }): number => {
+  // Prefer the DB-provided `totalAmount` when available.
+  const maybeTotal = item.totalAmount
+  if (Number.isFinite(Number(maybeTotal))) return Number(maybeTotal)
+
+  // Fallback: compute from quantity * unit price (only if DB value missing).
+  const qty = getItemQuantity(item as { quantity?: unknown; qty?: unknown })
+  const unit = toSafeNumber(item.unitPrice ?? item.price, 0)
+  return qty * unit
+}
+
+const getViewBillTotal = (items: OrderItem[]): number => {
+  const uniqueOrderTotals = new Map<string, number>()
+
+  items.forEach((item) => {
+    const orderKey = String(item.orderId || item.id)
+    if (!uniqueOrderTotals.has(orderKey)) {
+      uniqueOrderTotals.set(orderKey, Number.isFinite(Number(item.orderTotalAmount)) ? Number(item.orderTotalAmount) : NaN)
+    }
+  })
+
+  const totalsFromOrders = Array.from(uniqueOrderTotals.values()).filter((value) => Number.isFinite(value))
+  if (totalsFromOrders.length > 0) {
+    return totalsFromOrders.reduce((sum, value) => sum + value, 0)
+  }
+
+  return items.reduce((sum, item) => sum + toSafeNumber(item.totalAmount, 0), 0)
+}
 
 const parseTableNumber = (name: string): number | null => {
   const match = name.trim().match(/^table\s*(\d+)$/i)
@@ -85,11 +115,20 @@ function OrderViewModal({
   const [isDeletingItem, setIsDeletingItem] = useState<string | null>(null)
 
   const items = orders?.items ?? []
-  const rawTotal = items.reduce((s, i) => s + i.qty * i.price, 0)
+  const rawTotal = getViewBillTotal(items)
 
   // Use bill data if available, otherwise just show raw total
   const hasBill = !!billData?.pricing
-  const pricing = billData?.pricing ?? { subtotal: rawTotal, discount: 0, tax: 0, total: rawTotal }
+  let pricing = billData?.pricing ?? { subtotal: rawTotal, discount: 0, tax: 0, total: rawTotal }
+
+  // If there is no server-generated bill, compute tax (5% GST) and total for display
+  if (!hasBill) {
+    const subtotal = toSafeNumber(pricing.subtotal, 0)
+    const discount = toSafeNumber(pricing.discount, 0)
+    const tax = Number((subtotal * 0.05) || 0)
+    const total = subtotal - discount + tax
+    pricing = { subtotal, discount, tax, total }
+  }
   const appliedOffers = billData?.appliedOffers ?? []
 
   const handleDeleteItem = async (orderId: string, itemId: string) => {
@@ -134,32 +173,60 @@ function OrderViewModal({
           {items.length === 0 ? (
             <div className="text-center text-gray-400 py-16 text-sm">No orders for this table yet.</div>
           ) : (
-            items.map((item) => (
-              <div key={item.id} className="flex items-center px-6 py-4 gap-2">
-                <div className="flex-1">
-                  <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                  <div className="text-xs text-gray-500">₹{item.price.toFixed(2)} each</div>
-                </div>
-                <div className="w-16 text-center text-sm font-medium text-gray-700">{item.qty}</div>
-                <div className="w-20 text-right pr-2 text-sm font-semibold text-gray-900">
-                  ₹{(item.qty * item.price).toFixed(2)}
-                </div>
-                {item.orderId && (
-                  <button
-                    onClick={() => item.orderId && handleDeleteItem(item.orderId, item.id)}
-                    disabled={isDeletingItem === item.id || items.length <= 1}
-                    className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400"
-                    title={items.length <= 1 ? "Cannot remove last item" : "Remove item"}
-                  >
-                    {isDeletingItem === item.id ? (
-                      <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <Trash2 size={15} />
-                    )}
-                  </button>
-                )}
-              </div>
-            ))
+            (() => {
+              // Group items by orderId (fallback to item.id)
+              const groups = items.reduce((acc: Record<string, OrderItem[]>, it) => {
+                const key = String(it.orderId || it.id)
+                acc[key] = acc[key] || []
+                acc[key].push(it)
+                return acc
+              }, {} as Record<string, OrderItem[]>)
+
+              return Object.keys(groups).map((orderKey) => {
+                const group = groups[orderKey]
+                const orderTotal = group[0] && Number.isFinite(Number(group[0].orderTotalAmount)) ? Number(group[0].orderTotalAmount) : null
+
+                return (
+                  <div key={orderKey}>
+                    {group.map((item) => (
+                      <div key={item.id} className="flex items-center px-6 py-4 gap-2">
+
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                          {/* IF order */}
+                          <div className="text-xs text-gray-500">₹{item.unitPrice.toFixed(2)} each</div>
+                        </div>
+
+                        <div className="w-16 text-center text-sm font-medium text-gray-700">{item.qty}</div>
+                        <div className="w-20 text-right pr-2 text-sm font-semibold text-gray-900">₹{orderTotal}</div>
+                        {item.orderId && (
+                          <button
+                            onClick={() => item.orderId && handleDeleteItem(item.orderId, item.id)}
+                            disabled={isDeletingItem === item.id || items.length <= 1}
+                            className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400"
+                            title={items.length <= 1 ? "Cannot remove last item" : "Remove item"}
+                          >
+                            {isDeletingItem === item.id ? (
+                              <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <Trash2 size={15} />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Explicit order total row using DB `orderTotalAmount` when available
+                    {orderTotal !== null && (
+                      <div className="flex items-center px-6 py-2 bg-gray-50 text-sm font-medium text-gray-700">
+                        <div className="flex-1">Order total</div>
+                        <div className="w-20 text-right">₹{orderTotal.toFixed(2)}</div>
+                      </div>
+                    )} */}
+                  </div>
+                )
+              })
+            })()
           )}
         </div>
 
@@ -187,12 +254,10 @@ function OrderViewModal({
               </div>
             )}
 
-            {hasBill && (
-              <div className="flex justify-between items-center text-sm text-gray-600">
-                <span>Tax (5% GST)</span>
-                <span>₹{pricing.tax.toFixed(2)}</span>
-              </div>
-            )}
+            <div className="flex justify-between items-center text-sm text-gray-600">
+              <span>Tax (5% GST)</span>
+              <span>₹{pricing.tax.toFixed(2)}</span>
+            </div>
 
             <div className="flex justify-between items-center pt-2 border-t border-gray-200">
               <span className="text-base font-semibold text-gray-700">
@@ -343,6 +408,7 @@ export function FloorCanvas() {
   const { outletId } = useAuth()
   const { tables, setTables, updateTable, orders } = useApp()
   const canvasRef = useRef<HTMLDivElement>(null)
+  const safeSetTables = typeof setTables === 'function' ? setTables : null
 
   const [isEditMode, setIsEditMode] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -355,6 +421,9 @@ export function FloorCanvas() {
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [activeTableId, setActiveTableId] = useState<string | null>(null)
   const [printerMenuTableId, setPrinterMenuTableId] = useState<string | null>(null)
+  const [closingSessionTable, setClosingSessionTable] = useState<Table | null>(null)
+  const [closePaymentStatus, setClosePaymentStatus] = useState<'SUCCESS' | 'FAILED'>('SUCCESS')
+  const [isClosingSession, setIsClosingSession] = useState(false)
   const [billData, setBillData] = useState<{
     pricing: { subtotal: number; discount: number; tax: number; total: number }
     appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }>
@@ -375,58 +444,75 @@ export function FloorCanvas() {
   useEffect(() => {
     if (!outletId) return
 
-    const unsub = onSnapshot(doc(db, 'floorMap', outletId), (snap) => {
+    let cancelled = false
+
+    const loadFloorMap = async () => {
       if (isEditMode) return
 
-      if (snap.exists()) {
-        const data = snap.data()
-        setWalls(data.walls || [])
-        setSelectedWallIndex(null)
-        const tablePositions = Array.isArray(data.tablePositions) ? data.tablePositions : []
-        const positionsById = new Map(
-          tablePositions
-            .filter((pos: { id?: string }) => Boolean(pos.id))
-            .map((pos: { id?: string; x?: number; y?: number }) => [
-              pos.id as string,
-              {
-                x: toFiniteNumber(pos.x, 100),
-                y: toFiniteNumber(pos.y, 100),
-              },
-            ])
-        )
+      try {
+        const data = await getFloorMap<{ walls?: IWall[]; tablePositions?: Array<{ id?: string; x?: number; y?: number }> }>(outletId)
+        if (cancelled) return
 
-        setTables((prevTables) =>
-          prevTables.map((table) => {
-            const position = positionsById.get(table.id)
-            if (!position) return table
-            return { ...table, x: position.x, y: position.y }
-          })
-        )
-      } else {
-        setWalls([])
+        if (data) {
+          setWalls(data.walls || [])
+          setSelectedWallIndex(null)
+          const tablePositions = Array.isArray(data.tablePositions) ? data.tablePositions : []
+          const positionsById = new Map(
+            tablePositions
+              .filter((pos: { id?: string }) => Boolean(pos.id))
+              .map((pos: { id?: string; x?: number; y?: number }) => [
+                pos.id as string,
+                {
+                  x: toFiniteNumber(pos.x, 100),
+                  y: toFiniteNumber(pos.y, 100),
+                },
+              ])
+          )
+
+          if (safeSetTables) {
+            safeSetTables((prevTables: any[]) =>
+              prevTables.map((table) => {
+                const position = positionsById.get(table.id)
+                if (!position) return table
+                return { ...table, x: position.x, y: position.y }
+              })
+            )
+          }
+        } else {
+          setWalls([])
+        }
+      } catch (error) {
+        console.error('Failed to load floor map:', error)
       }
-    })
-    return () => unsub()
-  }, [isEditMode, outletId, setTables])
+    }
+
+    loadFloorMap()
+    const intervalId = window.setInterval(loadFloorMap, 5000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [isEditMode, outletId, safeSetTables])
 
   useEffect(() => {
     if (isEditMode) {
       // Capture baseline only once when entering edit mode.
       // New draft tables should stay out of this snapshot.
-      initialTablesRef.current = tables.map((table) => ({ ...table }))
+      initialTablesRef.current = tables.map( (table: any) => ({ ...table }))
     }
     // Intentionally depend only on edit mode so baseline does not drift.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditMode])
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const activeTable = tables.find(t => t.id === activeTableId)
+  const activeTable = tables.find( (t: any) => t.id === activeTableId)
 
   // Get orders for each table session
   const tableSessionOrders = useMemo(() => {
     const map: Record<string, Order[]> = {}
-    tables.forEach(t => {
-      map[t.id] = orders.filter(o => {
+    tables.forEach( (t: any) => {
+      map[t.id] = orders.filter( (o: any) => {
         if (o.tableId === t.id) return true
         if (t.activeSessionId && o.sessionId === t.activeSessionId) return true
         return false
@@ -439,7 +525,7 @@ export function FloorCanvas() {
   const handleTableMouseDown = (e: React.MouseEvent, tableId: string) => {
     if (!isEditMode) return // clicks handled via buttons
     e.stopPropagation()
-    const table = tables.find(t => t.id === tableId)
+    const table = tables.find( (t: any) => t.id === tableId)
     if (!table) return
     const canvas = canvasRef.current
     if (!canvas) return
@@ -533,7 +619,7 @@ export function FloorCanvas() {
     }
 
     const duplicate = tables.some(
-      (candidate) => candidate.id !== table.id && String(candidate.name || '').trim().toLowerCase() === nextName.toLowerCase()
+       (candidate: any) => candidate.id !== table.id && String(candidate.name || '').trim().toLowerCase() === nextName.toLowerCase()
     )
     if (duplicate) {
       toast.error('A table with this name already exists')
@@ -567,7 +653,7 @@ export function FloorCanvas() {
       nextById.set(table.id, `Table ${index + 1}`)
     })
 
-    setTables((prev) => prev.map((table) => {
+    setTables( (prev: any) => prev.map( (table: any) => {
       const nextName = nextById.get(table.id)
       return nextName ? { ...table, name: nextName } : table
     }))
@@ -579,7 +665,7 @@ export function FloorCanvas() {
     const confirmed = window.confirm('Delete this table from draft layout? This will be applied when you click Save Layout.')
     if (!confirmed) return
 
-    setTables(tables.filter((table) => table.id !== tableId))
+    setTables(tables.filter( (table: any) => table.id !== tableId))
     toast.success('Table removed from draft layout')
   }
 
@@ -591,12 +677,12 @@ export function FloorCanvas() {
 
     try {
       const originalTables = initialTablesRef.current
-      const originalTableIds = new Set(originalTables.map((table) => table.id))
-      const currentTableIds = new Set(tables.map((table) => table.id))
+      const originalTableIds = new Set(originalTables.map( (table: any) => table.id))
+      const currentTableIds = new Set(tables.map( (table: any) => table.id))
 
-      const tablesToCreate = tables.filter((table) => isTempTableId(table.id) || !originalTableIds.has(table.id))
-      const tablesToUpdate = tables.filter((table) => originalTableIds.has(table.id) && !isTempTableId(table.id))
-      const tablesToDelete = originalTables.filter((table) => !currentTableIds.has(table.id) && !isTempTableId(table.id))
+      const tablesToCreate = tables.filter( (table: any) => isTempTableId(table.id) || !originalTableIds.has(table.id))
+      const tablesToUpdate = tables.filter( (table: any) => originalTableIds.has(table.id) && !isTempTableId(table.id))
+      const tablesToDelete = originalTables.filter( (table: any) => !currentTableIds.has(table.id) && !isTempTableId(table.id))
 
       const tempToRealId = new Map<string, string>()
 
@@ -620,7 +706,7 @@ export function FloorCanvas() {
 
       if (tablesToUpdate.length > 0) {
         await Promise.all(
-          tablesToUpdate.map((table) => floorMapService.updateTable(table.id, {
+          tablesToUpdate.map( (table: any) => floorMapService.updateTable(table.id, {
             x: toFiniteNumber(table.x, 100),
             y: toFiniteNumber(table.y, 100),
             name: table.name,
@@ -636,7 +722,7 @@ export function FloorCanvas() {
         )
       }
 
-      const tablePositions = tables.map((table) => ({
+      const tablePositions = tables.map( (table: any) => ({
         id: tempToRealId.get(table.id) || table.id,
         x: toFiniteNumber(table.x, 100),
         y: toFiniteNumber(table.y, 100),
@@ -836,25 +922,34 @@ export function FloorCanvas() {
   }
 
   const closeSession = async (table: Table) => {
-    const activeSessionId = table.activeSessionId
+    setClosingSessionTable(table)
+    setClosePaymentStatus('SUCCESS')
+  }
 
-    const confirmed = window.confirm(
-      `Close session for ${table.name}?\n\n` +
-      'This will mark the table as available, end the active table session, and finalize billing records.'
-    )
+  const confirmCloseSession = async () => {
+    if (!closingSessionTable) return
+
+    const confirmMessage = closePaymentStatus === 'SUCCESS'
+      ? `Mark payment as completed for ${closingSessionTable.name} and close the session?`
+      : `Mark payment as failed for ${closingSessionTable.name}? The table will be freed, but the customer payment wall will stay locked until they pay.`
+
+    const confirmed = window.confirm(confirmMessage)
     if (!confirmed) return
 
+    setIsClosingSession(true)
     try {
-      const response = await tableSessionService.closeSession(
-        {
-          sessionId: activeSessionId || undefined,
-          tableId: table.id,
-        }
-      )
-      toast.success(response?.message || 'Session closed and table freed')
+      const response = await tableSessionService.closeSession({
+        sessionId: closingSessionTable.activeSessionId || undefined,
+        tableId: closingSessionTable.id,
+        paymentStatus: closePaymentStatus,
+      })
+      toast.success(response?.message || 'Session update saved')
+      setClosingSessionTable(null)
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to close session'
+      const message = err instanceof Error ? err.message : 'Failed to update session'
       toast.error(message)
+    } finally {
+      setIsClosingSession(false)
     }
   }
 
@@ -867,7 +962,7 @@ export function FloorCanvas() {
 
     try {
       const API_BASE = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
-      const response = await fetch(`${API_BASE}/generateBill`, {
+      const response = await fetch(`${API_BASE}/billingGenerateBill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1067,17 +1162,22 @@ export function FloorCanvas() {
             />
           )}
 
-          {tables.map(table => {
+          {tables.map( (table: any) => {
             const relatedOrders = tableSessionOrders[table.id] || []
             const hasLiveOrders = relatedOrders.length > 0
             const isTableActive = Boolean(table.occupied || table.isOccupied || hasLiveOrders)
+            const isBillRequested = String(table.status || table.paymentStatus || '').toUpperCase() === 'BILL'
+            const paymentDue = isBillRequested
             const tableBillAmount = relatedOrders.reduce((sum, o) => {
-              const orderTotal = (o.items || []).reduce((itemSum, item) => {
-                const unitPrice = getItemPrice(item as { price?: unknown })
-                const quantity = getItemQuantity(item as { quantity?: unknown; qty?: unknown })
-                return itemSum + (unitPrice * quantity)
+              const orderTotal = toSafeNumber((o as { totalAmount?: unknown }).totalAmount, NaN)
+              if (Number.isFinite(orderTotal)) {
+                return sum + orderTotal
+              }
+
+              const itemTotal = (o.items || []).reduce((itemSum, item) => {
+                return itemSum + getItemtotalAmount(item as { totalAmount?: unknown; unitPrice?: unknown; price?: unknown })
               }, 0)
-              return sum + orderTotal
+              return sum + itemTotal
             }, 0)
 
             return (
@@ -1095,15 +1195,17 @@ export function FloorCanvas() {
                 <div
                   className={`
                     w-full h-full rounded-xl border bg-white flex flex-col justify-between p-2.5 gap-1.5
-                    ${isTableActive
+                    ${paymentDue
+                        ? 'border-red-300 bg-red-50 shadow-[0_1px_8px_rgba(239,68,68,0.18)]'
+                        : isTableActive
                         ? 'border-emerald-300 shadow-[0_1px_8px_rgba(16,185,129,0.18)]'
                         : 'border-gray-300 shadow-sm'
                     }
                   `}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-medium text-gray-500">{isTableActive ? 'Occupied' : 'Available'}</span>
-                    <span className={`h-2 w-2 rounded-full ${isTableActive ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                    <span className={`text-[10px] font-medium ${paymentDue ? 'text-red-600' : 'text-gray-500'}`}>{paymentDue ? 'Collect Money' : isTableActive ? 'Occupied' : 'Available'}</span>
+                    <span className={`h-2 w-2 rounded-full ${paymentDue ? 'bg-red-500' : isTableActive ? 'bg-emerald-500' : 'bg-gray-300'}`} />
                   </div>
 
                   <div className="text-center leading-tight py-0.5">
@@ -1111,7 +1213,7 @@ export function FloorCanvas() {
                       {table.name}
                     </div>
                     <div className="text-[10px] text-gray-500 mt-0.5">Bill</div>
-                    <div className="text-sm font-semibold text-gray-900 mt-0.5">
+                    <div className={`text-sm font-semibold mt-0.5 ${paymentDue ? 'text-red-700' : 'text-gray-900'}`}>
                       ₹{tableBillAmount.toFixed(0)}
                     </div>
                   </div>
@@ -1222,7 +1324,9 @@ export function FloorCanvas() {
               orderId: o.id,
               name: i.name,
               qty: getItemQuantity(i as { quantity?: unknown; qty?: unknown }),
-              price: getItemPrice(i as { price?: unknown })
+              unitPrice: getItemUnitPrice(i as { unitPrice?: unknown; price?: unknown; totalAmount?: unknown }),
+              totalAmount: getItemtotalAmount(i as { totalAmount?: unknown; unitPrice?: unknown; price?: unknown }),
+              orderTotalAmount: toFiniteNumber((o as { totalAmount?: unknown }).totalAmount, NaN),
             }))),
             createdAt: new Date()
           } : undefined}
@@ -1237,6 +1341,46 @@ export function FloorCanvas() {
           initialTableId={activeTable.id}
           onClose={() => { setShowAddOrder(false); setActiveTableId(null) }}
         />
+      )}
+
+      {closingSessionTable && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-gray-500">Close Session</p>
+            <h3 className="mt-2 text-xl font-bold text-gray-900">{closingSessionTable.name}</h3>
+            <p className="mt-2 text-sm text-gray-600">Choose the payment result before closing this session. Successful payment will free the table and reset the customer screen.</p>
+
+            <div className="mt-5 space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment status</label>
+              <select
+                value={closePaymentStatus}
+                onChange={(e) => setClosePaymentStatus(e.target.value as 'SUCCESS' | 'FAILED')}
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
+              >
+                <option value="SUCCESS">Payment Completed</option>
+                <option value="FAILED">Payment Failed</option>
+              </select>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setClosingSessionTable(null)}
+                className="flex-1"
+                disabled={isClosingSession}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmCloseSession}
+                className="flex-1 bg-gray-900 text-white hover:bg-black"
+                disabled={isClosingSession}
+              >
+                {isClosingSession ? 'Saving...' : 'Confirm'}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

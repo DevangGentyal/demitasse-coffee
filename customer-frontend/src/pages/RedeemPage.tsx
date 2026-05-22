@@ -22,7 +22,7 @@ export default function RedeemPage() {
 
   const fetchRewards = () => {
     setLoading(true);
-    fetch(`${API_BASE}/checkRewards?customerId=${CUSTOMER_ID}`)
+    fetch(`${API_BASE}/customerLoyaltyCheckRewards?customerId=${CUSTOMER_ID}`)
       .then(res => res.json())
       .then(res => {
         if (res.success) setData(res);
@@ -38,7 +38,7 @@ export default function RedeemPage() {
     setRedeeming(`product-${productId}`);
     setMessage(null);
     try {
-      const res = await fetch(`${API_BASE}/redeemReward`, {
+      const res = await fetch(`${API_BASE}/customerLoyaltyRedeemReward`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId: CUSTOMER_ID, productId })
@@ -63,7 +63,7 @@ export default function RedeemPage() {
     setRedeeming(`reward-${rewardId}`);
     setMessage(null);
     try {
-      const res = await fetch(`${API_BASE}/redeemReward`, {
+      const res = await fetch(`${API_BASE}/customerLoyaltyRedeemReward`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId: CUSTOMER_ID, rewardId })

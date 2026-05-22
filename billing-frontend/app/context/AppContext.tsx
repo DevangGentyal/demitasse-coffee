@@ -1,10 +1,22 @@
-'use client'
+"use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { db } from '@/lib/firebase/app'
-import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore'
 import { useAuth } from '@/context/AuthContext'
 import { floorMapService } from '@/lib/services/floorMapService'
+import { getOrdersByOutletId, getTablesByOutletId } from '@/lib/services/backendApi'
+// small local helpers to avoid depending on a shared utils file
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  const n = Number((value as any) ?? NaN)
+  return Number.isFinite(n) ? n : fallback
+}
+
+const toDate = (value: unknown): Date | null => {
+  if (!value) return null
+  if (typeof value === 'number' || typeof value === 'string') return new Date(value as any)
+  if (typeof (value as any)?.toDate === 'function') return (value as any).toDate()
+  if (value instanceof Date) return value
+  return null
+}
 
 export interface Table {
   id: string
@@ -28,61 +40,21 @@ export interface OrderItem {
   status?: 'in-progress' | 'ready' | 'completed'
   addOns?: string
   notes?: string
-  price?: number
 }
 
 export interface Order {
   id: string
-  tableId?: string
-  sessionId?: string
-  placedBy?: 'billing' | 'customer'
-  customerName: string
-  customerPhone?: string
   items: OrderItem[]
-  timeOfOrder: Date
-  orderStatus: 'in-progress' | 'ready' | 'completed'
-  status: 'in-progress' | 'ready' | 'completed' // Mirror for compatibility
   outletId: string
+  tableId?: string
+  timeOfOrder?: Date
+  createdAt?: Date
+  updatedAt?: Date
+  orderStatus?: 'in-progress' | 'ready' | 'completed'
+  status?: 'in-progress' | 'ready' | 'completed'
 }
 
-interface AppContextType {
-  tables: Table[]
-  setTables: React.Dispatch<React.SetStateAction<Table[]>>
-  orders: Order[]
-  setOrders: React.Dispatch<React.SetStateAction<Order[]>>
-  addOrder: (order: Order) => void
-  updateOrder: (orderId: string, updates: Partial<Order>) => void
-  updateOrderItem: (orderId: string, itemId: string, updates: Partial<OrderItem>) => void
-  deleteOrder: (orderId: string) => void
-  updateTable: (tableId: string, updates: Partial<Table>, skipSync?: boolean) => void
-}
-
-const AppContext = createContext<AppContextType | undefined>(undefined)
-
-const toFiniteNumber = (value: unknown, fallback: number): number => {
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : fallback
-}
-
-const toDate = (value: unknown): Date | null => {
-  if (!value) return null
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value
-  }
-  if (value instanceof Timestamp) {
-    return value.toDate()
-  }
-  if (typeof (value as { toDate?: unknown }).toDate === 'function') {
-    try {
-      const converted = (value as { toDate: () => Date }).toDate()
-      return Number.isNaN(converted.getTime()) ? null : converted
-    } catch {
-      return null
-    }
-  }
-  const parsed = new Date(value as string | number)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
+const AppContext = createContext<any>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { outletId, isLoggedIn } = useAuth()
@@ -90,86 +62,83 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([])
 
   useEffect(() => {
+    let cancelled = false
+
+    const loadData = async () => {
+      if (!outletId) return
+      try {
+        const [tablesData, ordersData] = await Promise.all([
+          getTablesByOutletId<Table>(outletId),
+          getOrdersByOutletId<Order>(outletId),
+        ])
+
+        if (cancelled) return
+
+        const tablesList = tablesData
+          .filter((table) => table.name !== 'Counter')
+          .map((table) => ({
+            ...table,
+            id: table.id,
+            x: toFiniteNumber((table as { x?: unknown }).x, 100),
+            y: toFiniteNumber((table as { y?: unknown }).y, 100),
+            occupied: Boolean((table as { isOccupied?: unknown }).isOccupied),
+          })) as Table[]
+
+        const ordersList = ordersData.map((order) => {
+          const resolvedTime =
+            toDate((order as { timeOfOrder?: unknown }).timeOfOrder) ||
+            toDate((order as { createdAt?: unknown }).createdAt) ||
+            toDate((order as { updatedAt?: unknown }).updatedAt) ||
+            new Date()
+
+          const rawStatus = (order as { orderStatus?: unknown; status?: unknown }).orderStatus || (order as { status?: unknown }).status || 'in-progress'
+          const normalized = String(rawStatus).toLowerCase().trim()
+          const resolvedStatus: 'in-progress' | 'ready' | 'completed' = normalized === 'ready'
+            ? 'ready'
+            : normalized === 'completed' || normalized === 'complete' || normalized === 'finalized'
+              ? 'completed'
+              : 'in-progress'
+
+          return {
+            ...order,
+            id: order.id,
+            timeOfOrder: resolvedTime,
+            orderStatus: resolvedStatus,
+            status: resolvedStatus,
+          } as unknown as Order
+        })
+
+        setTables(tablesList)
+        setOrders(ordersList)
+      } catch (error) {
+        console.error(`[APP_CONTEXT] Failed to refresh outlet data for ${outletId}:`, error)
+      }
+    }
+
     if (!isLoggedIn || !outletId) {
       setTables([])
       setOrders([])
       return
     }
 
-    // Subscribe to tables for this outlet
-    const tablesQuery = query(collection(db, 'tables'), where('outletId', '==', outletId))
-    const unsubscribeTables = onSnapshot(tablesQuery, (snapshot) => {
-      const tablesList = snapshot.docs
-        .filter(doc => {
-          const data = doc.data()
-          return data.outletId === outletId && data.name !== 'Counter'
-        })
-        .map(doc => {
-        const data = doc.data()
-        return {
-          ...data,
-          id: doc.id,
-          x: toFiniteNumber(data.x, 100),
-          y: toFiniteNumber(data.y, 100),
-          // Map backend isOccupied to occupied for frontend compatibility
-          occupied: data.isOccupied || false
-        } as Table
-      })
-      setTables(tablesList)
-    })
-
-    // Subscribe to orders for this outlet
-    const ordersQuery = query(collection(db, 'orders'), where('outletId', '==', outletId))
-    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-      console.log(`[APP_CONTEXT] 🔄 Realtime update: Received ${snapshot.size} orders for outlet ${outletId}`);
-      
-      const ordersList = snapshot.docs.map(doc => {
-        const data = doc.data()
-        const resolvedTime =
-          toDate(data.timeOfOrder) ||
-          toDate(data.createdAt) ||
-          toDate(data.updatedAt) ||
-          new Date()
-
-        // Source of truth: orderStatus
-        const rawStatus = data.orderStatus || data.status || 'in-progress';
-        let resolvedStatus: 'in-progress' | 'ready' | 'completed' = 'in-progress';
-        
-        const normalized = String(rawStatus).toLowerCase().trim();
-        if (normalized === 'ready') resolvedStatus = 'ready';
-        else if (normalized === 'completed' || normalized === 'complete' || normalized === 'finalized') resolvedStatus = 'completed';
-        else resolvedStatus = 'in-progress';
-
-        return {
-          ...data,
-          id: doc.id,
-          timeOfOrder: resolvedTime,
-          orderStatus: resolvedStatus,
-          status: resolvedStatus, // Maintain status for legacy components
-        } as unknown as Order
-      })
-      
-      console.log(`[APP_CONTEXT] ✅ Processed orders. In-Progress: ${ordersList.filter(o => o.orderStatus === 'in-progress').length}, Ready: ${ordersList.filter(o => o.orderStatus === 'ready').length}`);
-      setOrders(ordersList)
-    })
-
+    loadData()
+    const intervalId = window.setInterval(loadData, 5000)
     return () => {
-      unsubscribeTables()
-      unsubscribeOrders()
+      cancelled = true
+      window.clearInterval(intervalId)
     }
   }, [isLoggedIn, outletId])
 
   const addOrder = (order: Order) => {
-    // Orders are now managed via Cloud Functions and synced via onSnapshot
+    // Orders are managed via Cloud Functions; this is an optimistic placeholder
+    setOrders(prev => [order, ...prev])
   }
 
   const updateOrder = useCallback((orderId: string, updates: Partial<Order>) => {
-    console.log(`[APP_CONTEXT] 🛠️ Optimistic update for order ${orderId}:`, updates);
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o))
   }, [])
 
   const updateOrderItem = useCallback((orderId: string, itemId: string, updates: Partial<OrderItem>) => {
-    console.log(`[APP_CONTEXT] 🛠️ Optimistic update for item ${itemId} in order ${orderId}:`, updates);
     setOrders(prev => prev.map(o => {
       if (o.id !== orderId) return o
       return {
@@ -180,16 +149,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const deleteOrder = useCallback((orderId: string) => {
-    console.log(`[APP_CONTEXT] 🛠️ Optimistic delete for order ${orderId}`);
     setOrders(prev => prev.filter(o => o.id !== orderId))
   }, [])
 
   const updateTable = useCallback(async (tableId: string, updates: Partial<Table>, skipSync = false) => {
     try {
-      // Optimistic update
       setTables(prev => prev.map(t => (t.id === tableId ? { ...t, ...updates } : t)))
-      
-      // Sync with backend if it's a layout change and we are not skipping sync
       if (!skipSync && (updates.x !== undefined || updates.y !== undefined || updates.name !== undefined)) {
         await floorMapService.updateTable(tableId, updates)
       }
@@ -200,27 +165,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider
-      value={{
-        tables,
-        setTables,
-        orders,
-        setOrders,
-        addOrder,
-        updateOrder,
-        updateOrderItem,
-        deleteOrder,
-        updateTable,
-      }}
-    >
+      value={{ tables, setTables, orders, addOrder, updateOrder, updateOrderItem, deleteOrder, updateTable }}>
       {children}
     </AppContext.Provider>
   )
 }
 
-export function useApp() {
-  const context = useContext(AppContext)
-  if (!context) {
-    throw new Error('useApp must be used within AppProvider')
-  }
-  return context
-}
+export const useApp = () => useContext(AppContext)
+

@@ -3,8 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, logOut as firebaseLogOut } from "@/lib/firebase/auth";
-import { db } from "@/lib/firebase/app";
-import { doc, getDoc } from "firebase/firestore";
+import { getCurrentUserProfile } from "@/lib/services/backendApi";
 
 // Global Context
 interface AuthContextType {
@@ -35,16 +34,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const idTokenResult = await firebaseUser.getIdTokenResult();
         let outlet = idTokenResult.claims.outlet_id as string;
         
-        // 2. If not in claims, try Firestore document
+        // 2. If not in claims, try backend user profile
         if (!outlet) {
           try {
-            const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-            if (userDoc.exists()) {
-              outlet = userDoc.data()?.outletID;
-              console.log("Fetched outlet ID from Firestore:", outlet);
-            }
+            const profile = await getCurrentUserProfile();
+            outlet = (profile?.outletID || profile?.outletId) as string;
+            console.log("Fetched outlet ID from backend:", outlet);
           } catch (err) {
-            console.error("Error fetching user document for outlet ID:", err);
+            console.error("Error fetching backend user profile for outlet ID:", err);
           }
         }
 

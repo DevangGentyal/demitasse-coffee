@@ -4,8 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
-import { collection, getDocs } from 'firebase/firestore'
-import { db } from '@/lib/firebase/app'
+import { getOutlets } from '@/lib/services/backendApi'
 
 interface Outlet {
   id: string
@@ -30,12 +29,8 @@ export default function OutletsPage() {
 
     const fetchOutlets = async () => {
       try {
-        const snapshot = await getDocs(collection(db, 'outlets'))
-        const data: Outlet[] = []
-        snapshot.forEach(doc => {
-          data.push({ id: doc.id, ...doc.data() } as Outlet)
-        })
-        setOutlets(data)
+        const data = await getOutlets()
+        setOutlets(data as Outlet[])
       } catch (e) {
         console.error('Error fetching outlets:', e)
       } finally {

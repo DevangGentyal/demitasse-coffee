@@ -1,14 +1,6 @@
-import { db } from '@/lib/firebase/app'
 import { auth } from '@/lib/firebase/auth'
-import {
-  collection,
-  query,
-  getDocs,
-  where,
-  Timestamp,
-  doc,
-  getDoc,
-} from 'firebase/firestore'
+import { Timestamp } from 'firebase/firestore'
+import { getOrdersByOutletId as getOrdersByOutletIdFromBackend, getCurrentUserProfile } from './backendApi'
 
 export interface OrderItem {
   id: string
@@ -45,26 +37,27 @@ const getIdToken = async (): Promise<string> => {
   return await auth.currentUser.getIdToken()
 }
 
+const serializeOrderItem = (item: any) => ({
+  id: item.id || Math.random().toString(36).substr(2, 9),
+  name: item.name || '',
+  quantity: item.quantity || item.qty || 1,
+  status: item.status || 'in-progress',
+  price: item.price || 0,
+  addOns: Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [],
+  notes: item.notes || '',
+  offerId: item.offerId || null,
+  ...(Array.isArray(item.items) ? { items: item.items.map((sub: any) => serializeOrderItem(sub)) } : {}),
+})
+
 /**
  * Fetch outlet ID from current user's document
  */
 export const getOutletIdForCurrentUser = async (): Promise<string> => {
   try {
-    const user = auth.currentUser
-    if (!user) {
-      throw new Error('User not authenticated')
-    }
-
-    const userRef = doc(db, 'users', user.uid)
-    const userDoc = await getDoc(userRef)
-
-    if (!userDoc.exists()) {
-      throw new Error('User document not found')
-    }
-
-    const outletId = userDoc.data()?.outletID
+    const profile = await getCurrentUserProfile()
+    const outletId = String(profile?.outletID || profile?.outletId || '')
     if (!outletId) {
-      throw new Error('Outlet ID not found in user document')
+      throw new Error('Outlet ID not found in user profile')
     }
 
     return outletId
@@ -79,52 +72,20 @@ export const getOutletIdForCurrentUser = async (): Promise<string> => {
  */
 export const getOrdersByOutletId = async (outletId: string): Promise<Order[]> => {
   try {
-    console.log('🔍 ORDER SERVICE - Querying orders with outletId:', outletId)
-    const ordersRef = collection(db, 'orders')
-    console.log('📚 Collection reference path:', ordersRef.path)
+    const orders = await getOrdersByOutletIdFromBackend<Order>(outletId)
+    return orders.map((order) => {
+      const timeOfOrder =
+        order.timeOfOrder instanceof Timestamp
+          ? order.timeOfOrder.toDate()
+          : order.timeOfOrder instanceof Date
+            ? order.timeOfOrder
+            : new Date(order.timeOfOrder as unknown as string | number)
 
-    const q = query(
-      ordersRef,
-      where('outletId', '==', outletId)
-    )
-    console.log('🎯 Query filter - looking for outletId:', outletId)
-
-    const snapshot = await getDocs(q)
-    console.log('📊 Query snapshot - documents found:', snapshot.size)
-
-    const orders: Order[] = []
-    snapshot.forEach(doc => {
-      const data = doc.data()
-      console.log('📄 Document:', doc.id, 'Data:', data)
-      
-      let timeOfOrder: Date = new Date()
-      if (data.timeOfOrder) {
-        if (data.timeOfOrder instanceof Timestamp) {
-          timeOfOrder = data.timeOfOrder.toDate()
-        } else if (data.timeOfOrder instanceof Date) {
-          timeOfOrder = data.timeOfOrder
-        } else if (typeof data.timeOfOrder === 'string' || typeof data.timeOfOrder === 'number') {
-          const parsed = new Date(data.timeOfOrder)
-          timeOfOrder = isNaN(parsed.getTime()) ? new Date() : parsed
-        }
+      return {
+        ...order,
+        timeOfOrder: Number.isNaN(timeOfOrder.getTime()) ? new Date() : timeOfOrder,
       }
-      
-      orders.push({
-        id: doc.id,
-        ...data,
-        timeOfOrder,
-      } as Order)
     })
-
-    // Sort by most recent first
-    orders.sort((a, b) => {
-      const dateA = a.timeOfOrder instanceof Date ? a.timeOfOrder : (a.timeOfOrder instanceof Timestamp ? a.timeOfOrder.toDate() : new Date())
-      const dateB = b.timeOfOrder instanceof Date ? b.timeOfOrder : (b.timeOfOrder instanceof Timestamp ? b.timeOfOrder.toDate() : new Date())
-      return dateB.getTime() - dateA.getTime()
-    })
-
-    console.log('✅ ORDER SERVICE - Final result:', orders.length, 'orders after sorting & processing')
-    return orders
   } catch (error) {
     console.error('Error fetching orders:', error)
     throw error
@@ -149,22 +110,14 @@ export const createOrder = async (
       customerPhone: orderData.customerPhone || '',
       placedBy: orderData.placedBy || 'billing',
       tableId: orderData.tableId || null,
-      items: orderData.items.map(item => ({
-        id: item.id || Math.random().toString(36).substr(2, 9),
-        name: item.name,
-        quantity: item.quantity || 1,
-        status: item.status || 'in-progress',
-        price: item.price || 0,
-        addOns: Array.isArray(item.addOns) ? item.addOns : [],
-        notes: item.notes || '',
-      })),
+      items: orderData.items.map(item => serializeOrderItem(item)),
       orderStatus: orderData.orderStatus,
       totalAmount: orderData.totalAmount || 0,
     }
 
     console.log('📤 Creating order with payload:', payload)
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/createOrder`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/billingOrdersCreate`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -200,7 +153,7 @@ export const deleteOrder = async (outletId: string, orderId: string): Promise<vo
 
     console.log('📤 Deleting order:', { outletId, orderId })
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/deleteOrder`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/billingOrdersDelete`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -240,7 +193,7 @@ export const updateOrder = async (
     console.log(`[ORDER_SERVICE] 📤 Updating order ${orderId} for outlet ${outletId}...`);
     console.log(`[ORDER_SERVICE] Payload:`, JSON.stringify(updates, null, 2));
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/updateOrder`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/billingOrdersUpdate`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -281,7 +234,7 @@ export const removeOrderItem = async (
 
     console.log('📤 Removing order item:', { outletId, orderId, itemId })
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/removeOrderItem`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/customerOrdersRemoveItem`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -325,7 +278,7 @@ export const cancelEntireOrder = async (
 
     console.log('📤 Cancelling entire order:', { orderId, reason })
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/cancelEntireOrder`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/customerOrdersCancelEntire`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -367,7 +320,7 @@ export const updateCancellationPassword = async (
 
     console.log('📤 Updating cancellation password...')
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/updateCancellationPassword`, {
+    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/adminUpdateCancellationPassword`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

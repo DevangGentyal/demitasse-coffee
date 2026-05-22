@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { auth, db } from "../../lib/firebase";
-import { doc, updateDoc } from "firebase/firestore";
+import { auth } from "../../lib/firebase";
+import { upsertUserProfile } from "../../lib/backendApi";
 
 // ── Inline banner ─────────────────────────────────────────────────────────────
 const Banner = ({ message, type = "error", onClose }) => {
@@ -61,9 +61,7 @@ const CompleteProfile = () => {
                 return;
             }
 
-            const userRef = doc(db, "users", user.uid);
-
-            await updateDoc(userRef, {
+            await upsertUserProfile({
                 dob,
                 gender,
                 location,

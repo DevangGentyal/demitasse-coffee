@@ -1,14 +1,5 @@
-import { db } from '@/lib/firebase/app'
 import { auth } from '@/lib/firebase/auth'
-import {
-  collection,
-  query,
-  getDocs,
-  Timestamp,
-  where,
-  doc,
-  getDoc,
-} from 'firebase/firestore'
+import { getCurrentUserProfile, getProductsByOutletId as getProductsByOutletIdFromBackend } from './backendApi'
 
 export interface Product {
   id: string
@@ -23,30 +14,20 @@ export interface Product {
   isAvailable: boolean
   customizations?: any[]
   sortOrder?: number
-  createdAt?: Timestamp
-  updatedAt?: Timestamp
+  createdAt?: any
+  updatedAt?: any
 }
+// createdAt/updatedAt come from backend as serializable timestamps
 
 /**
  * Fetch outlet ID from current user's document
  */
 export const getOutletIdForCurrentUser = async (): Promise<string> => {
   try {
-    const user = auth.currentUser
-    if (!user) {
-      throw new Error('User not authenticated')
-    }
-
-    const userRef = doc(db, 'users', user.uid)
-    const userDoc = await getDoc(userRef)
-
-    if (!userDoc.exists()) {
-      throw new Error('User document not found')
-    }
-
-    const outletId = userDoc.data()?.outletID
+    const profile = await getCurrentUserProfile()
+    const outletId = String(profile?.outletID || profile?.outletId || '')
     if (!outletId) {
-      throw new Error('Outlet ID not found in user document')
+      throw new Error('Outlet ID not found in user profile')
     }
 
     return outletId
@@ -61,25 +42,7 @@ export const getOutletIdForCurrentUser = async (): Promise<string> => {
  */
 export const getProductsByOutletId = async (outletId: string): Promise<Product[]> => {
   try {
-    console.log("Querying with outletId:", outletId);
-    const productsRef = collection(db, "products");
-
-    const q = query(
-    productsRef,
-    where("outletId", "==", outletId)
-    );
-
-    const snapshot = await getDocs(q);
-
-    const products: Product[] = []
-    snapshot.forEach(doc => {
-      products.push({
-        id: doc.id,
-        ...doc.data(),
-      } as Product)
-    })
-
-    return products
+    return await getProductsByOutletIdFromBackend<Product>(outletId)
   } catch (error) {
     console.error('Error fetching products:', error)
     throw error
@@ -110,7 +73,7 @@ export const createProduct = async (
     
     console.log('📥 CREATE PRODUCT - Request:', { outletId, name: productData.name, price: productData.price })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/createProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminCreateProduct`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -149,7 +112,7 @@ export const updateProduct = async (
     
     console.log('📥 UPDATE PRODUCT - Request:', { outletId, productId, updates: Object.keys(updates) })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateProduct`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -187,7 +150,7 @@ export const updateProductAvailability = async (
     
     console.log('📥 UPDATE AVAILABILITY - Request:', { outletId, productId, available })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/updateProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateProduct`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -221,7 +184,7 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
     
     console.log('📥 DELETE PRODUCT - Request:', { outletId, productId })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/deleteProduct`, {
+    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminDeleteProduct`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',

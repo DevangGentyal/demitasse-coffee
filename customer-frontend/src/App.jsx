@@ -59,6 +59,11 @@ function AppContent() {
 
 function Layout() {
   const location = useLocation();
+  const { paymentLockActive, selectedTableName, tableNumber, selectedOutlet, outletName } = useLocationContext();
+
+  if (paymentLockActive) {
+    return <PaymentRequestScreen tableName={selectedTableName || tableNumber || "your table"} outletName={outletName || selectedOutlet || "the outlet"} />;
+  }
 
   const hideNav =
     location.pathname.startsWith("/item") ||
@@ -170,6 +175,33 @@ function Layout() {
       </Routes>
 
       {!hideNav && <BottomNav />}
+    </div>
+  );
+}
+
+function PaymentRequestScreen({ tableName, outletName }) {
+  return (
+    <div className="min-h-screen w-full bg-white text-white">
+      <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-6">
+        <div className="w-full rounded-[2rem] border border-gray-200 bg-[#120f0d] p-6 shadow-2xl backdrop-blur-xl">
+          <div className="space-y-3 text-center">
+            <p className="text-[11px] uppercase tracking-[0.35em] text-amber-300">Request for Payment</p>
+            <h1 className="text-3xl font-black tracking-tight">Payment required</h1>
+            <p className="text-sm leading-6 text-white/75">
+              Your payment at {outletName} is Pending. Please pay for {tableName}.
+            </p>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-4 text-sm text-amber-50">
+            Do not refresh, close, or leave this screen. It will unlock automatically after payment is marked successful.
+          </div>
+
+          <div className="mt-6 flex items-center justify-center gap-2 text-xs uppercase tracking-[0.24em] text-white/45">
+            <span className="h-2 w-2 rounded-full bg-amber-300 animate-pulse" />
+            Waiting for billing confirmation
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

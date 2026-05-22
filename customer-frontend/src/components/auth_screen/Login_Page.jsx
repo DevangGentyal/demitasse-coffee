@@ -7,8 +7,8 @@ import {
   linkWithCredential,
   fetchSignInMethodsForEmail,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { auth, db, googleProvider } from "../../lib/firebase";
+import { auth, googleProvider } from "../../lib/firebase";
+import { getCurrentUserProfile, upsertUserProfile } from "../../lib/backendApi";
 
 // ─── Friendly error map ───────────────────────────────────────────────────────
 const getFriendlyError = (code) => {
@@ -128,17 +128,17 @@ const LinkPasswordModal = ({ email, user, onSuccess, onClose }) => {
 
 // ─── Navigate after successful login ──────────────────────────────────────────
 const navigateAfterLogin = async (uid, setShowOutletPopup, navigate) => {
-  const userSnap = await getDoc(doc(db, "users", uid));
-  if (userSnap.exists()) {
-    const userData = userSnap.data();
-    if (!userData.isProfileComplete) {
-      navigate("/complete-profile");
-    } else {
-      if (setShowOutletPopup) setShowOutletPopup(true);
-      else navigate("/select-outlet");
-    }
-  } else {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     navigate("/complete-profile");
+    return;
+  }
+
+  if (!profile.isProfileComplete) {
+    navigate("/complete-profile");
+  } else {
+    if (setShowOutletPopup) setShowOutletPopup(true);
+    else navigate("/select-outlet");
   }
 };
 
@@ -195,13 +195,13 @@ const Login_Page = ({ setShowOutletPopup }) => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user   = result.user;
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
 
       localStorage.setItem("userType", "registered");
 
-      if (!userSnap.exists()) {
-        await setDoc(userRef, {
+      const profile = await getCurrentUserProfile();
+
+      if (!profile) {
+        await upsertUserProfile({
           uid: user.uid,
           name: user.displayName,
           email: user.email,
