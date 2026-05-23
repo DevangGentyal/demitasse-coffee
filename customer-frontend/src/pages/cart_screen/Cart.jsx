@@ -39,7 +39,7 @@ const Cart = () => {
     clearCart,
   } = useCart();
 
-  const { offers, fullUser } = useOffers();
+  const { offers, fullUser, refreshUserProfile } = useOffers();
   const { selectedOutlet, tableNumber, selectedTableId, selectedTableOwnerId, selectedSessionId, setTableSelection } = useLocationContext();
   const isGuest = !fullUser && localStorage.getItem("userType") === "guest";
 
@@ -259,6 +259,7 @@ const Cart = () => {
           customerId: auth.currentUser?.uid || null,
           items: cart.map(item => serializeOrderItem(item)),
           totalAmount: grandTotal,
+          autoAppliedOfferId: autoAppliedOffer?.offerId || null,
         }),
       })
       const b = await createOrderRes.json().catch(() => ({}))
@@ -309,6 +310,7 @@ const Cart = () => {
             console.warn('Failed to upsert user profile via backend:', err)
           }
         }
+        await refreshUserProfile();
       }
 
       clearCart();

@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { getCurrentUserProfile, getOffers } from "../lib/backendApi";
 import { useLocationContext } from "./LocationContext";
 
 import {
   filterOffers,
+  isOfferAvailableToUser,
   isValidDate,
   Offer,
   FilteredOffers,
@@ -15,6 +16,7 @@ interface OfferContextType {
   offers: Offer[];
   filteredOffers: FilteredOffers | null;
   fullUser: User | null;
+  refreshUserProfile: () => Promise<void>;
   allValidOffers: Offer[]; // ✅ NEW: All valid offers for category-based filtering
 }
 
@@ -52,9 +54,11 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
     useState<FilteredOffers | null>(null);
 
   const [fullUser, setFullUser] = useState<User | null>(null);
+  const [userProfileLoaded, setUserProfileLoaded] = useState(false);
 
   // Get the currently selected outlet from LocationContext
   const { selectedOutlet } = useLocationContext();
+  const isGuestUser = localStorage.getItem("userType") === "guest";
 
   // 🔥 FETCH ALL OFFERS ONCE
   useEffect(() => {
@@ -73,7 +77,16 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
 
   // 🔥 FILTER BY OUTLET — welcome offers (no outletId) are always included
   useEffect(() => {
-    if (!allOffers.length) return;
+    if (!allOffers.length) {
+      setOffers([]);
+      setAllValidOffers([]);
+      return;
+    }
+    if (user?.uid && !isGuestUser && !userProfileLoaded) {
+      setOffers([]);
+      setAllValidOffers([]);
+      return;
+    }
 
     const outletFiltered = allOffers.filter((offer) => {
       // If the offer has no outletId (or empty string) → it's a global/welcome offer → always show
@@ -81,33 +94,43 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
       // Otherwise only show if it belongs to the currently selected outlet
       return offer.outletId === selectedOutlet;
     });
+    const eligibilityUser = user?.uid && !isGuestUser ? (fullUser || {}) : ({ userType: "guest" } as User);
+    const eligibleOffers = outletFiltered.filter((offer) =>
+      isOfferAvailableToUser(offer, eligibilityUser)
+    );
 
-    setOffers(outletFiltered);
+    setOffers(eligibleOffers);
 
     // ✅ NEW: Set all valid offers (active + date-valid) for category-based filtering
-    const validOffers = outletFiltered.filter(
+    const validOffers = eligibleOffers.filter(
       (offer) => offer.isActive && isValidDate(offer)
     );
     setAllValidOffers(validOffers);
-  }, [allOffers, selectedOutlet]);
+  }, [allOffers, selectedOutlet, user?.uid, fullUser, userProfileLoaded, isGuestUser]);
 
   // 🔥 FETCH FULL USER 
+  const refreshUserProfile = useCallback(async () => {
+    if (!user?.uid) {
+      setFullUser(null);
+      setUserProfileLoaded(true);
+      return;
+    }
+
+    try {
+      const profile = await getCurrentUserProfile();
+      setFullUser((profile || {}) as User);
+    } catch (error) {
+      console.error("Error fetching user from backend:", error);
+      setFullUser({} as User);
+    } finally {
+      setUserProfileLoaded(true);
+    }
+  }, [user?.uid]);
+
   useEffect(() => {
-    const fetchUser = async () => {
-      if (!user?.uid) return;
-
-      try {
-        const profile = await getCurrentUserProfile();
-        if (profile) {
-          setFullUser(profile as User);
-        }
-      } catch (error) {
-        console.error("Error fetching user from backend:", error);
-      }
-    };
-
-    fetchUser();
-  }, [user]);
+    setUserProfileLoaded(false);
+    refreshUserProfile();
+  }, [refreshUserProfile]);
 
   // 🔥 APPLY FILTER (runs after outlet-based filtering)
   useEffect(() => {
@@ -129,7 +152,7 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
   }, [offers, fullUser, user]);
 
   return (
-    <OfferContext.Provider value={{ offers, filteredOffers, fullUser, allValidOffers }}>
+    <OfferContext.Provider value={{ offers, filteredOffers, fullUser, allValidOffers, refreshUserProfile }}>
       {children}
     </OfferContext.Provider>
   );

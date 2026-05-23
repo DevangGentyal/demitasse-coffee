@@ -4,6 +4,12 @@ import { Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createOrGetSession } from '../../shared/session/sessionUtils';
 import { handleCustomerPreflight } from '../../shared/utilities/security/cors';
+import {
+	collectRequestedOfferUsages,
+	findUsageLimitViolation,
+	getAppliedOfferUsageCounts,
+	mergeAppliedOfferUsages,
+} from '../../shared/utilities/offers/offerUsage';
 
 const db = admin.firestore();
 
@@ -90,7 +96,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 
 	try {
 		const decoded = await verifyToken(req);
-		const { outletId, tableId, sessionId, items, totalAmount, placedBy, customerName, customerPhone, customerId } = req.body || {};
+		const { outletId, tableId, sessionId, items, totalAmount, placedBy, customerName, customerPhone, customerId, autoAppliedOfferId } = req.body || {};
 		if (!outletId || !Array.isArray(items) || items.length === 0) {
 			res.status(400).json({ success: false, message: 'outletId and items array are required' });
 			return;
@@ -133,11 +139,14 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 		}));
 		const computedTotal = sanitizedItems.reduce((sum: number, item: any) => sum + readNumber(item.totalPrice, 0), 0);
 		const orderTotal = Number.isFinite(computedTotal) ? computedTotal : readNumber(totalAmount, 0);
+		const requestedAutoAppliedOfferId = readString(autoAppliedOfferId) || null;
+		const consumedOfferUsages = collectRequestedOfferUsages(sanitizedItems, requestedAutoAppliedOfferId);
 
 		// Deduplicate recent identical orders for same session to avoid accidental double-submits
 		const normalizeItems = (its: any[]) => its.map((it: any) => ({
 			productId: String(it.productId || it.id || ''),
 			qty: Number(it.qty || it.quantity || 0),
+			offerId: readString(it.offerId) || null,
 			addOns: Array.isArray(it.addOns) ? it.addOns.map((a: any) => ({ name: String(a.name || ''), price: Number(a.price || 0) })).sort((x: any, y: any) => x.name.localeCompare(y.name)) : [],
 		}));
 
@@ -149,6 +158,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				const bi = b[i];
 				if (ai.productId !== bi.productId) return false;
 				if (ai.qty !== bi.qty) return false;
+				if (ai.offerId !== bi.offerId) return false;
 				if ((ai.addOns || []).length !== (bi.addOns || []).length) return false;
 				for (let j = 0; j < (ai.addOns || []).length; j++) {
 					const aaj = ai.addOns[j];
@@ -174,6 +184,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 					const timeOfOrder = od.timeOfOrder as admin.firestore.Timestamp | undefined;
 					if (!timeOfOrder || timeOfOrder.toMillis() < tenSecondsAgo.toMillis()) continue;
 					const existingItems = normalizeItems(Array.isArray(od.items) ? od.items : []);
+					if ((readString(od.autoAppliedOfferId) || null) !== requestedAutoAppliedOfferId) continue;
 					if (itemsEqual(normalizedNew, existingItems)) {
 						orderRef = doc.ref; // reuse existing
 						break;
@@ -184,27 +195,69 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			// ignore dedupe errors and proceed to create new order
 			console.warn('Order dedupe check failed', String(e));
 		}
-		await orderRef.set({
-			id: orderRef.id,
-			outletId: String(outletId),
-			customerName: resolvedCustomerName,
-			customerId: readString(customerId) || decoded.uid,
-			customerPhone: resolvedCustomerPhone,
-			placedBy: readString(placedBy) === 'billing' ? 'billing' : 'customer',
-			tableId: tableId || null,
-			sessionId: activeSessionId || null,
-			items: sanitizedItems,
-			orderStatus: req.body?.orderStatus || 'in-progress',
-			itemTotal: computedTotal,
-			totalAmount: orderTotal,
-			timeOfOrder: FieldValue.serverTimestamp(),
-			createdAt: FieldValue.serverTimestamp(),
-			updatedAt: FieldValue.serverTimestamp(),
+		await db.runTransaction(async (tx) => {
+			const existingOrderSnap = await tx.get(orderRef);
+			const existingOrderData = existingOrderSnap.data() || {};
+			const alreadyCounted = existingOrderSnap.exists && existingOrderData.offerUsageCounted === true;
+
+			if (consumedOfferUsages.length > 0 && !alreadyCounted) {
+				const userRef = db.collection('users').doc(decoded.uid);
+				const userSnap = await tx.get(userRef);
+				const userData = userSnap.data() || {};
+				const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
+				for (const usage of consumedOfferUsages) {
+					const offerSnap = await tx.get(db.collection('offers').doc(usage.offerId));
+					offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
+				}
+				const violation = findUsageLimitViolation(
+					consumedOfferUsages,
+					getAppliedOfferUsageCounts(userData.appliedOffers),
+					offersById
+				);
+				if (violation) throw new Error('OFFER_USAGE_LIMIT_REACHED');
+
+				tx.set(userRef, {
+					appliedOffers: mergeAppliedOfferUsages(userData.appliedOffers, consumedOfferUsages),
+					updatedAt: FieldValue.serverTimestamp(),
+				}, { merge: true });
+			}
+
+			tx.set(orderRef, {
+				id: orderRef.id,
+				outletId: String(outletId),
+				customerName: resolvedCustomerName,
+				customerId: readString(customerId) || decoded.uid,
+				customerPhone: resolvedCustomerPhone,
+				placedBy: readString(placedBy) === 'billing' ? 'billing' : 'customer',
+				tableId: tableId || null,
+				sessionId: activeSessionId || null,
+				items: sanitizedItems,
+				orderStatus: req.body?.orderStatus || 'in-progress',
+				itemTotal: computedTotal,
+				totalAmount: orderTotal,
+				autoAppliedOfferId: alreadyCounted
+					? (readString(existingOrderData.autoAppliedOfferId) || null)
+					: requestedAutoAppliedOfferId,
+				...(alreadyCounted ? {
+					consumedOfferUsages: Array.isArray(existingOrderData.consumedOfferUsages) ? existingOrderData.consumedOfferUsages : [],
+					offerUsageCounted: true,
+				} : consumedOfferUsages.length > 0 ? {
+					consumedOfferUsages,
+					offerUsageCounted: true,
+				} : {}),
+				timeOfOrder: FieldValue.serverTimestamp(),
+				createdAt: FieldValue.serverTimestamp(),
+				updatedAt: FieldValue.serverTimestamp(),
+			});
 		});
 
 		res.status(201).json({ success: true, id: orderRef.id, message: 'Order created successfully' });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Internal server error';
+		if (message === 'OFFER_USAGE_LIMIT_REACHED') {
+			res.status(409).json({ success: false, message: 'Offer usage limit reached. Please remove the offer and try again.' });
+			return;
+		}
 		const status = message === 'Missing token' ? 401 : 500;
 		res.status(status).json({ success: false, message, error: String(error) });
 	}

@@ -73,6 +73,7 @@ export interface Offer {
     userRules?: {
         firstOrderOnly?: boolean;
         birthdayOnly?: boolean;
+        perUserLimit?: number;
     };
 }
 
@@ -83,6 +84,7 @@ export interface User {
     lastBirthdayOfferYear?: number;
     dob?: string;
     userType?: "guest" | "registered";
+    appliedOffers?: Array<{ offerId: string; count: number }>;
 }
 
 export interface FilteredOffers {
@@ -132,6 +134,16 @@ export const isBirthday = (dob?: string) => {
     );
 };
 
+export const isOfferAvailableToUser = (offer: Offer, user: User = {}): boolean => {
+    if (user.userType === "guest") return true;
+    const limit = Number(offer.userRules?.perUserLimit);
+    if (!Number.isFinite(limit) || limit <= 0) return true;
+    const usedCount = (user.appliedOffers || [])
+        .filter((usage) => usage.offerId === offer.id)
+        .reduce((sum, usage) => sum + (Number(usage.count) || 0), 0);
+    return usedCount < limit;
+};
+
 // ✅ VALIDATE SINGLE OFFER
 export const validateOffer = (
     offer: Offer,
@@ -141,6 +153,7 @@ export const validateOffer = (
 ): { valid: boolean; message?: string } => {
     if (!offer.isActive) return { valid: false, message: "Offer is not active" };
     if (!isValidDate(offer)) return { valid: false, message: "Offer has expired" };
+    if (!isOfferAvailableToUser(offer, user)) return { valid: false, message: "Offer usage limit reached" };
     if (cartItems.length === 0) return { valid: false, message: "Add items to cart to use offers" };
 
     if (offer.minOrderValue && itemTotal < offer.minOrderValue) {
@@ -224,6 +237,7 @@ export const getAutoRegistrationOffer = (
     return allOffers.find(offer =>
         offer.isActive &&
         isValidDate(offer) &&
+        isOfferAvailableToUser(offer, user) &&
         offer.autoApply === true &&
         offer.userRules?.firstOrderOnly === true
     ) || null;
@@ -310,7 +324,7 @@ export const filterOffers = (
     user: User = {}
 ): FilteredOffers => {
     const validOffers = offers.filter(
-        (offer) => offer.isActive && isValidDate(offer)
+        (offer) => offer.isActive && isValidDate(offer) && isOfferAvailableToUser(offer, user)
     );
 
     if (user?.userType === "guest") {
