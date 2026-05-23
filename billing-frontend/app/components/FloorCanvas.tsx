@@ -31,14 +31,43 @@ const isTempTableId = (id: string): boolean => id.startsWith('temp-')
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/**
+ * DB Item shape (inside an Order document):
+ *   id          – item doc id
+ *   name        – display name
+ *   qty         – quantity ordered
+ *   unitPrice   – base price per unit (no addons, qty=1)
+ *   totalPrice  – price for this line  (unitPrice + addons) * qty
+ *   addOns      – array of { name, price }
+ *
+ * DB Order shape:
+ *   id          – order doc id
+ *   sessionId   – links to a table session
+ *   tableId     – direct table reference
+ *   items       – array of items (above)
+ *   totalAmount – sum of all items' totalPrice for this order
+ *
+ * Billing endpoint grand total:
+ *   Sum of all orders' totalAmount for the session + tax / discounts
+ */
+
+/** Add-on shape from DB: { name: string; price: number } */
+interface AddOn {
+  name: string
+  price: number
+}
+
+/** Normalised item used inside the UI */
 interface OrderItem {
-  id: string
-  orderId?: string
+  id: string          // item id
+  orderId: string     // parent order id
   name: string
   qty: number
-  unitPrice: number
-  totalAmount: number
-  orderTotalAmount?: number
+  unitPrice: number   // base unit price
+  totalPrice: number  // (unitPrice + addons) * qty  ← DB key: totalPrice
+  orderTotalAmount: number // parent order's totalAmount
+  addOns: AddOn[]     // DB key: addOns – array of { name, price }
+  notes?: string      // DB key: notes
 }
 
 interface TableOrder {
@@ -47,44 +76,55 @@ interface TableOrder {
   createdAt: Date
 }
 
+// ─── Safe numeric helpers ─────────────────────────────────────────────────────
+
 const toSafeNumber = (value: unknown, fallback = 0): number => {
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : fallback
 }
 
-const getItemQuantity = (item: { quantity?: unknown; qty?: unknown }): number =>
-  toSafeNumber(item.quantity ?? item.qty, 0)
+/** qty field on a DB item */
+const getItemQty = (item: { qty?: unknown }): number =>
+  toSafeNumber(item.qty, 0)
 
-const getItemUnitPrice = (item: { unitPrice?: unknown; price?: unknown; totalAmount?: unknown }): number =>
-  toSafeNumber(item.unitPrice ?? item.price ?? item.totalAmount, 0)
+/** unitPrice field on a DB item */
+const getItemUnitPrice = (item: { unitPrice?: unknown }): number =>
+  toSafeNumber(item.unitPrice, 0)
 
-const getItemtotalAmount = (item: { totalAmount?: unknown; unitPrice?: unknown; price?: unknown; quantity?: unknown; qty?: unknown }): number => {
-  // Prefer the DB-provided `totalAmount` when available.
-  const maybeTotal = item.totalAmount
-  if (Number.isFinite(Number(maybeTotal))) return Number(maybeTotal)
-
-  // Fallback: compute from quantity * unit price (only if DB value missing).
-  const qty = getItemQuantity(item as { quantity?: unknown; qty?: unknown })
-  const unit = toSafeNumber(item.unitPrice ?? item.price, 0)
-  return qty * unit
+/**
+ * totalPrice field on a DB item  (= (unitPrice + addonPrices) * qty)
+ * Falls back to unitPrice * qty if missing.
+ */
+const getItemTotalPrice = (item: { totalPrice?: unknown; unitPrice?: unknown; qty?: unknown }): number => {
+  const direct = Number(item.totalPrice)
+  if (Number.isFinite(direct)) return direct
+  // fallback
+  return toSafeNumber(item.unitPrice, 0) * toSafeNumber(item.qty, 0)
 }
 
-const getViewBillTotal = (items: OrderItem[]): number => {
-  const uniqueOrderTotals = new Map<string, number>()
-
-  items.forEach((item) => {
-    const orderKey = String(item.orderId || item.id)
-    if (!uniqueOrderTotals.has(orderKey)) {
-      uniqueOrderTotals.set(orderKey, Number.isFinite(Number(item.orderTotalAmount)) ? Number(item.orderTotalAmount) : NaN)
+/**
+ * Grand total shown in the bill view.
+ *
+ * Strategy:
+ *  1. Prefer summing the unique order-level `totalAmount` values (most accurate).
+ *  2. Fall back to summing item-level `totalPrice` when order totals are absent.
+ */
+const getViewBillSubtotal = (items: OrderItem[]): number => {
+  // Collect one totalAmount per unique order
+  const seenOrders = new Map<string, number>()
+  for (const item of items) {
+    if (!seenOrders.has(item.orderId)) {
+      seenOrders.set(item.orderId, item.orderTotalAmount)
     }
-  })
-
-  const totalsFromOrders = Array.from(uniqueOrderTotals.values()).filter((value) => Number.isFinite(value))
-  if (totalsFromOrders.length > 0) {
-    return totalsFromOrders.reduce((sum, value) => sum + value, 0)
   }
 
-  return items.reduce((sum, item) => sum + toSafeNumber(item.totalAmount, 0), 0)
+  const validOrderTotals = Array.from(seenOrders.values()).filter(Number.isFinite)
+  if (validOrderTotals.length > 0) {
+    return validOrderTotals.reduce((sum, v) => sum + v, 0)
+  }
+
+  // Fallback: sum item totalPrice
+  return items.reduce((sum, item) => sum + toSafeNumber(item.totalPrice, 0), 0)
 }
 
 const parseTableNumber = (name: string): number | null => {
@@ -113,30 +153,37 @@ function OrderViewModal({
   const { outletId } = useAuth()
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false)
   const [isDeletingItem, setIsDeletingItem] = useState<string | null>(null)
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
+
+  const toggleExpanded = (id: string) =>
+    setExpandedItems((prev) => ({ ...prev, [id]: !prev[id] }))
 
   const items = orders?.items ?? []
-  const rawTotal = getViewBillTotal(items)
 
-  // Use bill data if available, otherwise just show raw total
+  // ── Pricing ────────────────────────────────────────────────────────────────
   const hasBill = !!billData?.pricing
-  let pricing = billData?.pricing ?? { subtotal: rawTotal, discount: 0, tax: 0, total: rawTotal }
 
-  // If there is no server-generated bill, compute tax (5% GST) and total for display
-  if (!hasBill) {
-    const subtotal = toSafeNumber(pricing.subtotal, 0)
-    const discount = toSafeNumber(pricing.discount, 0)
-    const tax = Number((subtotal * 0.05) || 0)
+  const pricing = useMemo(() => {
+    if (hasBill && billData?.pricing) return billData.pricing
+
+    // No server bill – compute locally
+    const subtotal = getViewBillSubtotal(items)
+    const discount = 0
+    const tax = Number((subtotal * 0.05).toFixed(2))
     const total = subtotal - discount + tax
-    pricing = { subtotal, discount, tax, total }
-  }
+    return { subtotal, discount, tax, total }
+  }, [hasBill, billData, items])
+
+  const displayTotal = Number((pricing.subtotal - pricing.discount + pricing.tax).toFixed(2))
+
   const appliedOffers = billData?.appliedOffers ?? []
 
+  // ── Delete item ────────────────────────────────────────────────────────────
   const handleDeleteItem = async (orderId: string, itemId: string) => {
     if (items.length <= 1) {
       toast.error('Cannot remove the last remaining item. Cancel the entire order instead.')
       return
     }
-
     setIsDeletingItem(itemId)
     try {
       await removeOrderItem(outletId || '', orderId, itemId)
@@ -148,9 +195,11 @@ function OrderViewModal({
     }
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-xl border border-gray-200 shadow-xl w-[520px] max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Header */}
         <div className="px-6 py-4 flex items-center justify-between border-b border-gray-200">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -163,48 +212,74 @@ function OrderViewModal({
           </button>
         </div>
 
+        {/* Column headers */}
         <div className="flex items-center px-6 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
           <span className="flex-1">Item</span>
           <span className="w-16 text-center">Qty</span>
-          <span className="w-20 text-right pr-6">Price</span>
+          <span className="w-24 text-right pr-6">Price</span>
         </div>
 
+        {/* Items list – grouped by order */}
         <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
           {items.length === 0 ? (
             <div className="text-center text-gray-400 py-16 text-sm">No orders for this table yet.</div>
           ) : (
             (() => {
-              // Group items by orderId (fallback to item.id)
-              const groups = items.reduce((acc: Record<string, OrderItem[]>, it) => {
-                const key = String(it.orderId || it.id)
-                acc[key] = acc[key] || []
-                acc[key].push(it)
+              // Group items by orderId
+              const groups = items.reduce<Record<string, OrderItem[]>>((acc, item) => {
+                acc[item.orderId] = acc[item.orderId] || []
+                acc[item.orderId].push(item)
                 return acc
-              }, {} as Record<string, OrderItem[]>)
+              }, {})
 
-              return Object.keys(groups).map((orderKey) => {
-                const group = groups[orderKey]
-                const orderTotal = group[0] && Number.isFinite(Number(group[0].orderTotalAmount)) ? Number(group[0].orderTotalAmount) : null
+              return Object.entries(groups).map(([orderId, group]) => (
+                <div key={orderId}>
+                  {group.map((item) => {
+                    const hasAddons = item.addOns.length > 0
+                    const hasNotes = !!item.notes?.trim()
+                    const hasDetails = hasAddons || hasNotes
+                    const isExpanded = !!expandedItems[item.id]
 
-                return (
-                  <div key={orderKey}>
-                    {group.map((item) => (
-                      <div key={item.id} className="flex items-center px-6 py-4 gap-2">
+                    return (
+                      <div key={item.id} className="px-6 py-3 border-b border-gray-100 last:border-0">
+                        {/* Main item row */}
+                        <div className="flex items-center gap-2">
+                          {/* Name + unit price + expand toggle */}
+                          <div
+                            className={`flex-1 min-w-0 ${hasDetails ? 'cursor-pointer' : ''}`}
+                            onClick={() => hasDetails && toggleExpanded(item.id)}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium text-gray-900 truncate">{item.name}</span>
+                              {hasDetails && (
+                                <span
+                                  className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${
+                                    isExpanded ? 'rotate-180' : ''
+                                  }`}
+                                >
+                                  ▼
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-400 mt-0.5">₹{item.unitPrice.toFixed(2)} each</div>
+                          </div>
 
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                          {/* IF order */}
-                          <div className="text-xs text-gray-500">₹{item.unitPrice.toFixed(2)} each</div>
-                        </div>
+                          {/* qty */}
+                          <div className="w-16 text-center text-sm font-medium text-gray-700 shrink-0">
+                            {item.qty}
+                          </div>
 
-                        <div className="w-16 text-center text-sm font-medium text-gray-700">{item.qty}</div>
-                        <div className="w-20 text-right pr-2 text-sm font-semibold text-gray-900">₹{orderTotal}</div>
-                        {item.orderId && (
+                          {/* totalPrice */}
+                          <div className="w-24 text-right text-sm font-semibold text-gray-900 shrink-0">
+                            ₹{item.totalPrice.toFixed(2)}
+                          </div>
+
+                          {/* Delete */}
                           <button
-                            onClick={() => item.orderId && handleDeleteItem(item.orderId, item.id)}
+                            onClick={() => handleDeleteItem(item.orderId, item.id)}
                             disabled={isDeletingItem === item.id || items.length <= 1}
-                            className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400"
-                            title={items.length <= 1 ? "Cannot remove last item" : "Remove item"}
+                            className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400 shrink-0"
+                            title={items.length <= 1 ? 'Cannot remove last item' : 'Remove item'}
                           >
                             {isDeletingItem === item.id ? (
                               <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
@@ -212,24 +287,44 @@ function OrderViewModal({
                               <Trash2 size={15} />
                             )}
                           </button>
+                        </div>
+
+                        {/* Expandable add-on / notes section */}
+                        {isExpanded && hasDetails && (
+                          <div className="mt-2 ml-1 pl-3 border-l-2 border-gray-200 space-y-1 pb-1">
+                            {hasAddons && (
+                              <>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                                  Add-ons
+                                </p>
+                                {item.addOns.map((addon, i) => (
+                                  <div key={i} className="flex items-center justify-between text-xs text-amber-700">
+                                    <span>+ {addon.name}</span>
+                                    {addon.price > 0 && (
+                                      <span className="text-amber-600/70 tabular-nums">+₹{addon.price}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </>
+                            )}
+                            {hasNotes && (
+                              <div className="flex items-start gap-1.5 text-xs text-gray-500 pt-1">
+                                <span className="font-semibold text-gray-400 shrink-0">Note:</span>
+                                <span className="italic">{item.notes}</span>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
-                    ))}
-
-                    {/* Explicit order total row using DB `orderTotalAmount` when available
-                    {orderTotal !== null && (
-                      <div className="flex items-center px-6 py-2 bg-gray-50 text-sm font-medium text-gray-700">
-                        <div className="flex-1">Order total</div>
-                        <div className="w-20 text-right">₹{orderTotal.toFixed(2)}</div>
-                      </div>
-                    )} */}
-                  </div>
-                )
-              })
+                    )
+                  })}
+                </div>
+              ))
             })()
           )}
         </div>
 
+        {/* Footer – pricing */}
         <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 space-y-4">
           <div className="space-y-2">
             <div className="flex justify-between items-center text-sm text-gray-600">
@@ -263,12 +358,12 @@ function OrderViewModal({
               <span className="text-base font-semibold text-gray-700">
                 {hasBill ? 'Total Payable' : 'Total'}
               </span>
-              <span className="text-2xl font-bold text-gray-900">₹{pricing.total.toFixed(2)}</span>
+              <span className="text-2xl font-bold text-gray-900">₹{displayTotal.toFixed(2)}</span>
             </div>
           </div>
 
           <div className="flex gap-3">
-            {orders?.items?.[0]?.orderId && (
+            {items[0]?.orderId && (
               <Button
                 variant="destructive"
                 onClick={() => setIsCancelModalOpen(true)}
@@ -289,12 +384,12 @@ function OrderViewModal({
         </div>
       </div>
 
-      {isCancelModalOpen && orders?.items?.[0]?.orderId && (
+      {isCancelModalOpen && items[0]?.orderId && (
         <CancellationModal
           isOpen={isCancelModalOpen}
           onClose={() => setIsCancelModalOpen(false)}
-          orderId={orders.items[0].orderId}
-          cancelledItems={orders.items}
+          orderId={items[0].orderId}
+          cancelledItems={items}
           onSuccess={() => {
             setIsCancelModalOpen(false)
             onClose()
@@ -304,8 +399,6 @@ function OrderViewModal({
     </div>
   )
 }
-
-// ─── Add Order Modal ──────────────────────────────────────────────────────────
 
 // ─── Wall Drawing Types ───────────────────────────────────────────────────────
 
@@ -333,10 +426,8 @@ const getWallOrientation = (wall: IWall): 'horizontal' | 'vertical' =>
 
 const getWallAnchors = (walls: IWall[], excludeIndex?: number): WallAnchor[] => {
   const anchors: WallAnchor[] = []
-
   walls.forEach((wall, index) => {
     if (index === excludeIndex) return
-
     const orientation = getWallOrientation(wall)
     if (orientation === 'horizontal') {
       const centerY = wall.y + wall.height / 2
@@ -348,7 +439,6 @@ const getWallAnchors = (walls: IWall[], excludeIndex?: number): WallAnchor[] => 
       anchors.push({ x: centerX, y: wall.y + wall.height })
     }
   })
-
   return anchors
 }
 
@@ -359,7 +449,6 @@ const snapPointToAnchors = (
 ): WallAnchor => {
   let snapped = point
   let bestDistance = threshold
-
   anchors.forEach((anchor) => {
     const d = distance(point.x, point.y, anchor.x, anchor.y)
     if (d < bestDistance) {
@@ -367,7 +456,6 @@ const snapPointToAnchors = (
       snapped = { x: anchor.x, y: anchor.y }
     }
   })
-
   return snapped
 }
 
@@ -380,26 +468,14 @@ const buildWallFromAnchors = (start: WallAnchor, end: WallAnchor): IWall | null 
     const startX = snapToGrid(Math.min(start.x, end.x))
     const width = snapToGrid(dx)
     if (width < MIN_WALL_LENGTH) return null
-
-    return {
-      x: startX,
-      y: snappedY - WALL_THICKNESS / 2,
-      width,
-      height: WALL_THICKNESS,
-    }
+    return { x: startX, y: snappedY - WALL_THICKNESS / 2, width, height: WALL_THICKNESS }
   }
 
   const snappedX = snapToGrid(start.x)
   const startY = snapToGrid(Math.min(start.y, end.y))
   const height = snapToGrid(dy)
   if (height < MIN_WALL_LENGTH) return null
-
-  return {
-    x: snappedX - WALL_THICKNESS / 2,
-    y: startY,
-    width: WALL_THICKNESS,
-    height,
-  }
+  return { x: snappedX - WALL_THICKNESS / 2, y: startY, width: WALL_THICKNESS, height }
 }
 
 // ─── FloorCanvas ─────────────────────────────────────────────────────────────
@@ -436,21 +512,21 @@ export function FloorCanvas() {
   const [resizingWall, setResizingWall] = useState<{ index: number; handle: WallHandle } | null>(null)
   const [draggingWall, setDraggingWall] = useState<{ index: number; offsetX: number; offsetY: number } | null>(null)
 
-  // Wall drawing state stored in a ref to avoid stale closures
   const drawingWall = useRef<{ startX: number; startY: number } | null>(null)
   const [previewWall, setPreviewWall] = useState<IWall | null>(null)
 
-  // Fetch Floor Map walls from DB
+  // ── Fetch floor map ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!outletId) return
-
     let cancelled = false
 
     const loadFloorMap = async () => {
       if (isEditMode) return
-
       try {
-        const data = await getFloorMap<{ walls?: IWall[]; tablePositions?: Array<{ id?: string; x?: number; y?: number }> }>(outletId)
+        const data = await getFloorMap<{
+          walls?: IWall[]
+          tablePositions?: Array<{ id?: string; x?: number; y?: number }>
+        }>(outletId)
         if (cancelled) return
 
         if (data) {
@@ -459,16 +535,12 @@ export function FloorCanvas() {
           const tablePositions = Array.isArray(data.tablePositions) ? data.tablePositions : []
           const positionsById = new Map(
             tablePositions
-              .filter((pos: { id?: string }) => Boolean(pos.id))
-              .map((pos: { id?: string; x?: number; y?: number }) => [
+              .filter((pos) => Boolean(pos.id))
+              .map((pos) => [
                 pos.id as string,
-                {
-                  x: toFiniteNumber(pos.x, 100),
-                  y: toFiniteNumber(pos.y, 100),
-                },
+                { x: toFiniteNumber(pos.x, 100), y: toFiniteNumber(pos.y, 100) },
               ])
           )
-
           if (safeSetTables) {
             safeSetTables((prevTables: any[]) =>
               prevTables.map((table) => {
@@ -488,7 +560,6 @@ export function FloorCanvas() {
 
     loadFloorMap()
     const intervalId = window.setInterval(loadFloorMap, 5000)
-
     return () => {
       cancelled = true
       window.clearInterval(intervalId)
@@ -497,22 +568,26 @@ export function FloorCanvas() {
 
   useEffect(() => {
     if (isEditMode) {
-      // Capture baseline only once when entering edit mode.
-      // New draft tables should stay out of this snapshot.
-      initialTablesRef.current = tables.map( (table: any) => ({ ...table }))
+      initialTablesRef.current = tables.map((table: any) => ({ ...table }))
     }
-    // Intentionally depend only on edit mode so baseline does not drift.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditMode])
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const activeTable = tables.find( (t: any) => t.id === activeTableId)
+  const activeTable = tables.find((t: any) => t.id === activeTableId)
 
-  // Get orders for each table session
+  /**
+   * Build a flat OrderItem[] for each table from the orders context.
+   *
+   * Each DB Order has:
+   *   order.id            → orderId
+   *   order.totalAmount   → order-level total (used for subtotal calculation)
+   *   order.items[]       → array of items with qty / unitPrice / totalPrice
+   */
   const tableSessionOrders = useMemo(() => {
     const map: Record<string, Order[]> = {}
-    tables.forEach( (t: any) => {
-      map[t.id] = orders.filter( (o: any) => {
+    tables.forEach((t: any) => {
+      map[t.id] = orders.filter((o: any) => {
         if (o.tableId === t.id) return true
         if (t.activeSessionId && o.sessionId === t.activeSessionId) return true
         return false
@@ -521,11 +596,54 @@ export function FloorCanvas() {
     return map
   }, [tables, orders])
 
+  /**
+   * Compute the display bill amount per table for the table card.
+   * Uses order-level totalAmount (most accurate) and falls back to summing
+   * item-level totalPrice.
+   */
+  const getTableBillAmount = (tableId: string): number => {
+    const relatedOrders = tableSessionOrders[tableId] || []
+    return relatedOrders.reduce((sum, order) => {
+      // Prefer order.totalAmount (DB field on the Order document)
+      const orderTotal = toSafeNumber((order as any).totalAmount, NaN)
+      if (Number.isFinite(orderTotal)) return sum + orderTotal
+
+      // Fallback: sum item.totalPrice values
+      const itemsTotal = (order.items || []).reduce((iSum: number, item: any) => {
+        return iSum + getItemTotalPrice(item)
+      }, 0)
+      return sum + itemsTotal
+    }, 0)
+  }
+
+  /**
+   * Build normalised OrderItem[] for the OrderViewModal from raw DB orders.
+   */
+  const buildOrderItems = (relatedOrders: Order[]): OrderItem[] =>
+    relatedOrders.flatMap((order: any) =>
+      (order.items || []).map((item: any): OrderItem => ({
+        id: String(item.id),
+        orderId: String(order.id),
+        name: String(item.name || ''),
+        qty: getItemQty(item),
+        unitPrice: getItemUnitPrice(item),
+        totalPrice: getItemTotalPrice(item),           // DB: item.totalPrice
+        orderTotalAmount: toFiniteNumber(order.totalAmount, NaN), // DB: order.totalAmount
+        // DB: item.addOns – array of { name, price }; normalise both casings
+        addOns: Array.isArray(item.addOns)
+          ? item.addOns
+          : Array.isArray(item.addons)
+          ? item.addons
+          : [],
+        notes: item.notes || '',
+      }))
+    )
+
   // ── Table drag ─────────────────────────────────────────────────────────────
   const handleTableMouseDown = (e: React.MouseEvent, tableId: string) => {
-    if (!isEditMode) return // clicks handled via buttons
+    if (!isEditMode) return
     e.stopPropagation()
-    const table = tables.find( (t: any) => t.id === tableId)
+    const table = tables.find((t: any) => t.id === tableId)
     if (!table) return
     const canvas = canvasRef.current
     if (!canvas) return
@@ -540,37 +658,26 @@ export function FloorCanvas() {
       setDraggingId(null)
       return
     }
-
     const handleMouseMove = (e: MouseEvent) => {
       if (draggingId === null || !canvasRef.current) return
       const rect = canvasRef.current.getBoundingClientRect()
       let x = e.clientX - rect.left - dragOffset.x
       let y = e.clientY - rect.top - dragOffset.y
-      
-      // Bounds check
       x = Math.max(0, Math.min(x, rect.width - TABLE_WIDTH))
       y = Math.max(0, Math.min(y, rect.height - TABLE_HEIGHT))
-      
-      // Grid snapping
       x = Math.round(x / GRID_SIZE) * GRID_SIZE
       y = Math.round(y / GRID_SIZE) * GRID_SIZE
-      
-      // Local-only update
       dragPositionRef.current = { x, y }
-      updateTable(draggingId, { x, y }, true) // skipSync: true
+      updateTable(draggingId, { x, y }, true)
     }
-
     const handleMouseUp = () => {
       if (draggingId) {
         const latestPosition = dragPositionRef.current
-        if (latestPosition) {
-          updateTable(draggingId, latestPosition, true)
-        }
+        if (latestPosition) updateTable(draggingId, latestPosition, true)
         dragPositionRef.current = null
         setDraggingId(null)
       }
     }
-
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
     return () => {
@@ -607,25 +714,23 @@ export function FloorCanvas() {
       toast.warning('Enable Edit Layout mode to rename tables.')
       return
     }
-
     const currentName = String(table.name || '').trim()
     const nextNameRaw = window.prompt('Enter table name', currentName)
     if (nextNameRaw === null) return
-
     const nextName = nextNameRaw.trim()
     if (!nextName) {
       toast.error('Table name cannot be empty')
       return
     }
-
     const duplicate = tables.some(
-       (candidate: any) => candidate.id !== table.id && String(candidate.name || '').trim().toLowerCase() === nextName.toLowerCase()
+      (candidate: any) =>
+        candidate.id !== table.id &&
+        String(candidate.name || '').trim().toLowerCase() === nextName.toLowerCase()
     )
     if (duplicate) {
       toast.error('A table with this name already exists')
       return
     }
-
     updateTable(table.id, { name: nextName }, true)
     toast.success(`Renamed to ${nextName}`)
   }
@@ -635,101 +740,101 @@ export function FloorCanvas() {
       toast.warning('Enable Edit Layout mode to renumber tables.')
       return
     }
-
     const sorted = [...tables].sort((a, b) => {
       const aName = String(a.name || '')
       const bName = String(b.name || '')
       const aNum = parseTableNumber(aName)
       const bNum = parseTableNumber(bName)
-
       if (aNum !== null && bNum !== null) return aNum - bNum
       if (aNum !== null) return -1
       if (bNum !== null) return 1
       return aName.localeCompare(bName, undefined, { numeric: true, sensitivity: 'base' })
     })
-
     const nextById = new Map<string, string>()
-    sorted.forEach((table, index) => {
-      nextById.set(table.id, `Table ${index + 1}`)
-    })
-
-    setTables( (prev: any) => prev.map( (table: any) => {
-      const nextName = nextById.get(table.id)
-      return nextName ? { ...table, name: nextName } : table
-    }))
-
+    sorted.forEach((table, index) => nextById.set(table.id, `Table ${index + 1}`))
+    setTables((prev: any) =>
+      prev.map((table: any) => {
+        const nextName = nextById.get(table.id)
+        return nextName ? { ...table, name: nextName } : table
+      })
+    )
     toast.success('Table names renumbered from Table 1')
   }
 
   const deleteTable = (tableId: string) => {
-    const confirmed = window.confirm('Delete this table from draft layout? This will be applied when you click Save Layout.')
+    const confirmed = window.confirm(
+      'Delete this table from draft layout? This will be applied when you click Save Layout.'
+    )
     if (!confirmed) return
-
-    setTables(tables.filter( (table: any) => table.id !== tableId))
+    setTables(tables.filter((table: any) => table.id !== tableId))
     toast.success('Table removed from draft layout')
   }
 
   const saveLayout = async () => {
     if (!outletId) return
-
-    const confirmed = window.confirm('Save layout changes? This will apply table add/update/delete and wall changes to the database.')
+    const confirmed = window.confirm(
+      'Save layout changes? This will apply table add/update/delete and wall changes to the database.'
+    )
     if (!confirmed) return
 
     try {
       const originalTables = initialTablesRef.current
-      const originalTableIds = new Set(originalTables.map( (table: any) => table.id))
-      const currentTableIds = new Set(tables.map( (table: any) => table.id))
+      const originalTableIds = new Set(originalTables.map((t: any) => t.id))
+      const currentTableIds = new Set(tables.map((t: any) => t.id))
 
-      const tablesToCreate = tables.filter( (table: any) => isTempTableId(table.id) || !originalTableIds.has(table.id))
-      const tablesToUpdate = tables.filter( (table: any) => originalTableIds.has(table.id) && !isTempTableId(table.id))
-      const tablesToDelete = originalTables.filter( (table: any) => !currentTableIds.has(table.id) && !isTempTableId(table.id))
+      const tablesToCreate = tables.filter(
+        (t: any) => isTempTableId(t.id) || !originalTableIds.has(t.id)
+      )
+      const tablesToUpdate = tables.filter(
+        (t: any) => originalTableIds.has(t.id) && !isTempTableId(t.id)
+      )
+      const tablesToDelete = originalTables.filter(
+        (t: any) => !currentTableIds.has(t.id) && !isTempTableId(t.id)
+      )
 
       const tempToRealId = new Map<string, string>()
 
       for (const table of tablesToCreate) {
         const draftedName = String(table.name || '').trim()
         const shouldAutoGenerateName = !draftedName || /^table\s*\(auto\)$/i.test(draftedName)
-
         const createResult = await floorMapService.addTable({
           capacity: table.capacity,
           x: toFiniteNumber(table.x, 100),
           y: toFiniteNumber(table.y, 100),
           color: table.color,
           outletId,
-          ...(shouldAutoGenerateName ? { autoGenerateName: true } : { name: draftedName, autoGenerateName: false }),
+          ...(shouldAutoGenerateName
+            ? { autoGenerateName: true }
+            : { name: draftedName, autoGenerateName: false }),
         })
-
-        if (createResult?.id) {
-          tempToRealId.set(table.id, createResult.id)
-        }
+        if (createResult?.id) tempToRealId.set(table.id, createResult.id)
       }
 
       if (tablesToUpdate.length > 0) {
         await Promise.all(
-          tablesToUpdate.map( (table: any) => floorMapService.updateTable(table.id, {
-            x: toFiniteNumber(table.x, 100),
-            y: toFiniteNumber(table.y, 100),
-            name: table.name,
-            capacity: table.capacity,
-            color: table.color,
-          }))
+          tablesToUpdate.map((table: any) =>
+            floorMapService.updateTable(table.id, {
+              x: toFiniteNumber(table.x, 100),
+              y: toFiniteNumber(table.y, 100),
+              name: table.name,
+              capacity: table.capacity,
+              color: table.color,
+            })
+          )
         )
       }
 
       if (tablesToDelete.length > 0) {
-        await Promise.all(
-          tablesToDelete.map((table) => floorMapService.deleteTable(table.id))
-        )
+        await Promise.all(tablesToDelete.map((table) => floorMapService.deleteTable(table.id)))
       }
 
-      const tablePositions = tables.map( (table: any) => ({
+      const tablePositions = tables.map((table: any) => ({
         id: tempToRealId.get(table.id) || table.id,
         x: toFiniteNumber(table.x, 100),
         y: toFiniteNumber(table.y, 100),
       }))
 
       await floorMapService.saveFloorMap(outletId, walls, tablePositions)
-
       setIsEditMode(false)
       setShowWallEditor(false)
       toast.success('Layout saved')
@@ -738,7 +843,7 @@ export function FloorCanvas() {
     }
   }
 
-  // ── Wall drawing (canvas mouse events) ───────────────────────────────────
+  // ── Wall drawing ──────────────────────────────────────────────────────────
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
     if (!showWallEditor || !canvasRef.current) return
     const rect = canvasRef.current.getBoundingClientRect()
@@ -746,10 +851,7 @@ export function FloorCanvas() {
       x: snapToGrid(e.clientX - rect.left),
       y: snapToGrid(e.clientY - rect.top),
     }
-    drawingWall.current = {
-      startX: startPoint.x,
-      startY: startPoint.y,
-    }
+    drawingWall.current = { startX: startPoint.x, startY: startPoint.y }
     setSelectedWallIndex(null)
   }
 
@@ -779,11 +881,7 @@ export function FloorCanvas() {
     const snappedStart = snapPointToAnchors({ x: startX, y: startY }, anchors)
     const snappedEnd = snapPointToAnchors(curPoint, anchors)
     const nextWall = buildWallFromAnchors(snappedStart, snappedEnd)
-
-    if (nextWall) {
-      setWalls(prev => [...prev, nextWall])
-    }
-
+    if (nextWall) setWalls((prev) => [...prev, nextWall])
     drawingWall.current = null
     setPreviewWall(null)
   }
@@ -795,64 +893,43 @@ export function FloorCanvas() {
 
   useEffect(() => {
     if (!showWallEditor || !resizingWall || !canvasRef.current) return
-
     const handleMouseMove = (e: MouseEvent) => {
       if (!canvasRef.current) return
-
       const rect = canvasRef.current.getBoundingClientRect()
       const pointer = {
         x: snapToGrid(e.clientX - rect.left),
         y: snapToGrid(e.clientY - rect.top),
       }
-
       setWalls((prevWalls) => {
         const target = prevWalls[resizingWall.index]
         if (!target) return prevWalls
-
         const orientation = getWallOrientation(target)
         const anchors = getWallAnchors(prevWalls, resizingWall.index)
-
         let start: WallAnchor
         let end: WallAnchor
-
         if (orientation === 'horizontal') {
           const centerY = snapToGrid(target.y + target.height / 2)
           start = { x: target.x, y: centerY }
           end = { x: target.x + target.width, y: centerY }
-
-          if (resizingWall.handle === 'start') {
-            start = snapPointToAnchors({ x: pointer.x, y: centerY }, anchors)
-          } else {
-            end = snapPointToAnchors({ x: pointer.x, y: centerY }, anchors)
-          }
+          if (resizingWall.handle === 'start') start = snapPointToAnchors({ x: pointer.x, y: centerY }, anchors)
+          else end = snapPointToAnchors({ x: pointer.x, y: centerY }, anchors)
         } else {
           const centerX = snapToGrid(target.x + target.width / 2)
           start = { x: centerX, y: target.y }
           end = { x: centerX, y: target.y + target.height }
-
-          if (resizingWall.handle === 'start') {
-            start = snapPointToAnchors({ x: centerX, y: pointer.y }, anchors)
-          } else {
-            end = snapPointToAnchors({ x: centerX, y: pointer.y }, anchors)
-          }
+          if (resizingWall.handle === 'start') start = snapPointToAnchors({ x: centerX, y: pointer.y }, anchors)
+          else end = snapPointToAnchors({ x: centerX, y: pointer.y }, anchors)
         }
-
         const resized = buildWallFromAnchors(start, end)
         if (!resized) return prevWalls
-
         const nextWalls = [...prevWalls]
         nextWalls[resizingWall.index] = resized
         return nextWalls
       })
     }
-
-    const handleMouseUp = () => {
-      setResizingWall(null)
-    }
-
+    const handleMouseUp = () => setResizingWall(null)
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
@@ -861,35 +938,24 @@ export function FloorCanvas() {
 
   useEffect(() => {
     if (!showWallEditor || !draggingWall || !canvasRef.current) return
-
     const handleMouseMove = (e: MouseEvent) => {
       if (!canvasRef.current) return
-
       const rect = canvasRef.current.getBoundingClientRect()
-
       setWalls((prevWalls) => {
         const target = prevWalls[draggingWall.index]
         if (!target) return prevWalls
-
         let nextX = snapToGrid(e.clientX - rect.left - draggingWall.offsetX)
         let nextY = snapToGrid(e.clientY - rect.top - draggingWall.offsetY)
-
         nextX = Math.max(0, Math.min(nextX, FLOOR_WIDTH - target.width))
         nextY = Math.max(0, Math.min(nextY, FLOOR_HEIGHT - target.height))
-
         const nextWalls = [...prevWalls]
         nextWalls[draggingWall.index] = { ...target, x: nextX, y: nextY }
         return nextWalls
       })
     }
-
-    const handleMouseUp = () => {
-      setDraggingWall(null)
-    }
-
+    const handleMouseUp = () => setDraggingWall(null)
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
@@ -898,7 +964,7 @@ export function FloorCanvas() {
 
   const deleteWall = (idx: number) => {
     if (!showWallEditor) return
-    setWalls(prev => prev.filter((_, i) => i !== idx))
+    setWalls((prev) => prev.filter((_, i) => i !== idx))
     setSelectedWallIndex((prev) => {
       if (prev === null) return null
       if (prev === idx) return null
@@ -907,10 +973,11 @@ export function FloorCanvas() {
     })
   }
 
+  // ── Modal helpers ─────────────────────────────────────────────────────────
   const handleEyeClick = (e: React.MouseEvent, tableId: string) => {
     e.stopPropagation()
     setActiveTableId(tableId)
-    setBillData(null) // View orders without bill calculation
+    setBillData(null)
     setShowOrderView(true)
   }
 
@@ -921,21 +988,19 @@ export function FloorCanvas() {
     setShowAddOrder(true)
   }
 
-  const closeSession = async (table: Table) => {
+  const closeSession = (table: Table) => {
     setClosingSessionTable(table)
     setClosePaymentStatus('SUCCESS')
   }
 
   const confirmCloseSession = async () => {
     if (!closingSessionTable) return
-
-    const confirmMessage = closePaymentStatus === 'SUCCESS'
-      ? `Mark payment as completed for ${closingSessionTable.name} and close the session?`
-      : `Mark payment as failed for ${closingSessionTable.name}? The table will be freed, but the customer payment wall will stay locked until they pay.`
-
+    const confirmMessage =
+      closePaymentStatus === 'SUCCESS'
+        ? `Mark payment as completed for ${closingSessionTable.name} and close the session?`
+        : `Mark payment as failed for ${closingSessionTable.name}? The table will be freed, but the customer payment wall will stay locked until they pay.`
     const confirmed = window.confirm(confirmMessage)
     if (!confirmed) return
-
     setIsClosingSession(true)
     try {
       const response = await tableSessionService.closeSession({
@@ -959,7 +1024,6 @@ export function FloorCanvas() {
       toast.warning('No orders found for this table to generate bill.')
       return
     }
-
     try {
       const API_BASE = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
       const response = await fetch(`${API_BASE}/billingGenerateBill`, {
@@ -970,12 +1034,10 @@ export function FloorCanvas() {
           tableId: table.id,
         }),
       })
-
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result?.success) {
         throw new Error(result?.message || 'Failed to generate bill')
       }
-
       setBillData({
         pricing: result.pricing || { subtotal: 0, discount: 0, tax: 0, total: 0 },
         appliedOffers: Array.isArray(result.appliedOffers) ? result.appliedOffers : [],
@@ -1003,7 +1065,11 @@ export function FloorCanvas() {
           {isEditMode && (
             <>
               <Button
-                onClick={() => { setShowWallEditor(v => !v); setPreviewWall(null); drawingWall.current = null }}
+                onClick={() => {
+                  setShowWallEditor((v) => !v)
+                  setPreviewWall(null)
+                  drawingWall.current = null
+                }}
                 variant="outline"
                 className="flex items-center gap-2 text-sm"
               >
@@ -1029,11 +1095,19 @@ export function FloorCanvas() {
                   Delete Wall
                 </Button>
               )}
-              <Button onClick={addNewTable} variant="outline" className="flex items-center gap-2 text-sm bg-transparent">
+              <Button
+                onClick={addNewTable}
+                variant="outline"
+                className="flex items-center gap-2 text-sm bg-transparent"
+              >
                 <Plus size={16} />
                 Add Table
               </Button>
-              <Button onClick={autoRenumberTables} variant="outline" className="flex items-center gap-2 text-sm bg-transparent">
+              <Button
+                onClick={autoRenumberTables}
+                variant="outline"
+                className="flex items-center gap-2 text-sm bg-transparent"
+              >
                 Renumber Tables
               </Button>
             </>
@@ -1043,9 +1117,19 @@ export function FloorCanvas() {
               if (isEditMode) saveLayout()
               else setIsEditMode(true)
             }}
-            className={`flex items-center gap-2 text-sm ${isEditMode ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
+            className={`flex items-center gap-2 text-sm ${
+              isEditMode ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'
+            } text-white`}
           >
-            {isEditMode ? <><Check size={16} /> Save Layout</> : <><Edit2 size={16} /> Edit Layout</>}
+            {isEditMode ? (
+              <>
+                <Check size={16} /> Save Layout
+              </>
+            ) : (
+              <>
+                <Edit2 size={16} /> Edit Layout
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -1055,7 +1139,8 @@ export function FloorCanvas() {
         <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700 flex items-center gap-2">
           <Pencil size={14} />
           <span>
-            <strong>Draw walls:</strong> Click and drag. Walls snap to grid and nearby anchor points.
+            <strong>Draw walls:</strong> Click and drag. Walls snap to grid and nearby anchor
+            points.
             <span className="ml-2 text-blue-500">Select a wall to resize it using end handles.</span>
           </span>
         </div>
@@ -1075,7 +1160,11 @@ export function FloorCanvas() {
           onMouseUp={handleCanvasMouseUp}
           onMouseLeave={handleCanvasMouseLeave}
         >
-          <svg className="absolute inset-0 w-full h-full opacity-20 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+          {/* Dot grid */}
+          <svg
+            className="absolute inset-0 w-full h-full opacity-20 pointer-events-none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
             <defs>
               <pattern id="grid" width={GRID_SIZE} height={GRID_SIZE} patternUnits="userSpaceOnUse">
                 <circle cx="1" cy="1" r="1" fill="#9ca3af" />
@@ -1084,20 +1173,18 @@ export function FloorCanvas() {
             <rect width="100%" height="100%" fill="url(#grid)" />
           </svg>
 
+          {/* Walls */}
           {walls.map((wall, idx) => {
             const orientation = getWallOrientation(wall)
             const isSelected = selectedWallIndex === idx
-
             return (
               <React.Fragment key={`wall-${idx}`}>
                 <div
                   onMouseDown={(e) => {
                     if (!showWallEditor || resizingWall) return
                     e.stopPropagation()
-
                     const rect = canvasRef.current?.getBoundingClientRect()
                     if (!rect) return
-
                     setSelectedWallIndex(idx)
                     setDraggingWall({
                       index: idx,
@@ -1109,7 +1196,9 @@ export function FloorCanvas() {
                     e.stopPropagation()
                     if (showWallEditor) setSelectedWallIndex(idx)
                   }}
-                  className={`absolute rounded-sm transition-colors ${showWallEditor ? 'cursor-pointer' : ''} ${isSelected ? 'bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'}`}
+                  className={`absolute rounded-sm transition-colors ${
+                    showWallEditor ? 'cursor-pointer' : ''
+                  } ${isSelected ? 'bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'}`}
                   style={{
                     left: toFiniteNumber(wall.x, 0),
                     top: toFiniteNumber(wall.y, 0),
@@ -1117,7 +1206,6 @@ export function FloorCanvas() {
                     height: toFiniteNumber(wall.height, 0),
                   }}
                 />
-
                 {showWallEditor && isSelected && (
                   <>
                     <button
@@ -1128,8 +1216,14 @@ export function FloorCanvas() {
                       }}
                       className="absolute h-4 w-4 rounded-full bg-white border-2 border-blue-600 shadow"
                       style={{
-                        left: orientation === 'horizontal' ? wall.x - 8 : wall.x + wall.width / 2 - 8,
-                        top: orientation === 'horizontal' ? wall.y + wall.height / 2 - 8 : wall.y - 8,
+                        left:
+                          orientation === 'horizontal'
+                            ? wall.x - 8
+                            : wall.x + wall.width / 2 - 8,
+                        top:
+                          orientation === 'horizontal'
+                            ? wall.y + wall.height / 2 - 8
+                            : wall.y - 8,
                       }}
                     />
                     <button
@@ -1140,8 +1234,14 @@ export function FloorCanvas() {
                       }}
                       className="absolute h-4 w-4 rounded-full bg-white border-2 border-blue-600 shadow"
                       style={{
-                        left: orientation === 'horizontal' ? wall.x + wall.width - 8 : wall.x + wall.width / 2 - 8,
-                        top: orientation === 'horizontal' ? wall.y + wall.height / 2 - 8 : wall.y + wall.height - 8,
+                        left:
+                          orientation === 'horizontal'
+                            ? wall.x + wall.width - 8
+                            : wall.x + wall.width / 2 - 8,
+                        top:
+                          orientation === 'horizontal'
+                            ? wall.y + wall.height / 2 - 8
+                            : wall.y + wall.height - 8,
                       }}
                     />
                   </>
@@ -1150,6 +1250,7 @@ export function FloorCanvas() {
             )
           })}
 
+          {/* Wall preview while drawing */}
           {previewWall && (
             <div
               className="absolute bg-blue-500 opacity-50 rounded-sm pointer-events-none border border-blue-700 border-dashed"
@@ -1162,28 +1263,24 @@ export function FloorCanvas() {
             />
           )}
 
-          {tables.map( (table: any) => {
+          {/* Tables */}
+          {tables.map((table: any) => {
             const relatedOrders = tableSessionOrders[table.id] || []
             const hasLiveOrders = relatedOrders.length > 0
             const isTableActive = Boolean(table.occupied || table.isOccupied || hasLiveOrders)
-            const isBillRequested = String(table.status || table.paymentStatus || '').toUpperCase() === 'BILL'
-            const paymentDue = isBillRequested
-            const tableBillAmount = relatedOrders.reduce((sum, o) => {
-              const orderTotal = toSafeNumber((o as { totalAmount?: unknown }).totalAmount, NaN)
-              if (Number.isFinite(orderTotal)) {
-                return sum + orderTotal
-              }
+            const isBillRequested =
+              String(table.status || table.paymentStatus || '').toUpperCase() === 'BILL'
 
-              const itemTotal = (o.items || []).reduce((itemSum, item) => {
-                return itemSum + getItemtotalAmount(item as { totalAmount?: unknown; unitPrice?: unknown; price?: unknown })
-              }, 0)
-              return sum + itemTotal
-            }, 0)
+            // Bill amount shown on the card:
+            // sum of order.totalAmount across all orders for this table
+            const tableBillAmount = getTableBillAmount(table.id)
 
             return (
               <div
                 key={table.id}
-                className={`absolute transition-shadow ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
+                className={`absolute transition-shadow ${
+                  isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+                }`}
                 style={{
                   left: toFiniteNumber(table.x, 0),
                   top: toFiniteNumber(table.y, 0),
@@ -1195,7 +1292,8 @@ export function FloorCanvas() {
                 <div
                   className={`
                     w-full h-full rounded-xl border bg-white flex flex-col justify-between p-2.5 gap-1.5
-                    ${paymentDue
+                    ${
+                      isBillRequested
                         ? 'border-red-300 bg-red-50 shadow-[0_1px_8px_rgba(239,68,68,0.18)]'
                         : isTableActive
                         ? 'border-emerald-300 shadow-[0_1px_8px_rgba(16,185,129,0.18)]'
@@ -1203,22 +1301,43 @@ export function FloorCanvas() {
                     }
                   `}
                 >
+                  {/* Status row */}
                   <div className="flex items-center justify-between">
-                    <span className={`text-[10px] font-medium ${paymentDue ? 'text-red-600' : 'text-gray-500'}`}>{paymentDue ? 'Collect Money' : isTableActive ? 'Occupied' : 'Available'}</span>
-                    <span className={`h-2 w-2 rounded-full ${paymentDue ? 'bg-red-500' : isTableActive ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                    <span
+                      className={`text-[10px] font-medium ${
+                        isBillRequested ? 'text-red-600' : 'text-gray-500'
+                      }`}
+                    >
+                      {isBillRequested ? 'Collect Money' : isTableActive ? 'Occupied' : 'Available'}
+                    </span>
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        isBillRequested
+                          ? 'bg-red-500'
+                          : isTableActive
+                          ? 'bg-emerald-500'
+                          : 'bg-gray-300'
+                      }`}
+                    />
                   </div>
 
+                  {/* Name + bill amount */}
                   <div className="text-center leading-tight py-0.5">
-                    <div className="text-xs font-semibold text-gray-900 truncate">
-                      {table.name}
-                    </div>
+                    <div className="text-xs font-semibold text-gray-900 truncate">{table.name}</div>
                     <div className="text-[10px] text-gray-500 mt-0.5">Bill</div>
-                    <div className={`text-sm font-semibold mt-0.5 ${paymentDue ? 'text-red-700' : 'text-gray-900'}`}>
+                    {/* tableBillAmount = sum of order.totalAmount values */}
+                    <div
+                      className={`text-sm font-semibold mt-0.5 ${
+                        isBillRequested ? 'text-red-700' : 'text-gray-900'
+                      }`}
+                    >
                       ₹{tableBillAmount.toFixed(0)}
                     </div>
                   </div>
 
+                  {/* Action buttons */}
                   <div className="flex items-center justify-center gap-1.5 pt-0.5">
+                    {/* Printer menu */}
                     <div className="relative">
                       <button
                         onClick={(e) => {
@@ -1230,7 +1349,6 @@ export function FloorCanvas() {
                       >
                         <Printer size={13} />
                       </button>
-
                       {printerMenuTableId === table.id && (
                         <div
                           className="absolute bottom-9 left-0 z-20 w-36 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
@@ -1258,6 +1376,7 @@ export function FloorCanvas() {
                       )}
                     </div>
 
+                    {/* View orders */}
                     <button
                       onClick={(e) => handleEyeClick(e, table.id)}
                       className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
@@ -1266,6 +1385,7 @@ export function FloorCanvas() {
                       <Eye size={13} />
                     </button>
 
+                    {/* Add order */}
                     {!isEditMode && (
                       <button
                         onClick={(e) => handleTableClick(e, table.id)}
@@ -1276,9 +1396,13 @@ export function FloorCanvas() {
                       </button>
                     )}
 
+                    {/* Close session */}
                     {!isEditMode && isTableActive && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); closeSession(table) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          closeSession(table)
+                        }}
                         className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
                         title="Close table session"
                       >
@@ -1286,9 +1410,13 @@ export function FloorCanvas() {
                       </button>
                     )}
 
+                    {/* Edit name */}
                     {isEditMode && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); editTableName(table) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          editTableName(table)
+                        }}
                         className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
                         title="Edit table name"
                       >
@@ -1296,9 +1424,13 @@ export function FloorCanvas() {
                       </button>
                     )}
 
+                    {/* Delete table */}
                     {isEditMode && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); deleteTable(table.id) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteTable(table.id)
+                        }}
                         className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
                         title="Delete table"
                       >
@@ -1313,45 +1445,59 @@ export function FloorCanvas() {
         </div>
       </div>
 
-      {/* Modals */}
+      {/* ── Modals ── */}
+
+      {/* Order view */}
       {showOrderView && activeTable && (
         <OrderViewModal
           table={activeTable}
-          orders={tableSessionOrders[activeTable.id] ? {
-            tableId: activeTable.id,
-            items: tableSessionOrders[activeTable.id].flatMap(o => o.items.map(i => ({
-              id: i.id,
-              orderId: o.id,
-              name: i.name,
-              qty: getItemQuantity(i as { quantity?: unknown; qty?: unknown }),
-              unitPrice: getItemUnitPrice(i as { unitPrice?: unknown; price?: unknown; totalAmount?: unknown }),
-              totalAmount: getItemtotalAmount(i as { totalAmount?: unknown; unitPrice?: unknown; price?: unknown }),
-              orderTotalAmount: toFiniteNumber((o as { totalAmount?: unknown }).totalAmount, NaN),
-            }))),
-            createdAt: new Date()
-          } : undefined}
+          orders={
+            tableSessionOrders[activeTable.id]?.length
+              ? {
+                  tableId: activeTable.id,
+                  // Build normalised items using correct DB keys
+                  items: buildOrderItems(tableSessionOrders[activeTable.id]),
+                  createdAt: new Date(),
+                }
+              : undefined
+          }
           billData={billData}
-          onClose={() => { setShowOrderView(false); setActiveTableId(null); setBillData(null) }}
+          onClose={() => {
+            setShowOrderView(false)
+            setActiveTableId(null)
+            setBillData(null)
+          }}
         />
       )}
 
+      {/* Add order */}
       {showAddOrder && activeTable && (
         <SharedAddOrderModal
           isOpen={showAddOrder}
           initialTableId={activeTable.id}
-          onClose={() => { setShowAddOrder(false); setActiveTableId(null) }}
+          onClose={() => {
+            setShowAddOrder(false)
+            setActiveTableId(null)
+          }}
         />
       )}
 
+      {/* Close session */}
       {closingSessionTable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm px-4">
           <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-gray-500">Close Session</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-gray-500">
+              Close Session
+            </p>
             <h3 className="mt-2 text-xl font-bold text-gray-900">{closingSessionTable.name}</h3>
-            <p className="mt-2 text-sm text-gray-600">Choose the payment result before closing this session. Successful payment will free the table and reset the customer screen.</p>
-
+            <p className="mt-2 text-sm text-gray-600">
+              Choose the payment result before closing this session. Successful payment will free the
+              table and reset the customer screen.
+            </p>
             <div className="mt-5 space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment status</label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Payment status
+              </label>
               <select
                 value={closePaymentStatus}
                 onChange={(e) => setClosePaymentStatus(e.target.value as 'SUCCESS' | 'FAILED')}
@@ -1361,7 +1507,6 @@ export function FloorCanvas() {
                 <option value="FAILED">Payment Failed</option>
               </select>
             </div>
-
             <div className="mt-6 flex gap-3">
               <Button
                 variant="outline"

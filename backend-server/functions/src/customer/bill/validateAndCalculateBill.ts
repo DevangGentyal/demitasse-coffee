@@ -104,7 +104,7 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 
 		const taxableAmount = Math.max(subtotal - discount, 0);
 		const tax = applyTax(taxableAmount);
-		const total = Math.round(taxableAmount + tax);
+		const total = taxableAmount + tax;
 
 		console.info('[customerBillingValidateAndCalculateBill] response', {
 			sessionId: sessionId || null,

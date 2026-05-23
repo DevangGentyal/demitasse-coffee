@@ -13,6 +13,13 @@ const currency = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 0,
 });
 
+const billCurrency = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const toDate = (value) => {
   if (!value) return new Date(0);
   if (value instanceof Date) return value;
@@ -297,7 +304,7 @@ export default function Orders() {
         subtotal: Number(value?.pricing?.subtotal ?? value.itemTotal ?? value.totalAmount ?? value.grandTotal ?? 0),
         discount: Number(value?.pricing?.discount || 0),
         tax: Number(value?.pricing?.tax || 0),
-        total: Number(value?.pricing?.total ?? value.totalAmount ?? value.grandTotal ?? value.itemTotal ?? 0),
+        total: Number((Number(value?.pricing?.subtotal ?? value.itemTotal ?? value.totalAmount ?? value.grandTotal ?? 0) - Number(value?.pricing?.discount || 0) + Number(value?.pricing?.tax || 0)).toFixed(2)),
       },
       noteToCustomer: String(value.noteToCustomer || "Please pay at the counter. Your bill is ready."),
     };
@@ -701,7 +708,7 @@ export default function Orders() {
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Subtotal</span>
-                      <span>{currency.format(billDetails.pricing.subtotal)}</span>
+                      <span>{billCurrency.format(billDetails.pricing.subtotal)}</span>
                     </div>
 
                     {billDetails.appliedOffers.map((offer, idx) => (
@@ -710,26 +717,26 @@ export default function Orders() {
                           <span className="text-[10px] bg-green-100 px-1.5 py-0.5 rounded uppercase">{offer.type || "Offer"}</span>
                           {offer.title}
                         </span>
-                        <span>-{currency.format(offer.amount)}</span>
+                        <span>-{billCurrency.format(offer.amount)}</span>
                       </div>
                     ))}
 
                     {billDetails.pricing.discount > 0 && billDetails.appliedOffers.length === 0 && (
                       <div className="flex justify-between text-sm text-green-600 font-medium">
                         <span>Total Discount</span>
-                        <span>-{currency.format(billDetails.pricing.discount)}</span>
+                        <span>-{billCurrency.format(billDetails.pricing.discount)}</span>
                       </div>
                     )}
 
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Tax (5% GST)</span>
-                      <span>{currency.format(billDetails.pricing.tax)}</span>
+                      <span>{billCurrency.format(billDetails.pricing.tax)}</span>
                     </div>
 
                     <div className="flex justify-between items-center pt-3 border-t border-gray-100 mt-2">
                       <span className="text-base font-bold text-gray-900">Total Payable</span>
                       <span className="text-2xl font-black text-blue-600 tracking-tight">
-                        {currency.format(billDetails.pricing.total)}
+                        {billCurrency.format(billDetails.pricing.total)}
                       </span>
                     </div>
                   </div>

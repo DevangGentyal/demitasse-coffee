@@ -59,7 +59,7 @@ export const generateBill = functions.https.onRequest(async (req: Request, res: 
 
 			const taxableAmount = Math.max(subtotal - discount, 0);
 			const tax = applyTax(taxableAmount);
-			const total = Math.round(taxableAmount + tax);
+			const total = taxableAmount + tax;
 			return { orderId: primaryOrderDoc.id, sessionId: primaryOrderDoc.data().sessionId || null, tableId: primaryOrderDoc.data().tableId || null, items: allItems, pricing: { subtotal, discount, tax, total }, appliedOffers, noteToCustomer: "Your calculated bill is ready." };
 		});
 
