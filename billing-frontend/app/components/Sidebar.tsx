@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
-import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag, UserPlus } from 'lucide-react'
+import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag, UserPlus, Settings } from 'lucide-react'
 import { useState } from 'react'
 
 export function Sidebar() {
@@ -38,7 +38,12 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-3">
-        {navItems.map(item => {
+        {[
+          { label: 'Home', href: '/home', icon: Home },
+          { label: 'Orders', href: '/orders', icon: ShoppingCart },
+          { label: 'Menu', href: '/menu', icon: MenuIcon },
+          { label: 'Offer', href: '/offer', icon: Tag },
+        ].map(item => {
           const Icon = item.icon
           const isActive = pathname === item.href
           return (
@@ -56,6 +61,32 @@ export function Sidebar() {
             </button>
           )
         })}
+
+        {/* Operations Menu Item */}
+        <button
+          onClick={() => router.push('/operations')}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+            pathname === '/operations' || pathname?.startsWith('/operations/')
+              ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/20'
+          }`}
+        >
+          <Settings size={20} />
+          <span className="font-medium">Operations</span>
+        </button>
+
+        {/* Outlet Details */}
+        <button
+          onClick={() => router.push('/details')}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+            pathname === '/details'
+              ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/20'
+          }`}
+        >
+          <Info size={20} />
+          <span className="font-medium">Outlet Details</span>
+        </button>
       </nav>
 
       <button
