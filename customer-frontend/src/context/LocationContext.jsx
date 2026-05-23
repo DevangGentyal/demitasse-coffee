@@ -141,6 +141,19 @@ export function LocationProvider({ children }) {
                     localStorage.setItem("selectedTableOwnerId", ownerId);
                 }
 
+                const tableStatus = typeof tableData.status === "string" ? tableData.status.trim().toUpperCase() : "";
+                const tableName = typeof tableData.name === "string" ? tableData.name : storedTableId;
+                const tableSessionId = typeof tableData.activeSessionId === "string" ? tableData.activeSessionId : storedSessionId || "";
+
+                if (tableStatus === "BILL") {
+                    requestPaymentLock({
+                        sessionId: tableSessionId,
+                        tableId: storedTableId,
+                        tableName,
+                    });
+                    return;
+                }
+
                 // Verify session is still active (if stored)
                 if (storedSessionId) {
                     try {
@@ -212,12 +225,22 @@ export function LocationProvider({ children }) {
                 }
 
                 const activeSessionId = typeof data.activeSessionId === "string" ? data.activeSessionId : "";
+                const tableStatus = typeof data.status === "string" ? data.status.trim().toUpperCase() : "";
                 const occupied = !!data.occupied;
                 const selectedAt = Number(localStorage.getItem("sessionSelectedAt") || 0);
                 const isFreshSelection = selectedAt > 0 && Date.now() - selectedAt < SESSION_SELECTION_GRACE_MS;
 
                 const isPaymentLocked = localStorage.getItem("isClosingSession") === "true";
                 const lockSessionId = localStorage.getItem("paymentLockSessionId") || selectedSessionId || "";
+
+                if (tableStatus === "BILL") {
+                    requestPaymentLock({
+                        sessionId: activeSessionId || lockSessionId || selectedSessionId || "",
+                        tableId: selectedTableId,
+                        tableName: typeof data.name === "string" ? data.name : selectedTableName || tableNumber || "",
+                    });
+                    return;
+                }
 
                 if (isPaymentLocked) {
                     const lockStillActive = Boolean(activeSessionId && activeSessionId === lockSessionId && occupied);

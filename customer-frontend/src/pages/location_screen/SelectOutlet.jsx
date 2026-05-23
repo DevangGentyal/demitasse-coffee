@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react"
-import { getOutlets, getTablesByOutletId, claimTableOwner } from "../../lib/backendApi"
+import { getOutlets, getTablesByOutletId } from "../../lib/backendApi"
 import { useNavigate } from "react-router-dom"
 import { useLocationContext } from "../../context/LocationContext"
 import { useAuth } from "../../context/AuthContext"
@@ -257,21 +257,6 @@ const SelectOutlet = ({ onClose }) => {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // Claim owner
-  // ────────────────────────────────────────────────────────────────────────────
-
-  const claimTableOwnerIfMissing = async (tableId) => {
-    if (!user?.uid) return ""
-    try {
-      const payload = await claimTableOwner(tableId)
-      return payload.ownerId || ""
-    } catch (err) {
-      console.error('claimTableOwner failed', err)
-      return ""
-    }
-  }
-
-  // ────────────────────────────────────────────────────────────────────────────
   // Continue
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -322,9 +307,6 @@ const SelectOutlet = ({ onClose }) => {
         return
       }
 
-      // Best-effort owner claim (may return "" for joiners or guests)
-      const claimedOwnerId = await claimTableOwnerIfMissing(selectedTable.id)
-
       // Open/join session via backend — this is the source of truth
       const sessionResponse = await fetch(
         `${API_BASE}/customerSessionOpen`,
@@ -362,33 +344,29 @@ const SelectOutlet = ({ onClose }) => {
       }
 
       const sessionId = String(sessionPayload.sessionId)
-      const isJoining = sessionPayload.created === false
+      const currentParticipantId = participantFields.userId || participantFields.guestId || ""
+      const resolvedOwnerId = String(sessionPayload.ownerId || "") || currentParticipantId
+      const isJoining = sessionPayload.created === false && resolvedOwnerId !== currentParticipantId
       console.info('[customer/select-outlet] session resolved', {
         sessionId,
         created: sessionPayload.created,
         isJoining,
+        ownerId: resolvedOwnerId,
       })
 
-      // Resolve ownerId: for guests, claimTableOwnerIfMissing returns empty.
-      // For new sessions, the current participant IS the owner. 
-      // We fall back to the current participant ID to ensure the session can start without false errors.
-      const currentParticipantId = participantFields.userId || participantFields.guestId || ""
-      const ownerId = claimedOwnerId || currentParticipantId
-
-      // For NEW sessions, owner is strictly required
-      if (!ownerId) {
+      if (!resolvedOwnerId) {
         showMsg(
           "Unable to identify the table owner. Please reselect the table."
         )
         return
       }
 
-      // If joining an existing session, show confirmation dialog
+      // If joining an existing session as a different participant, show confirmation dialog
       if (isJoining) {
         setJoinDialog({
           tableId: selectedTable.id,
           tableName: selectedTable.name,
-          ownerId,
+          ownerId: resolvedOwnerId,
           sessionId,
           outletId: selectedOutlet,
           outletName: selectedObj?.name || "",
@@ -401,7 +379,7 @@ const SelectOutlet = ({ onClose }) => {
       setTableSelection(
         selectedTable.id,
         selectedTable.name,
-        ownerId,
+        resolvedOwnerId,
         sessionId
       )
 

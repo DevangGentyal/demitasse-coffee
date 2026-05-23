@@ -61,9 +61,17 @@ export const openSession = functions.https.onRequest(async (req: Request, res: R
       tableId: resolvedTableId,
       sessionId: sessionResult.sessionId,
       created: sessionResult.created,
+      ownerId: sessionResult.ownerId,
+      participants: sessionResult.participants,
     });
 
-    res.status(200).json({ success: true, sessionId: sessionResult.sessionId, created: sessionResult.created });
+    res.status(200).json({
+      success: true,
+      sessionId: sessionResult.sessionId,
+      created: sessionResult.created,
+      ownerId: sessionResult.ownerId,
+      participants: sessionResult.participants,
+    });
     return;
   } catch (error) {
     console.error('customer openSession error:', error);

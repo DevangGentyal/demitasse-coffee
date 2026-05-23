@@ -154,7 +154,8 @@ export const closeSession = functions.https.onRequest(
 							status: "IDLE",
 							occupied: false,
 							activeSessionId: null,
-							paymentStatus: resolvedPaymentStatus,
+							owner: null,
+							participants: FieldValue.delete(),
 							updatedAt: archiveTimestamp,
 						});
 					}
@@ -187,7 +188,14 @@ export const closeSession = functions.https.onRequest(
 				if (sessionRef) {
 					tx.update(sessionRef, { status: "CLOSED", paymentStatus: "SUCCESS", closedAt: archiveTimestamp, updatedAt: archiveTimestamp, totalAmount: pricing.total });
 				}
-				tx.update(tableRef, { occupied: false, activeSessionId: null, status: "IDLE", paymentStatus: "SUCCESS", updatedAt: archiveTimestamp });
+				tx.update(tableRef, {
+					occupied: false,
+					activeSessionId: null,
+					status: "IDLE",
+					owner: null,
+					participants: FieldValue.delete(),
+					updatedAt: archiveTimestamp,
+				});
 
 				return { paymentId: successPaymentRef.id };
 			});
