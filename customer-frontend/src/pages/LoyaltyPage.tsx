@@ -9,8 +9,8 @@ export default function LoyaltyPage() {
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr from-amber-200 to-amber-100 shadow-lg shadow-amber-200/50 text-amber-700">
           <SparklesIcon className="w-8 h-8" />
         </div>
-        <h1 className="text-3xl font-bold text-[#3e2723] tracking-tight">Demitasse Perks</h1>
-        <p className="mt-2 text-sm font-medium text-[#6B4F4F]">Something exciting is brewing ☕</p>
+        <h1 className="text-3xl font-bold text-[#3e2723] tracking-tight">Loyalty Coming Soon</h1>
+        <p className="mt-2 text-sm font-medium text-[#6B4F4F]">Something rewarding is brewing for your next cup ☕</p>
       </div>
 
       {/* Main Teaser Card */}
@@ -69,6 +69,13 @@ export default function LoyaltyPage() {
           <h3 className="text-sm font-bold text-gray-900">Earn Faster</h3>
           <p className="mt-1 text-[11px] text-gray-500 leading-tight">Double points on weekend orders.</p>
         </div>
+      </div>
+
+      <div className="mt-6 rounded-[1.75rem] border border-amber-200/70 bg-amber-50/80 p-5 text-center shadow-sm backdrop-blur-sm">
+        <p className="text-xs font-bold uppercase tracking-[0.3em] text-amber-700">Coming Soon</p>
+        <p className="mt-2 text-sm text-amber-900/80 leading-relaxed">
+          Points, rewards, and birthday treats will land here once the loyalty program goes live.
+        </p>
       </div>
     </div>
   );

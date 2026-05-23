@@ -47,7 +47,7 @@ export function TableDetailModal({ isOpen, table, onClose }: TableDetailModalPro
           <div className="bg-yellow-100 rounded-lg p-6 border-2 border-yellow-300 text-center">
             <p className="text-gray-600 text-sm mb-2">CURRENT BILL</p>
             <p className="text-5xl font-bold text-gray-900">
-              ₹{table.billAmount.toFixed(2)}
+              {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Math.round(table.billAmount))}
             </p>
           </div>
 

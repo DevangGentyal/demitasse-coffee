@@ -42,6 +42,6 @@ export const syncOrderCreated = onDocumentCreated('orders/{orderId}', async (eve
 		}
 
 		tx.set(orderRef, { sessionId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-		tx.set(tableRef, { isOccupied: true, activeSessionId: sessionId, billAmount: FieldValue.increment(orderTotal), customerName: orderData?.customerName || latestTableData.customerName || '', customerPhone: orderData?.customerPhone || latestTableData.customerPhone || '', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+		tx.set(tableRef, { occupied: true, activeSessionId: sessionId, billAmount: FieldValue.increment(orderTotal), customerName: orderData?.customerName || latestTableData.customerName || '', customerPhone: orderData?.customerPhone || latestTableData.customerPhone || '', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 	});
 });

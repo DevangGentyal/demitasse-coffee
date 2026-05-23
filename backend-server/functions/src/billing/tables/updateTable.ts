@@ -19,7 +19,12 @@ export const updateTable = functions.https.onRequest(
 			const { tableId, ...updates } = req.body;
 			if (!tableId) { res.status(400).json({ success: false, message: "tableId is required" }); return; }
 
-			await db.collection("tables").doc(tableId).update({ ...updates, updatedAt: FieldValue.serverTimestamp() });
+			const sanitizedUpdates: Record<string, unknown> = { ...updates };
+			if (Object.prototype.hasOwnProperty.call(sanitizedUpdates, "occupied")) {
+				sanitizedUpdates.occupied = Boolean(sanitizedUpdates.occupied);
+			}
+
+			await db.collection("tables").doc(tableId).update({ ...sanitizedUpdates, updatedAt: FieldValue.serverTimestamp() });
 			res.status(200).json({ success: true, message: "Table updated successfully" });
 		} catch (error) {
 			console.error("updateTable error:", error);

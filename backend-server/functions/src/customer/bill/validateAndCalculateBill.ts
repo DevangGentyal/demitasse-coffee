@@ -84,7 +84,9 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			return;
 		}
 
-		const subtotal = calculateSubtotal(items);
+		let subtotal = calculateSubtotal(items);
+		// Ensure subtotal is integer rupees
+		subtotal = Math.round(subtotal);
 		let discount = 0;
 		let appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }> = [];
 		let discountSources: Array<{ offerId: string; title: string; type: string; amount: number }> = [];
@@ -103,8 +105,8 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 		}
 
 		const taxableAmount = Math.max(subtotal - discount, 0);
-		const tax = applyTax(taxableAmount);
-		const total = taxableAmount + tax;
+		const tax = applyTax(taxableAmount); // already floored
+		const total = Math.round(taxableAmount) - Math.round(discount) + Math.round(tax);
 
 		console.info('[customerBillingValidateAndCalculateBill] response', {
 			sessionId: sessionId || null,

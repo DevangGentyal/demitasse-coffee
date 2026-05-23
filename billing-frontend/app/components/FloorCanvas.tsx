@@ -83,6 +83,11 @@ const toSafeNumber = (value: unknown, fallback = 0): number => {
   return Number.isFinite(numeric) ? numeric : fallback
 }
 
+const formatRupee = (value: number) => {
+  const v = Number.isFinite(Number(value)) ? Math.round(Number(value)) : 0
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v)
+}
+
 /** qty field on a DB item */
 const getItemQty = (item: { qty?: unknown }): number =>
   toSafeNumber(item.qty, 0)
@@ -166,15 +171,15 @@ function OrderViewModal({
   const pricing = useMemo(() => {
     if (hasBill && billData?.pricing) return billData.pricing
 
-    // No server bill – compute locally
-    const subtotal = getViewBillSubtotal(items)
+    // No server bill – compute locally but use the same integer rules as the server:
+    const subtotal = Math.round(getViewBillSubtotal(items))
     const discount = 0
-    const tax = Number((subtotal * 0.05).toFixed(2))
+    const tax = Math.floor(subtotal * 0.05)
     const total = subtotal - discount + tax
     return { subtotal, discount, tax, total }
   }, [hasBill, billData, items])
 
-  const displayTotal = Number((pricing.subtotal - pricing.discount + pricing.tax).toFixed(2))
+  const displayTotal = Number(pricing.subtotal - pricing.discount + pricing.tax)
 
   const appliedOffers = billData?.appliedOffers ?? []
 
@@ -261,7 +266,7 @@ function OrderViewModal({
                                 </span>
                               )}
                             </div>
-                            <div className="text-xs text-gray-400 mt-0.5">₹{item.unitPrice.toFixed(2)} each</div>
+                            <div className="text-xs text-gray-400 mt-0.5">{formatRupee(item.unitPrice)} each</div>
                           </div>
 
                           {/* qty */}
@@ -271,7 +276,7 @@ function OrderViewModal({
 
                           {/* totalPrice */}
                           <div className="w-24 text-right text-sm font-semibold text-gray-900 shrink-0">
-                            ₹{item.totalPrice.toFixed(2)}
+                            {formatRupee(item.totalPrice)}
                           </div>
 
                           {/* Delete */}
@@ -329,7 +334,7 @@ function OrderViewModal({
           <div className="space-y-2">
             <div className="flex justify-between items-center text-sm text-gray-600">
               <span>Subtotal</span>
-              <span>₹{pricing.subtotal.toFixed(2)}</span>
+              <span>{formatRupee(pricing.subtotal)}</span>
             </div>
 
             {appliedOffers.map((offer, idx) => (
@@ -338,27 +343,27 @@ function OrderViewModal({
                   <span className="text-[10px] bg-green-100 px-1.5 py-0.5 rounded uppercase">{offer.type || 'Offer'}</span>
                   {offer.title}
                 </span>
-                <span>-₹{offer.amount.toFixed(2)}</span>
+                <span>-{formatRupee(offer.amount)}</span>
               </div>
             ))}
 
             {pricing.discount > 0 && appliedOffers.length === 0 && (
               <div className="flex justify-between items-center text-sm text-green-600 font-medium">
                 <span>Discount</span>
-                <span>-₹{pricing.discount.toFixed(2)}</span>
+                <span>-{formatRupee(pricing.discount)}</span>
               </div>
             )}
 
             <div className="flex justify-between items-center text-sm text-gray-600">
               <span>Tax (5% GST)</span>
-              <span>₹{pricing.tax.toFixed(2)}</span>
+              <span>{formatRupee(pricing.tax)}</span>
             </div>
 
             <div className="flex justify-between items-center pt-2 border-t border-gray-200">
               <span className="text-base font-semibold text-gray-700">
                 {hasBill ? 'Total Payable' : 'Total'}
               </span>
-              <span className="text-2xl font-bold text-gray-900">₹{displayTotal.toFixed(2)}</span>
+              <span className="text-2xl font-bold text-gray-900">{formatRupee(displayTotal)}</span>
             </div>
           </div>
 
@@ -703,7 +708,6 @@ export function FloorCanvas() {
       billAmount: 0,
       activeSessionId: undefined,
       customerName: undefined,
-      isOccupied: false,
     }
     setTables([...tables, newTable])
     toast.success('Table added to draft layout')
@@ -1026,7 +1030,9 @@ export function FloorCanvas() {
     }
     try {
       const API_BASE = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
-      const response = await fetch(`${API_BASE}/billingGenerateBill`, {
+      // Use the canonical customer billing endpoint so server-side rules (tax rounding)
+      // are applied consistently for both customer and billing apps.
+      const response = await fetch(`${API_BASE}/customerBillingGenerateBill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1039,7 +1045,13 @@ export function FloorCanvas() {
         throw new Error(result?.message || 'Failed to generate bill')
       }
       setBillData({
-        pricing: result.pricing || { subtotal: 0, discount: 0, tax: 0, total: 0 },
+        // Ensure numeric integers are used from server
+        pricing: {
+          subtotal: Number.isFinite(result.pricing?.subtotal) ? Math.round(result.pricing.subtotal) : 0,
+          discount: Number.isFinite(result.pricing?.discount) ? Math.round(result.pricing.discount) : 0,
+          tax: Number.isFinite(result.pricing?.tax) ? Math.round(result.pricing.tax) : 0,
+          total: Number.isFinite(result.pricing?.total) ? Math.round(result.pricing.total) : 0,
+        },
         appliedOffers: Array.isArray(result.appliedOffers) ? result.appliedOffers : [],
       })
       setActiveTableId(table.id)
@@ -1267,7 +1279,7 @@ export function FloorCanvas() {
           {tables.map((table: any) => {
             const relatedOrders = tableSessionOrders[table.id] || []
             const hasLiveOrders = relatedOrders.length > 0
-            const isTableActive = Boolean(table.occupied || table.isOccupied || hasLiveOrders)
+            const isTableActive = Boolean(table.occupied || hasLiveOrders)
             const isBillRequested =
               String(table.status || table.paymentStatus || '').toUpperCase() === 'BILL'
 

@@ -44,6 +44,11 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   const [error, setError] = useState<string | null>(null)
   const [outletId, setOutletId] = useState<string | null>(null)
 
+  const formatRupee = (value: number) => {
+    const v = Number.isFinite(Number(value)) ? Math.round(Number(value)) : 0
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v)
+  }
+
   const serializeOrderItem = (item: OrderItem) => ({
     id: item.id,
     name: item.name,
@@ -385,7 +390,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                               {product.category}
                             </div>
                           </div>
-                          <p className="text-sm font-sans font-bold text-primary">₹{product.price.toFixed(2)}</p>
+                          <p className="text-sm font-sans font-bold text-primary">{formatRupee(product.price)}</p>
                         </div>
                         <Button 
                           size="sm" 
@@ -421,8 +426,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                       <div className="flex-1">
                         <p className="text-sm font-medium text-foreground">{item.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          Qty: {item.quantity} × ₹{item.price.toFixed(2)} = ₹
-                          {(item.quantity * item.price).toFixed(2)}
+                          Qty: {item.quantity} × {formatRupee(item.price)} = {formatRupee(item.quantity * item.price)}
                         </p>
                       </div>
                       <button
@@ -436,7 +440,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                   {/* Total */}
                   <div className="mt-3 pt-3 border-t border-border">
                     <p className="text-sm font-bold text-foreground text-right">
-                      Total: ₹{items.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}
+                      Total: {formatRupee(items.reduce((sum, item) => sum + item.price * item.quantity, 0))}
                     </p>
                   </div>
                 </div>

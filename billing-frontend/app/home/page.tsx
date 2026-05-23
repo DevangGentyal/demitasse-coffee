@@ -56,7 +56,7 @@ export default function HomePage() {
                 <p className="text-xs text-muted-foreground mt-1">Occupied</p>
               </div>
               <div className="p-4 bg-card rounded-lg border border-border text-center">
-                <p className="text-2xl font-bold text-accent">${totalRevenue.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-accent">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Math.round(totalRevenue))}</p>
                 <p className="text-xs text-muted-foreground mt-1">Total Revenue</p>
               </div>
               <div className="p-4 bg-card rounded-lg border border-border text-center">

@@ -16,8 +16,16 @@ const currency = new Intl.NumberFormat("en-IN", {
 const billCurrency = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
+  maximumFractionDigits: 0,
+});
+
+const orderTimeFormat = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
 });
 
 const toDate = (value) => {
@@ -29,6 +37,11 @@ const toDate = (value) => {
     } catch {
       return new Date(0);
     }
+  }
+  const seconds = Number(value?.seconds ?? value?._seconds);
+  const nanoseconds = Number(value?.nanoseconds ?? value?._nanoseconds ?? 0);
+  if (Number.isFinite(seconds)) {
+    return new Date(seconds * 1000 + Math.floor(nanoseconds / 1e6));
   }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? new Date(0) : parsed;
@@ -114,6 +127,7 @@ function OrderCard({ order, accent = "green" }) {
   const itemCount = Array.isArray(order.items) ? order.items.length : 0;
   const chip = accent === "green" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800";
   const orderTotal = getOrderTotal(order);
+  const placedAt = toDate(order.createdAt);
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -121,7 +135,7 @@ function OrderCard({ order, accent = "green" }) {
         <div>
           <p className="text-xs uppercase tracking-wide text-gray-500">Order</p>
           <h3 className="text-base font-semibold text-gray-900">{order.id.slice(0, 8)}</h3>
-          <p className="text-xs text-gray-500 mt-1">{toDate(order.createdAt).toLocaleString()}</p>
+          <p className="text-xs text-gray-500 mt-1">{orderTimeFormat.format(placedAt)}</p>
         </div>
 
       </div>
@@ -296,7 +310,7 @@ export default function Orders() {
       paymentId: String(value.paymentId || ""),
       tableId: String(value.tableId || selectedTableId || ""),
       sessionId: String(value.sessionId || ""),
-      createdAt: toDate(value.generatedAt || value.createdAt || value.updatedAt),
+      createdAt: toDate(value.createdAt || value.updatedAt),
       paymentStatus: String(value.paymentStatus || "PENDING_COUNTER"),
       items: Array.isArray(value.items) ? value.items.map(normalizeBillItem) : [],
       appliedOffers: Array.isArray(value.appliedOffers) ? value.appliedOffers : [],
@@ -304,7 +318,7 @@ export default function Orders() {
         subtotal: Number(value?.pricing?.subtotal ?? value.itemTotal ?? value.totalAmount ?? value.grandTotal ?? 0),
         discount: Number(value?.pricing?.discount || 0),
         tax: Number(value?.pricing?.tax || 0),
-        total: Number((Number(value?.pricing?.subtotal ?? value.itemTotal ?? value.totalAmount ?? value.grandTotal ?? 0) - Number(value?.pricing?.discount || 0) + Number(value?.pricing?.tax || 0)).toFixed(2)),
+        total: Number(value?.pricing?.total ?? value.totalAmount ?? value.grandTotal ?? 0),
       },
       noteToCustomer: String(value.noteToCustomer || "Please pay at the counter. Your bill is ready."),
     };

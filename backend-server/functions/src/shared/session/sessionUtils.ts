@@ -23,7 +23,7 @@ export const createOrGetSession = async (
 		const active = tableData.activeSessionId;
 		console.info(debugPrefix, 'existing table state', {
 			activeSessionId: active || null,
-			isOccupied: Boolean(tableData.isOccupied),
+			occupied: Boolean(tableData.occupied),
 			tableOutletId: String(tableData.outletId || '').trim() || null,
 		});
 		if (active) {
@@ -66,7 +66,7 @@ export const createOrGetSession = async (
 
 	await db.runTransaction(async (tx) => {
 		tx.set(sessionRef, sessionPayload);
-		tx.set(tableRef, { isOccupied: true, activeSessionId: sessionRef.id }, { merge: true });
+		tx.set(tableRef, { occupied: true, activeSessionId: sessionRef.id }, { merge: true });
 	});
 	console.info(debugPrefix, 'new session committed', { sessionId: sessionRef.id });
 
@@ -103,7 +103,7 @@ export const closeSession = async (sessionId: string, closedBy?: UserBrief) => {
 
 		if (tableId) {
 			const tableRef = db.collection('tables').doc(String(tableId));
-			tx.set(tableRef, { isOccupied: false, activeSessionId: null }, { merge: true });
+			tx.set(tableRef, { occupied: false, activeSessionId: null }, { merge: true });
 		}
 	});
 };

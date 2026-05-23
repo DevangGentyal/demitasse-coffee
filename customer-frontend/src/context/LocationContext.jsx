@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { getSessionById, getTableById } from "../lib/backendApi";
 
 const LocationContext = createContext();
@@ -54,6 +54,8 @@ const notifySessionEnded = () => {
 export const useLocationContext = () => useContext(LocationContext);
 
 export function LocationProvider({ children }) {
+    const sessionPollTokenRef = useRef(0);
+
     const [selectedOutlet, setSelectedOutletState] = useState(
         localStorage.getItem("selectedOutlet") || ""
     );
@@ -86,7 +88,19 @@ export function LocationProvider({ children }) {
         localStorage.getItem("isClosingSession") === "true"
     );
 
+    const resetSelectionState = () => {
+        setSelectedOutletState("");
+        setOutletNameState("");
+        setTableNumberState("");
+        setSelectedTableIdState("");
+        setSelectedTableNameState("");
+        setSelectedTableOwnerIdState("");
+        setSelectedSessionIdState("");
+    };
+
     useEffect(() => {
+        let cancelled = false;
+
         const verifyStoredSession = async () => {
             const storedSessionId = localStorage.getItem("selectedSessionId") || getCookie("selectedSessionId");
             const storedTableId = localStorage.getItem("selectedTableId") || "";
@@ -106,28 +120,18 @@ export function LocationProvider({ children }) {
             try {
                 const tableDocs = await getTableById(storedTableId);
                 const tableData = tableDocs[0] || null;
+                if (cancelled) return;
+
                 if (!tableData) {
                     clearStoredLocation();
-                    setSelectedOutletState("");
-                    setOutletNameState("");
-                    setTableNumberState("");
-                    setSelectedTableIdState("");
-                    setSelectedTableNameState("");
-                    setSelectedTableOwnerIdState("");
-                    setSelectedSessionIdState("");
+                    resetSelectionState();
                     return;
                 }
 
                 const tableOutletId = typeof tableData.outletId === "string" ? tableData.outletId : "";
                 if (tableOutletId && tableOutletId !== storedOutletId) {
                     clearStoredLocation();
-                    setSelectedOutletState("");
-                    setOutletNameState("");
-                    setTableNumberState("");
-                    setSelectedTableIdState("");
-                    setSelectedTableNameState("");
-                    setSelectedTableOwnerIdState("");
-                    setSelectedSessionIdState("");
+                    resetSelectionState();
                     return;
                 }
 
@@ -149,6 +153,7 @@ export function LocationProvider({ children }) {
                             const sessionTableId = typeof sessionData.tableId === "string" ? sessionData.tableId : "";
                             if (sessionStatus === "ACTIVE" && (!sessionTableId || sessionTableId === storedTableId) && (sessionDocId === storedSessionId || sessionFieldId === storedSessionId)) {
                                 // Session is still active, restore it
+                                if (cancelled) return;
                                 console.info("[customer/location] restored stored session", {
                                     storedSessionId,
                                     sessionDocId,
@@ -172,6 +177,7 @@ export function LocationProvider({ children }) {
                 console.warn("Stored session is no longer active; cleared sessionId but table selection preserved for fallback");
                 localStorage.removeItem("selectedSessionId");
                 deleteCookie("selectedSessionId");
+                if (cancelled) return;
                 setSelectedSessionIdState("");
             } catch (error) {
                 console.error("Failed to verify stored table:", error);
@@ -179,33 +185,34 @@ export function LocationProvider({ children }) {
         };
 
         verifyStoredSession();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     // Listen for remote table resets. If an admin closes the session or resets the table
-    // (clears `activeSessionId` or marks `isOccupied=false`), clear the client's stored
+    // (clears `activeSessionId` or marks `occupied=false`), clear the client's stored
     // outlet/table/session so they must re-select.
     useEffect(() => {
         if (!selectedTableId) return undefined;
+        const pollToken = ++sessionPollTokenRef.current;
         let clearTimer = null;
+        let cancelled = false;
 
         const pollTable = async () => {
             try {
                 const tableDocs = await getTableById(selectedTableId);
+                if (cancelled || pollToken !== sessionPollTokenRef.current) return;
+
                 const data = tableDocs[0] || null;
                 if (!data) {
                     clearLocation();
-                    setSelectedOutletState("");
-                    setOutletNameState("");
-                    setTableNumberState("");
-                    setSelectedTableIdState("");
-                    setSelectedTableNameState("");
-                    setSelectedTableOwnerIdState("");
-                    setSelectedSessionIdState("");
+                    resetSelectionState();
                     return;
                 }
 
                 const activeSessionId = typeof data.activeSessionId === "string" ? data.activeSessionId : "";
-                const isOccupied = !!data.isOccupied;
+                const occupied = !!data.occupied;
                 const selectedAt = Number(localStorage.getItem("sessionSelectedAt") || 0);
                 const isFreshSelection = selectedAt > 0 && Date.now() - selectedAt < SESSION_SELECTION_GRACE_MS;
 
@@ -213,7 +220,7 @@ export function LocationProvider({ children }) {
                 const lockSessionId = localStorage.getItem("paymentLockSessionId") || selectedSessionId || "";
 
                 if (isPaymentLocked) {
-                    const lockStillActive = Boolean(activeSessionId && activeSessionId === lockSessionId && isOccupied);
+                    const lockStillActive = Boolean(activeSessionId && activeSessionId === lockSessionId && occupied);
                     if (lockStillActive) {
                         if (clearTimer) {
                             clearTimeout(clearTimer);
@@ -224,13 +231,7 @@ export function LocationProvider({ children }) {
 
                     clearPaymentLock();
                     clearLocation();
-                    setSelectedOutletState("");
-                    setOutletNameState("");
-                    setTableNumberState("");
-                    setSelectedTableIdState("");
-                    setSelectedTableNameState("");
-                    setSelectedTableOwnerIdState("");
-                    setSelectedSessionIdState("");
+                    resetSelectionState();
                     return;
                 }
 
@@ -243,20 +244,15 @@ export function LocationProvider({ children }) {
                 const shouldClear =
                     !isFreshSelection &&
                     currentStoredSessionId !== "" &&
-                    (!activeSessionId || activeSessionId !== currentStoredSessionId || !isOccupied);
+                    (!activeSessionId || activeSessionId !== currentStoredSessionId || !occupied);
 
                 if (shouldClear) {
                     if (!clearTimer) {
                         clearTimer = setTimeout(() => {
+                            if (cancelled || pollToken !== sessionPollTokenRef.current) return;
                             notifySessionEnded();
                             clearLocation();
-                            setSelectedOutletState("");
-                            setOutletNameState("");
-                            setTableNumberState("");
-                            setSelectedTableIdState("");
-                            setSelectedTableNameState("");
-                            setSelectedTableOwnerIdState("");
-                            setSelectedSessionIdState("");
+                            resetSelectionState();
                         }, 3000);
                     }
                 } else if (clearTimer) {
@@ -272,6 +268,7 @@ export function LocationProvider({ children }) {
         const intervalId = setInterval(pollTable, 5000);
 
         return () => {
+            cancelled = true;
             clearInterval(intervalId);
             if (clearTimer) clearTimeout(clearTimer);
         };
@@ -347,13 +344,7 @@ export function LocationProvider({ children }) {
 
     const clearLocation = () => {
         clearStoredLocation();
-        setSelectedOutletState("");
-        setOutletNameState("");
-        setTableNumberState("");
-        setSelectedTableIdState("");
-        setSelectedTableNameState("");
-        setSelectedTableOwnerIdState("");
-        setSelectedSessionIdState("");
+        resetSelectionState();
         setPaymentLockActive(false);
     };
 

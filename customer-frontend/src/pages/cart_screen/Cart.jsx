@@ -277,7 +277,7 @@ const Cart = () => {
           await fetch(`${API_BASE}/updateTable`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tableId: selectedTableId, isOccupied: true, occupied: true }),
+            body: JSON.stringify({ tableId: selectedTableId, occupied: true }),
           })
         } catch (err) {
           console.warn('Failed to update table occupancy via backend:', err)

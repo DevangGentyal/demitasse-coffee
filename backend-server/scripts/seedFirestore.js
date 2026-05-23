@@ -14,7 +14,7 @@ async function seed() {
     await db.collection('outlets').doc('test-outlet').set({ name: 'Test Outlet', lat: 12.0, lng: 77.0 });
     console.log('Created outlet test-outlet');
 
-    await db.collection('tables').doc('test-table').set({ name: 'T1', outletId: 'test-outlet', isOccupied: false });
+    await db.collection('tables').doc('test-table').set({ name: 'T1', outletId: 'test-outlet', occupied: false });
     console.log('Created table test-table');
 
     // create a sample product

@@ -113,10 +113,10 @@ export function TableCard({ table }: { table: Table }) {
                       <span className="font-medium text-foreground">{table.customerName}</span>
                     </div>
                   )}
-                  <div className="p-2 bg-accent/10 rounded">
+                    <div className="p-2 bg-accent/10 rounded">
                     <p className="text-xs text-muted-foreground">Current Bill</p>
                     <p className="text-xl font-bold text-accent">
-                      ${table.billAmount.toFixed(2)}
+                      {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Math.round(table.billAmount))}
                     </p>
                   </div>
                 </div>

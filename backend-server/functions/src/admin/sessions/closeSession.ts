@@ -108,7 +108,7 @@ export const closeSession = functions.https.onRequest(
 						tx.update(tableRef, {
 							status: "BILL",
 							paymentStatus: "BILL",
-							isOccupied: true,
+							occupied: true,
 							updatedAt: archiveTimestamp,
 						});
 					}
@@ -152,7 +152,7 @@ export const closeSession = functions.https.onRequest(
 					if (resolvedTableId || resolvedSessionTableId) {
 						tx.update(tableRef, {
 							status: "IDLE",
-							isOccupied: false,
+							occupied: false,
 							activeSessionId: null,
 							paymentStatus: resolvedPaymentStatus,
 							updatedAt: archiveTimestamp,
@@ -187,7 +187,7 @@ export const closeSession = functions.https.onRequest(
 				if (sessionRef) {
 					tx.update(sessionRef, { status: "CLOSED", paymentStatus: "SUCCESS", closedAt: archiveTimestamp, updatedAt: archiveTimestamp, totalAmount: pricing.total });
 				}
-				tx.update(tableRef, { isOccupied: false, activeSessionId: null, status: "IDLE", paymentStatus: "SUCCESS", updatedAt: archiveTimestamp });
+				tx.update(tableRef, { occupied: false, activeSessionId: null, status: "IDLE", paymentStatus: "SUCCESS", updatedAt: archiveTimestamp });
 
 				return { paymentId: successPaymentRef.id };
 			});

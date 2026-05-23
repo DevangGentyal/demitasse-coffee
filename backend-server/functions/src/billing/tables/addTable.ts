@@ -56,7 +56,7 @@ export const addTable = functions.https.onRequest(
 					tx.set(db.collection("outletTableCounters").doc(outletId), { outletId, latestTableNumber: nextTableNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 				}
 
-				tx.set(tableRef, { id: tableRef.id, outletId, name: resolvedName, capacity: capacity || 2, x: x || 100, y: y || 100, color: color || "#fbbf24", isOccupied: false, activeSessionId: null, billAmount: 0, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+				tx.set(tableRef, { id: tableRef.id, outletId, name: resolvedName, capacity: capacity || 2, x: x || 100, y: y || 100, color: color || "#fbbf24", occupied: false, activeSessionId: null, billAmount: 0, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
 				return { id: tableRef.id, name: resolvedName };
 			});
 

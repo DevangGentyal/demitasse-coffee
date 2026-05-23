@@ -51,9 +51,7 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /payments/{id} {
-      allow read, write: if false;
-    }
+    
 
     match /customers/{id} {
       allow read, write: if false;

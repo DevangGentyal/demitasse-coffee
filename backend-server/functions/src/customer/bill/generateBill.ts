@@ -52,14 +52,17 @@ export const generateBill = functions.https.onRequest(async (req: Request, res: 
 			for (const doc of candidates) { const data = doc.data(); if (!outletId) outletId = String(data.outletId || ""); allItems.push(...sanitizeOrderItems(Array.isArray(data.items) ? data.items : [])); const curTime = readNumber((data.updatedAt as { toMillis?: () => number })?.toMillis?.(), 0) || readNumber((data.createdAt as { toMillis?: () => number })?.toMillis?.(), 0); const priTime = readNumber((primaryOrderDoc.data().updatedAt as { toMillis?: () => number })?.toMillis?.(), 0) || readNumber((primaryOrderDoc.data().createdAt as { toMillis?: () => number })?.toMillis?.(), 0); if (curTime > priTime) primaryOrderDoc = doc; }
 			if (allItems.length === 0) throw new Error("EMPTY_CART");
 
-			const subtotal = calculateSubtotal(allItems);
+			let subtotal = calculateSubtotal(allItems);
+			// Ensure subtotal is an integer rupee amount
+			subtotal = Math.round(subtotal);
 			const savedOfferId = primaryOrderDoc.data().offerId ? String(primaryOrderDoc.data().offerId) : null;
 			let discount = 0; let appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }> = [];
 			if (savedOfferId) { const offerSnap = await tx.get(db.collection("offers").doc(savedOfferId)); if (offerSnap.exists) { const offerResult = applyOffer({ outletId, items: allItems, subtotal }, { id: offerSnap.id, ...(offerSnap.data() || {}) }); discount = offerResult.discount; appliedOffers = offerResult.appliedOffers; } }
 
 			const taxableAmount = Math.max(subtotal - discount, 0);
+			// Tax is returned as whole-rupee via applyTax (floored)
 			const tax = applyTax(taxableAmount);
-			const total = taxableAmount + tax;
+			const total = Math.round(taxableAmount) - Math.round(discount) + Math.round(tax);
 			return { orderId: primaryOrderDoc.id, sessionId: primaryOrderDoc.data().sessionId || null, tableId: primaryOrderDoc.data().tableId || null, items: allItems, pricing: { subtotal, discount, tax, total }, appliedOffers, noteToCustomer: "Your calculated bill is ready." };
 		});
 

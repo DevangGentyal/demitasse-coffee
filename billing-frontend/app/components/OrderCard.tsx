@@ -22,7 +22,7 @@ interface OrderCardProps {
 }
 
 export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCardProps) {
-  const { updateOrder, deleteOrder, updateOrderItem } = useApp()
+  const { tables, updateOrder, deleteOrder, updateOrderItem } = useApp()
   const [expandedItems, setExpandedItems] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [isDeletingItem, setIsDeletingItem] = useState<string | null>(null)
@@ -210,6 +210,11 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
     addSuffix: false,
   })
 
+  const tableBadge =
+    order.tableName ||
+    tables.find((table: any) => table.id === order.tableId)?.name ||
+    (order.tableId ? `Table ${String(order.tableId).slice(0, 6)}` : '')
+
   const getVariationValues = (item: any): string[] => {
     if (!item?.variation || typeof item.variation !== 'object') return []
     return Object.values(item.variation)
@@ -235,6 +240,11 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
               <span className="text-sm font-mono bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md text-slate-700 dark:text-slate-300 font-bold text-base">
                 #{order.id.slice(0, 8).toUpperCase()}
               </span>
+              {tableBadge && (
+                <span className="text-[10px] uppercase tracking-[0.22em] bg-amber-100 text-amber-800 px-2.5 py-1 rounded-md font-extrabold shadow-sm">
+                  {tableBadge}
+                </span>
+              )}
               <p className="text-xs text-muted-foreground font-medium">{timeElapsed} ago</p>
             </div>
           </div>

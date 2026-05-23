@@ -14,7 +14,7 @@ async function seed() {
     await db.collection('sessions').doc(sessionId).set({ outletId: 'test-outlet', tableId: 'test-table', ownerId: 'guest_test_123', status: 'ACTIVE', createdAt: admin.firestore.FieldValue.serverTimestamp() });
     console.log('Created session', sessionId);
 
-    await db.collection('tables').doc('test-table').update({ activeSessionId: sessionId, isOccupied: true });
+    await db.collection('tables').doc('test-table').update({ activeSessionId: sessionId, occupied: true });
     console.log('Updated table activeSessionId');
 
     await db.collection('orders').doc('order1').set({ outletId: 'test-outlet', tableId: 'test-table', sessionId: sessionId, status: 'ACTIVE', items: [{ productId: 'prod_simple', qty: 1, price: 100 }], createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() });

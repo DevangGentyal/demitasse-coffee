@@ -41,7 +41,7 @@ export const openSession = functions.https.onRequest(async (req: Request, res: R
 			return;
 		}
 
-		if (tableData?.isOccupied === true) {
+		if (tableData?.occupied === true) {
 			res.status(409).json({ success: false, message: 'Table already has an active session' });
 			return;
 		}
