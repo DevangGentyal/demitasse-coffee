@@ -37,6 +37,7 @@ export interface Product {
   imageUrl?: string
   isAvailable: boolean
   customizations?: CustomizationGroup[]
+  variations?: any[]
   sortOrder?: number
   createdAt?: Timestamp
   updatedAt?: Timestamp

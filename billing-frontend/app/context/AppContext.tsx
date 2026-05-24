@@ -6,11 +6,12 @@ import { collection, query, where, onSnapshot, Timestamp, doc, updateDoc, delete
 import { useAuth } from '@/context/AuthContext'
 import { floorMapService } from '@/lib/services/floorMapService'
 import { toast, Toaster } from 'sonner'
+import { GlobalAutoPrintManager } from '@/app/components/GlobalAutoPrintManager'
 
 export interface Table {
   id: string
   name: string
-  capacity: number
+  capacity?: number
   occupied: boolean
   billAmount: number
   customerName?: string
@@ -28,7 +29,7 @@ export interface OrderItem {
   name: string
   quantity: number
   status?: 'in-progress' | 'ready' | 'completed'
-  addOns?: string
+  addOns?: any[]
   notes?: string
   price?: number
 }
@@ -289,6 +290,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
+      <GlobalAutoPrintManager />
       <Toaster position="bottom-right" richColors />
     </AppContext.Provider>
   )

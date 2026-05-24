@@ -4,7 +4,7 @@ export interface PrintItem {
   id: string
   name: string
   quantity: number
-  notes?: string
+  notes?: string | string[]
   category: string
   price?: number
 }
@@ -17,12 +17,29 @@ export interface KotData {
   items: PrintItem[]
 }
 
+interface PrinterMargins {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+interface PrinterPadding {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
 interface KotTemplateProps {
   data: KotData
   printerName: string
   restaurantHeader?: string
   showRestaurantHeader?: boolean
   width?: number
+  margins?: PrinterMargins
+  padding?: PrinterPadding
+  lineHeight?: number
 }
 
 export const KotTemplate: React.FC<KotTemplateProps> = ({
@@ -31,25 +48,43 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   restaurantHeader = 'Demitasse Coffee',
   showRestaurantHeader = true,
   width = 250,
+  margins = { top: 0, right: 0, bottom: 0, left: 10 },
+  padding = { top: 4, right: 4, bottom: 4, left: 4 },
+  lineHeight = 1.2,
 }) => {
+  const items = data.items
+  console.log('KotTemplate FINAL ITEMS:', items)
+  console.log('KotTemplate manager items:', items)
+  
   return (
     <div
-      className="print-container bg-white text-black font-sans mx-auto"
-      style={{ width: `${width}px`, padding: '4px' }}
+      className="bg-white text-black font-sans mx-auto"
+      style={{ 
+        width: `${width}px`, 
+        marginTop: `${margins.top}px`,
+        marginRight: `${margins.right}px`,
+        marginBottom: `${margins.bottom}px`,
+        marginLeft: `${margins.left}px`,
+        paddingTop: `${padding.top}px`,
+        paddingRight: `${padding.right}px`,
+        paddingBottom: `${padding.bottom}px`,
+        paddingLeft: `${padding.left}px`,
+        lineHeight: lineHeight 
+      }}
     >
       {/* Header */}
-      <div className="text-center mb-2">
+      <div className="text-center mb-2" style={{ lineHeight: lineHeight }}>
         {showRestaurantHeader && (
-          <h2 className="font-bold text-sm leading-tight mb-1">{restaurantHeader}</h2>
+          <h2 className="font-bold text-sm mb-1">{restaurantHeader}</h2>
         )}
-        <h3 className="font-bold text-xs uppercase leading-tight">{data.kotType} KOT</h3>
-        <p className="text-[10px] uppercase leading-tight">({printerName})</p>
+        <h3 className="font-bold text-xs uppercase">{data.kotType} KOT</h3>
+        <p className="text-[10px] uppercase">({printerName})</p>
       </div>
 
       <div className="border-b border-dashed border-black mb-2"></div>
 
       {/* Meta Info */}
-      <div className="mb-2 text-[10px] space-y-0.5 leading-tight">
+      <div className="mb-2 text-[10px] space-y-0.5" style={{ lineHeight: lineHeight }}>
         <div className="flex justify-between">
           <span className="font-bold">Order #:</span>
           <span>{data.orderNumber}</span>
@@ -68,20 +103,27 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
 
       {/* Items List */}
       <div className="mb-2">
-        <div className="flex justify-between font-bold text-[10px] mb-1">
+        <div className="flex justify-between font-bold text-[10px] mb-1" style={{ lineHeight: lineHeight }}>
           <span>ITEM</span>
           <span>QTY</span>
         </div>
         <div className="border-b border-dashed border-black mb-1"></div>
         
         {data.items.map((item) => (
-          <div key={item.id} className="mb-1.5">
-            <div className="flex justify-between text-[11px] leading-tight">
+          <div key={item.id} className="mb-1.5" style={{ lineHeight: lineHeight }}>
+            <div className="flex justify-between text-[11px]">
               <span className="font-medium pr-2">{item.name}</span>
               <span className="font-bold">{item.quantity}</span>
             </div>
             {item.notes && (
-              <p className="text-[10px] italic text-gray-700 ml-2 mt-0.5 leading-tight">- {item.notes}</p>
+              <div className="text-[10px] text-gray-700 ml-2 mt-0.5 space-y-0.5">
+                {Array.isArray(item.notes) 
+                  ? item.notes.map((note, idx) => (
+                      <div key={idx}>+ {note}</div>
+                    ))
+                  : <div>+ {item.notes}</div>
+                }
+              </div>
             )}
           </div>
         ))}
@@ -90,8 +132,8 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
       <div className="border-b border-dashed border-black mb-2"></div>
 
       {/* Footer */}
-      <div className="text-center mt-2">
-        <p className="text-[10px] font-bold uppercase leading-tight">*** END OF KOT ***</p>
+      <div className="text-center mt-2" style={{ lineHeight: lineHeight }}>
+        <p className="text-[10px] font-bold uppercase">*** END OF KOT ***</p>
       </div>
     </div>
   )

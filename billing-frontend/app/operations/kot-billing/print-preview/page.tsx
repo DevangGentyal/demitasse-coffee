@@ -27,9 +27,8 @@ export default function PrintPreviewPage() {
 
   const [activeTab, setActiveTab] = useState<PreviewTab>('food')
   const [dataLoading, setDataLoading] = useState(true)
-  const [foodCategories, setFoodCategories] = useState<string[]>([])
-  const [beverageCategories, setBeverageCategories] = useState<string[]>([])
-  const [printerNames, setPrinterNames] = useState({ food: 'Chef Printer', coffee: 'Counter Printer' })
+  const [foodConfig, setFoodConfig] = useState<any>(null)
+  const [coffeeConfig, setCoffeeConfig] = useState<any>(null)
   const [settings, setSettings] = useState<any>({
     restaurantHeaderText: 'Demitasse Coffee',
     restaurantFooterText: 'Thank You',
@@ -44,30 +43,36 @@ export default function PrintPreviewPage() {
     const fetchData = async () => {
       try {
         const printersSnap = await getDocs(collection(db, 'printerConfigs'))
-        
-        let fCats: string[] | null = null
-        let bCats: string[] | null = null
-        let fPrinter = 'Chef Printer'
-        let bPrinter = 'Counter Printer'
+        let fConfig: any = null
+        let cConfig: any = null
 
         printersSnap.forEach(d => {
           const p = d.data()
-          if (p.role === 'food') {
-            fCats = p.assignedCategories || []
-            fPrinter = p.printerName
-          } else if (p.role === 'coffee') {
-            bCats = p.assignedCategories || []
-            bPrinter = p.printerName
-          }
+          if (p.role === 'food') fConfig = p
+          else if (p.role === 'coffee') cConfig = p
         })
 
-        // Only use fallback if document didn't exist at all
-        if (fCats === null) fCats = ['BAKERY & DESSERTS', 'BREAKFAST & SUPER FOOD', 'APPETIZERS & SMALL PLATES', 'SANDWICHES & BURGERS', 'MAINS', 'MEALS & GLOBAL PLATES']
-        if (bCats === null) bCats = ['BEVERAGES', 'COFFEE SPECIALTIES']
+        if (!fConfig) {
+          fConfig = {
+            printerName: 'Chef Printer',
+            assignedCategories: ['BAKERY & DESSERTS', 'BREAKFAST & SUPER FOOD', 'APPETIZERS & SMALL PLATES', 'SANDWICHES & BURGERS', 'MAINS', 'MEALS & GLOBAL PLATES'],
+            width: 250,
+            lineHeight: 1.2,
+            margins: { top: 0, right: 0, bottom: 0, left: 10 }
+          }
+        }
+        if (!cConfig) {
+          cConfig = {
+            printerName: 'Counter Printer',
+            assignedCategories: ['BEVERAGES', 'COFFEE SPECIALTIES'],
+            width: 250,
+            lineHeight: 1.2,
+            margins: { top: 0, right: 0, bottom: 0, left: 10 }
+          }
+        }
 
-        setFoodCategories(fCats)
-        setBeverageCategories(bCats)
-        setPrinterNames({ food: fPrinter, coffee: bPrinter })
+        setFoodConfig(fConfig)
+        setCoffeeConfig(cConfig)
 
         const settingsSnap = await getDoc(doc(db, 'kotBillingSettings', 'defaultSettings'))
         if (settingsSnap.exists()) {
@@ -83,7 +88,7 @@ export default function PrintPreviewPage() {
     fetchData()
   }, [isLoading, isLoggedIn])
 
-  if (isLoading || dataLoading) {
+  if (isLoading || dataLoading || !foodConfig || !coffeeConfig) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -100,8 +105,11 @@ export default function PrintPreviewPage() {
   }
 
   // Split Items directly via exact match
-  const foodItems = MOCK_ITEMS.filter(item => foodCategories.includes(item.category))
+  const foodCategories = foodConfig.assignedCategories || []
+  const beverageCategories = coffeeConfig.assignedCategories || []
+
   const beverageItems = MOCK_ITEMS.filter(item => beverageCategories.includes(item.category))
+  const foodItems = MOCK_ITEMS.filter(item => foodCategories.includes(item.category) && !beverageCategories.includes(item.category))
 
   const mockDate = new Date()
   const foodKotData: KotData = {
@@ -133,7 +141,10 @@ export default function PrintPreviewPage() {
   }
 
   const handlePrint = () => {
-    window.print()
+    // A small delay to ensure React state is painted before print dialogue
+    setTimeout(() => {
+      window.print()
+    }, 100)
   }
 
   return (
@@ -176,23 +187,29 @@ export default function PrintPreviewPage() {
               </div>
 
               {/* On-screen visual preview */}
-              <div className="bg-gray-100 p-8 rounded-md flex justify-center border border-dashed border-gray-300 min-h-[400px]">
+              <div className="bg-gray-100 p-8 rounded-md flex justify-center border border-dashed border-gray-300 min-h-[400px] overflow-hidden">
                 {activeTab === 'food' && (
                   <KotTemplate 
                     data={foodKotData} 
-                    printerName={printerNames.food} 
+                    printerName={foodConfig.printerName} 
                     restaurantHeader={settings.restaurantHeaderText}
                     showRestaurantHeader={settings.showRestaurantHeader}
-                    width={settings.defaultPaperWidth}
+                    width={foodConfig.width}
+                    margins={foodConfig.margins}
+                    padding={foodConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
+                    lineHeight={foodConfig.lineHeight || 1.2}
                   />
                 )}
                 {activeTab === 'beverage' && (
                   <KotTemplate 
                     data={bevKotData} 
-                    printerName={printerNames.coffee} 
+                    printerName={coffeeConfig.printerName} 
                     restaurantHeader={settings.restaurantHeaderText}
                     showRestaurantHeader={settings.showRestaurantHeader}
-                    width={settings.defaultPaperWidth}
+                    width={coffeeConfig.width}
+                    margins={coffeeConfig.margins}
+                    padding={coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
+                    lineHeight={coffeeConfig.lineHeight || 1.2}
                   />
                 )}
                 {activeTab === 'bill' && (
@@ -202,7 +219,10 @@ export default function PrintPreviewPage() {
                     restaurantFooter={settings.restaurantFooterText}
                     showRestaurantHeader={settings.showRestaurantHeader}
                     showFooter={settings.showFooter}
-                    width={settings.defaultPaperWidth}
+                    width={coffeeConfig.width}
+                    margins={coffeeConfig.margins}
+                    padding={coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
+                    lineHeight={coffeeConfig.lineHeight || 1.2}
                   />
                 )}
               </div>
@@ -216,19 +236,25 @@ export default function PrintPreviewPage() {
         {activeTab === 'food' && (
           <KotTemplate 
             data={foodKotData} 
-            printerName={printerNames.food} 
+            printerName={foodConfig.printerName} 
             restaurantHeader={settings.restaurantHeaderText}
             showRestaurantHeader={settings.showRestaurantHeader}
-            width={settings.defaultPaperWidth}
+            width={foodConfig.width}
+            margins={foodConfig.margins}
+            padding={foodConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
+            lineHeight={foodConfig.lineHeight || 1.2}
           />
         )}
         {activeTab === 'beverage' && (
           <KotTemplate 
             data={bevKotData} 
-            printerName={printerNames.coffee} 
+            printerName={coffeeConfig.printerName} 
             restaurantHeader={settings.restaurantHeaderText}
             showRestaurantHeader={settings.showRestaurantHeader}
-            width={settings.defaultPaperWidth}
+            width={coffeeConfig.width}
+            margins={coffeeConfig.margins}
+            padding={coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
+            lineHeight={coffeeConfig.lineHeight || 1.2}
           />
         )}
         {activeTab === 'bill' && (
@@ -238,7 +264,10 @@ export default function PrintPreviewPage() {
             restaurantFooter={settings.restaurantFooterText}
             showRestaurantHeader={settings.showRestaurantHeader}
             showFooter={settings.showFooter}
-            width={settings.defaultPaperWidth}
+            width={coffeeConfig.width}
+            margins={coffeeConfig.margins}
+            padding={coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
+            lineHeight={coffeeConfig.lineHeight || 1.2}
           />
         )}
       </div>

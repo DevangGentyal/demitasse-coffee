@@ -21,6 +21,7 @@ import {
   getDocs,
   doc,
   setDoc,
+  addDoc,
   deleteDoc,
   Timestamp,
 } from 'firebase/firestore'
@@ -44,6 +45,7 @@ interface PrinterConfig {
   headerText: string
   footerText: string
   margins: PrinterMargins
+  padding: PrinterMargins
   assignedCategories: string[]
   assignedItems: string[]
   enabled: boolean
@@ -73,6 +75,7 @@ const EMPTY_FORM: Omit<PrinterConfig, 'id' | 'createdAt' | 'updatedAt'> = {
   headerText: 'Demitasse Coffee',
   footerText: 'Thank You',
   margins: { top: 0, right: 0, bottom: 0, left: 10 },
+  padding: { top: 4, right: 4, bottom: 4, left: 4 },
   assignedCategories: [],
   assignedItems: [],
   enabled: true,
@@ -160,6 +163,7 @@ export default function MultiplePrintersPage() {
         headerText: printer.headerText,
         footerText: printer.footerText,
         margins: { ...printer.margins },
+        padding: printer.padding ? { ...printer.padding } : { top: 4, right: 4, bottom: 4, left: 4 },
         assignedCategories: [...printer.assignedCategories],
         assignedItems: [...(printer.assignedItems || [])],
         enabled: printer.enabled,
@@ -167,7 +171,7 @@ export default function MultiplePrintersPage() {
     } else {
       setIsEditing(false)
       setEditingId(null)
-      setFormData({ ...EMPTY_FORM, margins: { ...EMPTY_FORM.margins }, assignedCategories: [], assignedItems: [] })
+      setFormData({ ...EMPTY_FORM, margins: { ...EMPTY_FORM.margins }, padding: { ...EMPTY_FORM.padding }, assignedCategories: [], assignedItems: [] })
     }
     setError(null)
     setIsModalOpen(true)
@@ -181,6 +185,13 @@ export default function MultiplePrintersPage() {
     setFormData(prev => ({
       ...prev,
       margins: { ...prev.margins, [side]: parseInt(value) || 0 },
+    }))
+  }
+
+  const handlePaddingChange = (side: keyof PrinterMargins, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      padding: { ...prev.padding, [side]: parseInt(value) || 0 },
     }))
   }
 
@@ -217,19 +228,11 @@ export default function MultiplePrintersPage() {
           prev.map(p => (p.id === editingId ? { ...p, ...updateData } : p))
         )
       } else {
-        // Create new — generate a slug-style id
-        const slug = formData.printerName
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '_')
-          .replace(/^_|_$/g, '')
-        const newId = `${slug}_${Date.now()}`
-
-        const ref = doc(db, 'printerConfigs', newId)
+        // Create new — use Firestore auto-generated document ID
         const newData = { ...formData, createdAt: now, updatedAt: now }
-        await setDoc(ref, newData)
+        const docRef = await addDoc(collection(db, 'printerConfigs'), newData)
 
-        setPrinters(prev => [...prev, { id: newId, ...newData }])
+        setPrinters(prev => [...prev, { id: docRef.id, ...newData }])
       }
 
       setIsModalOpen(false)
@@ -536,6 +539,25 @@ export default function MultiplePrintersPage() {
                       type="number"
                       value={formData.margins[side]}
                       onChange={e => handleMarginChange(side, e.target.value)}
+                      min="0"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Padding */}
+            <div className="space-y-2">
+              <Label>KOT Padding (px)</Label>
+              <div className="grid grid-cols-4 gap-3 p-4 bg-muted/30 rounded-lg border border-border/50">
+                {(['top', 'right', 'bottom', 'left'] as const).map(side => (
+                  <div key={`pad-${side}`} className="space-y-1">
+                    <Label className="text-[10px] uppercase text-muted-foreground">{side}</Label>
+                    <Input
+                      type="number"
+                      value={formData.padding[side]}
+                      onChange={e => handlePaddingChange(side, e.target.value)}
                       min="0"
                       className="h-8 text-sm"
                     />

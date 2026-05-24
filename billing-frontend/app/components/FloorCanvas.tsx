@@ -697,7 +697,7 @@ export function FloorCanvas() {
         const shouldAutoGenerateName = !draftedName || /^table\s*\(auto\)$/i.test(draftedName)
 
         const createResult = await floorMapService.addTable({
-          capacity: table.capacity,
+          capacity: table.capacity || 2,
           x: toFiniteNumber(table.x, 100),
           y: toFiniteNumber(table.y, 100),
           color: table.color,
@@ -716,7 +716,7 @@ export function FloorCanvas() {
             x: toFiniteNumber(table.x, 100),
             y: toFiniteNumber(table.y, 100),
             name: table.name,
-            capacity: table.capacity,
+            capacity: table.capacity || 2,
             color: table.color,
           }))
         )
