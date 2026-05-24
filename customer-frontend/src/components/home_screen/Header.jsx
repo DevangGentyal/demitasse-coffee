@@ -1,4 +1,4 @@
-import { MapPinIcon } from "@heroicons/react/24/solid";
+import { MapPinIcon, UserIcon } from "@heroicons/react/24/solid";
 import { signOut } from "firebase/auth";
 import { auth } from "../../lib/firebase";
 import { useNavigate } from "react-router-dom";
@@ -50,7 +50,13 @@ export default function Header() {
 
         {/* Profile Circle */}
         {!isGuest && (
-          <div className="w-10 h-10 bg-amber-800 rounded-full"></div>
+          <div 
+            onClick={() => navigate("/profile")}
+            className="w-10 h-10 bg-amber-800 rounded-full cursor-pointer hover:bg-amber-900 transition duration-150 flex items-center justify-center"
+            title="View Profile"
+          >
+            <UserIcon className="w-5 h-5 text-white/90" />
+          </div>
         )}
 
       </div>

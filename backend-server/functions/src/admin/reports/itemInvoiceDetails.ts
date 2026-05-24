@@ -88,8 +88,47 @@ const resolveArea = (order: FirebaseFirestore.DocumentData): string => { const d
 const resolvePaymentType = (order: FirebaseFirestore.DocumentData, payment: FirebaseFirestore.DocumentData | null): string => readString(payment?.paymentType) || readString(payment?.paymentMethod) || readString(payment?.paymentMode) || readString(payment?.mode) || readString(payment?.payAt) || readString(order.paymentType) || readString(order.paymentMethod) || readString(order.paymentMode) || readString(order.payAt) || readString(order.settlementStatus) || "NA";
 const resolveServerName = (order: FirebaseFirestore.DocumentData): string => readString(order.serverName) || readString(order.server) || readString(order.assignedTo) || readString(order.placedBy) || "biller";
 const resolveCustomerField = (order: FirebaseFirestore.DocumentData, key: string): string => { const customer = order.customer || {}; return readString(order[key]) || readString(customer[key]) || "NA"; };
-const resolveItemGroup = (item: FirebaseFirestore.DocumentData): string => readString(item.groupName) || readString(item.category) || readString(item.subcategory) || "Uncategorized";
-const resolveItemCategory = (item: FirebaseFirestore.DocumentData): string => readString(item.category) || readString(item.subcategory) || resolveItemGroup(item);
+const cleanCategory = (val: string): string => {
+	const cleaned = val.trim();
+	if (!cleaned || cleaned.toLowerCase() === "unknown" || cleaned.toLowerCase() === "uncategorized") {
+		return "";
+	}
+	return cleaned;
+};
+
+const resolveItemGroup = (item: FirebaseFirestore.DocumentData, productsCache: Map<string, any>): string => {
+	const pId = readString(item.productId || item.id);
+	const cached = pId ? productsCache.get(pId) : null;
+	const candidates = [
+		cached?.groupName,
+		cached?.category,
+		item.groupName,
+		item.category,
+		item.subcategory
+	];
+	for (const cand of candidates) {
+		const cleaned = cleanCategory(readString(cand));
+		if (cleaned) return cleaned;
+	}
+	return "Uncategorized";
+};
+
+const resolveItemCategory = (item: FirebaseFirestore.DocumentData, productsCache: Map<string, any>): string => {
+	const pId = readString(item.productId || item.id);
+	const cached = pId ? productsCache.get(pId) : null;
+	const candidates = [
+		cached?.category,
+		cached?.subcategory,
+		item.category,
+		item.subcategory
+	];
+	for (const cand of candidates) {
+		const cleaned = cleanCategory(readString(cand));
+		if (cleaned) return cleaned;
+	}
+	return resolveItemGroup(item, productsCache);
+};
+
 const resolveVariation = (item: FirebaseFirestore.DocumentData): string => { const directVariation = readString(item.variation); if (directVariation) return directVariation; if (Array.isArray(item.variations) && item.variations.length > 0) { const first = item.variations[0] || {}; return readString(first.name) || readString(first.option) || readString(first.type) || readString(first.value); } return ""; };
 const resolveInvoiceNo = (order: FirebaseFirestore.DocumentData, fallbackIndex: number): string => readString(order.invoiceNo) || readString(order.billNo) || readString(order.invoiceNumber) || readString(order.orderNo) || readString(order.referenceNo) || readString(order.invoiceId) || readString(order.billId) || readString(order.id) || String(fallbackIndex);
 const distributeAmount = (target: number, base: number, total: number): number => { if (!Number.isFinite(target) || !Number.isFinite(base) || !Number.isFinite(total) || base <= 0 || total <= 0) return 0; return Math.round((target * base / total) * 100) / 100; };
@@ -99,6 +138,13 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 	const outletId = readString(filters.outletId);
 	const startDate = parseDateInput(filters.startDate, "start");
 	const endDate = parseDateInput(filters.endDate, "end");
+
+	// Fetch all products for category mapping
+	const productsSnap = await db.collection("products").get();
+	const productsCache = new Map<string, any>();
+	productsSnap.docs.forEach((doc) => {
+		productsCache.set(doc.id, doc.data());
+	});
 
 	let ordersQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection("ordersHistory");
 	if (outletId) ordersQuery = ordersQuery.where("outletId", "==", outletId);
@@ -156,8 +202,8 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 			const lineDiscount = orderDiscount > 0 ? distributeAmount(orderDiscount, lineSubTotal, orderBaseTotal) : 0;
 			const lineTax = orderTax > 0 ? distributeAmount(orderTax, lineSubTotal, orderBaseTotal) : 0;
 			const lineFinalTotal = Math.max(lineSubTotal - lineDiscount + lineTax, 0);
-			const itemGroup = resolveItemGroup(item);
-			const itemCategory = resolveItemCategory(item);
+			const itemGroup = resolveItemGroup(item, productsCache);
+			const itemCategory = resolveItemCategory(item, productsCache);
 
 			totalItems += qty; grossSales += lineSubTotal; discount += lineDiscount; tax += lineTax; finalTotal += lineFinalTotal;
 			rows.push({ restaurant, date: orderTimestamp.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }), timestamp: orderTimestamp.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), invoiceNo: rowInvoiceNo, paymentType, orderType, itemName: readString(item.name) || `Item ${itemIndex + 1}`, price: unitPrice, qty, subTotal: lineSubTotal, discount: lineDiscount, tax: lineTax, finalTotal: lineFinalTotal, status: displayStatus, tableNo, area, serverName, covers, variation: resolveVariation(item), category: itemCategory, groupName: itemGroup, hsn: readString(item.hsn) || readString(data.hsn) || "", sapCode: readString(item.sapCode) || readString(data.sapCode) || "", phone, name, address, gst, assignTo, orderId: id });

@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { getOutletIdForCurrentUser, getOutlets } from '@/lib/services/backendApi'
 import {
-  getItemInvoiceDetailsReport,
-  InvoiceDetailsReportResponse,
+  getTaxReport,
+  TaxReportResponse,
 } from '@/services/reports.service'
 import { exportToExcel } from '@/utils/exporters/excelExporter'
 import { exportToPDF } from '@/utils/exporters/pdfExporter'
@@ -27,14 +27,14 @@ const startOfCurrentMonthIso = () => {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
 }
 
-export default function ItemInvoiceDetailsReportPage() {
+export default function TaxReportPage() {
   const router = useRouter()
   const { isLoggedIn, isLoading } = useAuth()
   const [outlets, setOutlets] = useState<OutletOption[]>([])
   const [selectedOutletId, setSelectedOutletId] = useState<string>('')
   const [startDate, setStartDate] = useState<string>(startOfCurrentMonthIso())
   const [endDate, setEndDate] = useState<string>(todayIso())
-  const [report, setReport] = useState<InvoiceDetailsReportResponse | null>(null)
+  const [report, setReport] = useState<TaxReportResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -78,7 +78,7 @@ export default function ItemInvoiceDetailsReportPage() {
       try {
         setLoading(true)
         setError(null)
-        const data = await getItemInvoiceDetailsReport({
+        const data = await getTaxReport({
           outletId: selectedOutletId,
           startDate,
           endDate,
@@ -97,23 +97,12 @@ export default function ItemInvoiceDetailsReportPage() {
   }, [isLoading, isLoggedIn, selectedOutletId, startDate, endDate])
 
   const tableColumns = [
-    { header: 'Invoice No.', key: 'invoiceNo' },
-    { header: 'Timestamp', key: 'timestamp' },
-    { header: 'Item Name', key: 'itemName' },
-    { header: 'Group Name', key: 'groupName' },
-    { header: 'Category', key: 'category' },
-    { header: 'Variation', key: 'variation' },
-    { header: 'Price', key: 'price', align: 'right' as const },
-    { header: 'Qty', key: 'qty', align: 'center' as const },
-    { header: 'Sub Total', key: 'subTotal', align: 'right' as const },
-    { header: 'Discount', key: 'discount', align: 'right' as const },
-    { header: 'Tax', key: 'tax', align: 'right' as const },
-    { header: 'Final Total', key: 'finalTotal', align: 'right' as const },
-    { header: 'Status', key: 'status' },
-    { header: 'Table No.', key: 'tableNo', align: 'center' as const },
-    { header: 'Area', key: 'area' },
-    { header: 'Server Name', key: 'serverName' },
-    { header: 'Payment Type', key: 'paymentType' },
+    { header: 'HSN Code', key: 'hsn', align: 'center' as const },
+    { header: 'Product Item', key: 'product' },
+    { header: 'Tax Percent (%)', key: 'taxPercent', align: 'center' as const },
+    { header: 'Tax Amount Collected', key: 'taxAmount', align: 'right' as const },
+    { header: 'Outlet Name', key: 'outlet' },
+    { header: 'Invoice Count', key: 'invoiceCount', align: 'center' as const },
   ]
 
   const handleExportExcel = () => {
@@ -121,38 +110,16 @@ export default function ItemInvoiceDetailsReportPage() {
     setExporting('excel')
     try {
       exportToExcel({
-        filename: 'Item_Invoice_Details_Report',
-        sheetName: 'Invoices Details',
+        filename: 'Tax_Report',
+        sheetName: 'Tax Audit HSN',
         columns: tableColumns,
         rows: report.rows,
-        summary: {
-          totalInvoices: report.summary.totalInvoices,
-          totalItems: report.summary.totalItems,
-          grossSales: report.summary.grossSales,
-          discount: report.summary.discount,
-          tax: report.summary.tax,
-          finalTotal: report.summary.finalTotal,
-        },
+        summary: report.summary,
         filters: {
-          outlet: report.outlet?.name || 'All',
+          outletId: selectedOutletId,
           startDate,
           endDate,
         },
-        extraSheets: [
-          {
-            sheetName: 'Group Summary',
-            columns: [
-              { header: 'Group Name', key: 'groupName' },
-              { header: 'Items Sold', key: 'totalItems' },
-              { header: 'Invoices Count', key: 'totalInvoices' },
-              { header: 'Gross Sales', key: 'grossSales' },
-              { header: 'Discount', key: 'discount' },
-              { header: 'Tax', key: 'tax' },
-              { header: 'Final Total', key: 'finalTotal' },
-            ],
-            rows: report.groupSummaries,
-          },
-        ],
       })
     } finally {
       setExporting(null)
@@ -164,19 +131,12 @@ export default function ItemInvoiceDetailsReportPage() {
     setExporting('pdf')
     try {
       exportToPDF({
-        title: 'Item Report: Invoice Details',
-        subtitle: `Outlet: ${report.outlet?.name || 'All Outlets'}`,
-        filename: 'Item_Invoice_Details_Report',
-        columns: tableColumns.slice(0, 13), // PDF has space limits, slice to key columns
+        title: 'Tax Audit & HSN Summary Report',
+        subtitle: `Dates: ${startDate} to ${endDate}`,
+        filename: 'Tax_Report',
+        columns: tableColumns,
         rows: report.rows,
-        summary: {
-          totalInvoices: report.summary.totalInvoices,
-          totalItems: report.summary.totalItems,
-          grossSales: report.summary.grossSales,
-          discount: report.summary.discount,
-          tax: report.summary.tax,
-          finalTotal: report.summary.finalTotal,
-        },
+        summary: report.summary,
         filters: {
           startDate,
           endDate,
@@ -191,17 +151,15 @@ export default function ItemInvoiceDetailsReportPage() {
 
   const summaryData = report
     ? [
-        { label: 'Invoices', value: report.summary.totalInvoices },
-        { label: 'Items Sold', value: report.summary.totalItems },
-        { label: 'Gross Sales', value: report.summary.grossSales, isCurrency: true },
-        { label: 'Net Total', value: report.summary.finalTotal, isCurrency: true },
+        { label: 'Total Tax Collected', value: report.summary.totalTax, isCurrency: true, description: 'Sum of distributed tax' },
+        { label: 'Impacted Invoices', value: report.summary.totalInvoices, description: 'Total bills containing taxed items' },
       ]
     : []
 
   return (
     <ReportLayout
-      title="Item Report: Invoice Details"
-      subtitle="Total items sold under each group in the restaurant"
+      title="Tax Report"
+      subtitle="Auditable accounting reports detailing sales taxes collected by HSN code and product item"
       onBack={() => router.push('/reports')}
       actions={
         report && (
@@ -235,26 +193,11 @@ export default function ItemInvoiceDetailsReportPage() {
           <SummaryCards items={summaryData} />
 
           <ReportTable
-            title="Invoice Line Items Details"
-            description="Detailed raw list of invoice items sold under selected filters"
+            title="Tax HSN Performance Table"
+            description="Detailed product list indicating HSN identifiers and tax amounts collected"
             columns={tableColumns}
             rows={report.rows}
-            minWidth="1600px"
-          />
-
-          <ReportTable
-            title="Category Group Summary"
-            description="Aggregated totals grouped by item category group name"
-            columns={[
-              { header: 'Group Name', key: 'groupName' },
-              { header: 'Items Sold', key: 'totalItems', align: 'center' as const },
-              { header: 'Invoices Count', key: 'totalInvoices', align: 'center' as const },
-              { header: 'Gross Sales', key: 'grossSales', align: 'right' as const },
-              { header: 'Discount', key: 'discount', align: 'right' as const },
-              { header: 'Tax', key: 'tax', align: 'right' as const },
-              { header: 'Final Total', key: 'finalTotal', align: 'right' as const },
-            ]}
-            rows={report.groupSummaries}
+            minWidth="800px"
           />
         </div>
       )}

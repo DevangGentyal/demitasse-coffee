@@ -1,5 +1,10 @@
 import * as admin from "firebase-admin";
 
+// Force using the real production Firestore instead of the local firestore emulator
+// (since firestore emulator is not running, but firebase emulators:start might set the env var)
+delete process.env.FIRESTORE_EMULATOR_HOST;
+delete process.env.FIREBASE_FIRESTORE_EMULATOR_HOST;
+
 // CRITICAL: Initialize Admin SDK before any other imports that might use Firestore
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -13,9 +18,17 @@ import { updateProduct as adminUpdateProductFn } from "./admin/products/updatePr
 import { deleteProduct as adminDeleteProductFn } from "./admin/products/deleteProduct";
 import { saveFloorMap as adminSaveFloorMapFn } from "./admin/floorMap/saveFloorMap";
 import { getItemInvoiceDetailsReport as adminReportItemInvoiceDetailsFn } from "./admin/reports/itemInvoiceDetails";
+import { getDailySalesReport as adminReportDailySalesFn } from "./admin/reports/dailySalesReport";
+import { getCancelOrderReport as adminReportCancelOrderFn } from "./admin/reports/cancelOrderReport";
+import { getProductSalesReport as adminReportProductSalesFn } from "./admin/reports/productSalesReport";
+import { getTaxReport as adminReportTaxFn } from "./admin/reports/taxReport";
+import { getCustomerReport as adminReportCustomerFn } from "./admin/reports/customerReport";
+import { getPaymentReport as adminReportPaymentFn } from "./admin/reports/paymentReport";
+import { getOfferUsageReport as adminReportOfferUsageFn } from "./admin/reports/offerUsageReport";
 import { updateCancellationPassword as adminUpdateCancellationPasswordFn } from "./admin/security/updateCancellationPassword";
 import { createOffer as adminCreateOfferFn } from "./admin/offers/create";
 import { updateOffer as adminUpdateOfferFn } from "./admin/offers/update";
+import { adminDashboardStats as adminDashboardStatsFn } from "./admin/dashboard/dashboardStats";
 import { readAppData as sharedReadAppDataFn } from "./shared/data/readAppData";
 import { registerOutletOwner as sharedRegisterOutletOwnerFn, upsertUserProfile as sharedUpsertUserProfileFn } from "./shared/data/userProfile";
 import { claimTableOwner as sharedClaimTableOwnerFn } from "./shared/data/claimTableOwner";
@@ -80,9 +93,17 @@ export const adminUpdateProduct = adminUpdateProductFn;
 export const adminDeleteProduct = adminDeleteProductFn;
 export const adminSaveFloorMap = adminSaveFloorMapFn;
 export const adminReportItemInvoiceDetails = adminReportItemInvoiceDetailsFn;
+export const adminReportDailySales = adminReportDailySalesFn;
+export const adminReportCancelOrder = adminReportCancelOrderFn;
+export const adminReportProductSales = adminReportProductSalesFn;
+export const adminReportTax = adminReportTaxFn;
+export const adminReportCustomer = adminReportCustomerFn;
+export const adminReportPayment = adminReportPaymentFn;
+export const adminReportOfferUsage = adminReportOfferUsageFn;
 export const adminUpdateCancellationPassword = adminUpdateCancellationPasswordFn;
 export const adminCreateOffer = adminCreateOfferFn;
 export const adminUpdateOffer = adminUpdateOfferFn;
+export const adminDashboardStats = adminDashboardStatsFn;
 export const readAppData = sharedReadAppDataFn;
 export const registerOutletOwner = sharedRegisterOutletOwnerFn;
 export const upsertUserProfile = sharedUpsertUserProfileFn;

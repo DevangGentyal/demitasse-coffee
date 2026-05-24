@@ -20,6 +20,7 @@ const Banner = ({ message, type = "error", onClose }) => {
 };
 
 const CompleteProfile = () => {
+
     const [formData, setFormData] = useState({
         dob: "",
         gender: "",
@@ -61,12 +62,15 @@ const CompleteProfile = () => {
                 return;
             }
 
-            await upsertUserProfile({
+            const profileData = {
                 dob,
                 gender,
                 location,
                 isProfileComplete: true,
-            });
+                updatedAt: new Date(),
+            };
+
+            await upsertUserProfile(profileData);
 
             console.log("Profile completed");
             navigate("/select-outlet");
@@ -95,6 +99,8 @@ const CompleteProfile = () => {
 
                     {/* Banner */}
                     <Banner message={bannerMsg} type={bannerType} onClose={() => setBannerMsg("")} />
+
+
 
                     {/* DOB */}
                     <div>
@@ -145,6 +151,8 @@ const CompleteProfile = () => {
                             className="w-full mt-1 px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#8B4513] outline-none transition"
                         />
                     </div>
+
+
 
                     {/* Button */}
                     <button

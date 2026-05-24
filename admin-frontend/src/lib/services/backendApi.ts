@@ -9,7 +9,18 @@ const getIdToken = async (): Promise<string> => {
     throw new Error('User not authenticated')
   }
 
-  return await auth.currentUser.getIdToken()
+  try {
+    return await auth.currentUser.getIdToken(false)
+  } catch (error) {
+    console.warn('Network request failed for token refresh. Attempting to use cached token...', error)
+    const rawToken =
+      (auth.currentUser as any).accessToken ||
+      (auth.currentUser as any).stsTokenManager?.accessToken
+    if (rawToken) {
+      return rawToken
+    }
+    throw error
+  }
 }
 
 const buildUrl = (resource: string, params: QueryParams = {}): string => {
@@ -82,3 +93,33 @@ export const getOffersByOutletId = async <T = unknown>(outletId: string): Promis
 
 export const getOrdersByOutletId = async <T = unknown>(outletId: string): Promise<T[]> =>
   readResource<T>('orders', { outletId })
+
+export interface LiveDashboardStats {
+  activeLiveOrders: {
+    inProgress: number
+    completed: number
+  }
+  activeMenuItems: number
+  todayOrders: {
+    total: number
+    cancelled: number
+  }
+  activeOffers: number
+}
+
+export const getLiveDashboardStats = async (outletId: string): Promise<LiveDashboardStats> => {
+  const token = await getIdToken()
+  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminDashboardStats?outletId=${outletId}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch live dashboard stats')
+  }
+
+  return (payload.data || payload) as LiveDashboardStats
+}

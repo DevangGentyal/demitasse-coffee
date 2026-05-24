@@ -25,6 +25,10 @@ import OfferDetails from "./pages/offer_screen/offerDetails";
 import SelectOutlet from "./pages/location_screen/SelectOutlet";
 import CompleteProfile from "./components/auth_screen/completeProfile";
 import LoyaltyPage from "./pages/LoyaltyPage";
+import Profile from "./pages/profile_screen/Profile";
+import OrderHistory from "./pages/profile_screen/OrderHistory";
+import OrderDetails from "./pages/profile_screen/OrderDetails";
+
 
 // Components
 import ProtectedRoute from "./components/ProtectedRoute_screen/ProtectedRoute";
@@ -169,6 +173,30 @@ function Layout() {
           element={
             <ProtectedRoute>
               <Orders />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile/orders"
+          element={
+            <ProtectedRoute>
+              <OrderHistory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile/orders/:orderId"
+          element={
+            <ProtectedRoute>
+              <OrderDetails />
             </ProtectedRoute>
           }
         />
