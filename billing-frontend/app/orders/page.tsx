@@ -20,7 +20,7 @@ export default function OrdersPage() {
   const router = useRouter()
   const { isLoggedIn, isLoading, outletId } = useAuth()
   const { orders: liveOrders } = useApp()
-  const [showAddOrder, setShowAddOrder] = useState(false)
+  // const [showAddOrder, setShowAddOrder] = useState(false)
 
   const orders = useMemo(() => {
     const toMillis = (value: unknown): number => {
@@ -99,13 +99,7 @@ export default function OrdersPage() {
               <h2 className="text-3xl font-bold text-foreground">Orders</h2>
               <p className="text-muted-foreground mt-1">Manage incoming orders</p>
             </div>
-            <Button
-              onClick={() => setShowAddOrder(true)}
-              className="bg-sidebar text-sidebar-foreground hover:bg-sidebar/90 flex items-center gap-2"
-            >
-              <Plus size={20} />
-              New Order
-            </Button>
+            
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -156,21 +150,11 @@ export default function OrdersPage() {
             </div>
           </div>
 
-          {orders.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground mb-4">No orders yet</p>
-              <Button
-                onClick={() => setShowAddOrder(true)}
-                className="bg-sidebar text-sidebar-foreground hover:bg-sidebar/90"
-              >
-                Create First Order
-              </Button>
-            </div>
-          )}
+          
         </div>
       </main>
 
-      <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} />
+      {/* <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} /> */}
       
       {/* Background worker that handles automated KOT printing for incoming real orders */}
     </div>
