@@ -1594,6 +1594,10 @@ export function FloorCanvas() {
             const isTableActive = Boolean(table.occupied || hasLiveOrders)
             const isBillRequested =
               String(table.status || '').toUpperCase() === 'BILL'
+            const isPaymentHighlighted =
+              paymentHighlightIds.has(table.id) ||
+              Boolean(table.needsPaymentCollection) ||
+              isBillRequested
 
             // Bill amount shown on the card:
             // sum of order.totalAmount across all orders for this table

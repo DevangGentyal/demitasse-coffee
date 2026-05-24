@@ -221,7 +221,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       cancelled = true
-      window.clearInterval(intervalId)
+      unsubscribeTables()
+      unsubscribeOrders()
     }
   }, [isLayoutEditing, isLoggedIn, outletId])
 
