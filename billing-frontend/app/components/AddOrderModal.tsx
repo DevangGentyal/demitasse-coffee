@@ -8,6 +8,9 @@ import { Card } from '@/components/ui/card'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
+} from '@/components/ui/dialog'
 import { X, Plus, Trash2, Search, Tag } from 'lucide-react'
 import { getProductsByOutletId, Product } from '@/lib/services/productService'
 import { getOutletIdForCurrentUser, createOrder as createOrderService } from '@/lib/services/orderService'
@@ -25,7 +28,11 @@ interface OrderItem {
   quantity: number
   price: number
   status: 'in-progress' | 'ready'
+  category: string
   addOns?: any[]
+  customizations?: any[]
+  variations?: any[]
+  variation?: Record<string, any>
   notes?: string
 }
 
@@ -44,15 +51,11 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   const [error, setError] = useState<string | null>(null)
   const [outletId, setOutletId] = useState<string | null>(null)
 
-  const serializeOrderItem = (item: OrderItem) => ({
-    id: item.id,
-    name: item.name,
-    quantity: item.quantity,
-    price: item.price,
-    status: item.status,
-    addOns: Array.isArray(item.addOns) ? item.addOns : [],
-    notes: item.notes || '',
-  })
+  // Customization modal state
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [variation, setVariation] = useState<Record<number, string>>({})
+  const [addons, setAddons] = useState<Record<number, string[]>>({})
+  const [isCustomizationOpen, setIsCustomizationOpen] = useState(false)
 
   const activeTable = useMemo(() => {
     if (!initialTableId) return undefined
@@ -152,11 +155,47 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
     setCustomerPhone('')
   }, [canReuseCustomerInfo, isContinuingBill, isOpen, reusableCustomerName, reusableCustomerPhone])
 
-  const handleAddItem = (product: Product) => {
-    const existingItem = items.find(i => i.id === product.id)
-    if (existingItem) {
+  const handleAddClick = (product: Product) => {
+    const hasVariations = product.variations && product.variations.length > 0;
+    const hasCustomizations = product.customizations && product.customizations.length > 0;
+
+    if (hasVariations || hasCustomizations) {
+      setSelectedProduct(product);
+      
+      const initialVar: Record<number, string> = {};
+      (product.variations || []).forEach((g: any, i: number) => {
+        if (g.options?.length) {
+          initialVar[i] = g.options[0].name;
+        }
+      });
+      setVariation(initialVar);
+      setAddons({});
+      setIsCustomizationOpen(true);
+    } else {
+      handleAddItemConfigured(product, product.price, {}, []);
+    }
+  }
+
+  const handleAddItemConfigured = (
+    product: Product, 
+    finalPrice: number, 
+    finalVariation: Record<number, string>,
+    finalAddons: any[]
+  ) => {
+    // Convert numerical keys to strings for the OrderItem structure
+    const variationObj: Record<string, any> = {}
+    Object.values(finalVariation).forEach((v, i) => {
+      variationObj[`group_${i}`] = v
+    })
+
+    // Unique ID if item is customized
+    const isCustomized = Object.keys(variationObj).length > 0 || finalAddons.length > 0
+    const itemId = isCustomized ? `${product.id}_${Date.now()}` : product.id
+
+    const existingItem = items.find(i => i.id === itemId)
+    if (existingItem && !isCustomized) {
       setItems(items.map(i =>
-        i.id === product.id
+        i.id === itemId
           ? { ...i, quantity: i.quantity + 1 }
           : i
       ))
@@ -164,16 +203,83 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       setItems([
         ...items,
         {
-          id: product.id,
+          id: itemId,
           name: product.name,
           quantity: 1,
-          price: product.price,
+          price: finalPrice,
           status: 'in-progress',
-          addOns: [],
+          category: product.category,
+          addOns: finalAddons,
+          variation: variationObj,
           notes: '',
         },
       ])
     }
+    setIsCustomizationOpen(false)
+    setSelectedProduct(null)
+  }
+
+  const calculateTotalPrice = () => {
+    if (!selectedProduct) return 0;
+    let totalPrice = selectedProduct.price;
+
+    ;(selectedProduct.variations || []).forEach((group: any, i: number) => {
+      const selected = variation[i];
+      const opt = group.options?.find((o: any) => o.name === selected);
+      if (opt && opt.price) totalPrice += opt.price;
+    });
+
+    Object.entries(addons || {}).forEach(([i, list]) => {
+      const group = selectedProduct.customizations?.[parseInt(i)];
+      if (!group) return;
+      list.forEach(name => {
+        const opt = group.options?.find((o: any) => o.name === name);
+        if (opt && opt.price) totalPrice += opt.price;
+      });
+    });
+
+    return totalPrice;
+  }
+
+  const handleConfirmCustomization = () => {
+    if (!selectedProduct) return;
+    const totalPrice = calculateTotalPrice();
+    
+    const transformedAddons: any[] = [];
+    Object.entries(addons || {}).forEach(([groupIndex, names]) => {
+      const group = selectedProduct.customizations?.[parseInt(groupIndex)];
+      if (!group) return;
+      names.forEach(name => {
+        const option = group.options?.find((o: any) => o.name === name);
+        if (option) {
+          transformedAddons.push({
+            name: option.name,
+            price: option.price || 0
+          });
+        }
+      });
+    });
+
+    handleAddItemConfigured(selectedProduct, totalPrice, variation, transformedAddons);
+  }
+
+  const toggleAddon = (groupIndex: number, name: string) => {
+    const group = selectedProduct?.customizations?.[groupIndex]
+    if (!group) return
+
+    setAddons(prev => {
+      const currentSelected = prev[groupIndex] || []
+      if (currentSelected.includes(name)) {
+        return { ...prev, [groupIndex]: currentSelected.filter(x => x !== name) }
+      }
+      if (group.max === 1) {
+        return { ...prev, [groupIndex]: [name] }
+      }
+      if (currentSelected.length < (group.max || 99)) {
+        return { ...prev, [groupIndex]: [...currentSelected, name] }
+      }
+      return prev
+    })
   }
 
   const handleRemoveItem = (itemId: string) => {
@@ -215,7 +321,16 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
         customerPhone: resolvedCustomerPhone,
         placedBy: 'billing',
         tableId: initialTableId || undefined,
-        items: items.map(item => serializeOrderItem(item)),
+        items: items.map(item => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          status: 'in-progress',
+          category: item.category,
+          addOns: item.addOns || [],
+          notes: item.notes || ''
+        })),
         orderStatus: 'in-progress',
         totalAmount,
       })
@@ -234,6 +349,9 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
           name: item.name,
           quantity: item.quantity,
           status: 'in-progress' as const,
+          category: item.category,
+          addOns: item.addOns || [],
+          notes: item.notes || ''
         })),
         timeOfOrder: new Date(),
         status: 'in-progress' as const,
@@ -389,7 +507,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                         </div>
                         <Button 
                           size="sm" 
-                          onClick={() => handleAddItem(product)} 
+                          onClick={() => handleAddClick(product)} 
                           className="w-full h-8 text-xs bg-sidebar text-sidebar-foreground hover:bg-sidebar/90 flex items-center gap-1.5 transition-transform active:scale-95"
                         >
                           <Plus size={14} /> Add to Order
@@ -416,7 +534,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                   {items.map(item => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between p-3 bg-background rounded border border-border"
+                      className="flex items-start justify-between p-3 bg-background rounded border border-border"
                     >
                       <div className="flex-1">
                         <p className="text-sm font-medium text-foreground">{item.name}</p>
@@ -424,10 +542,102 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                           Qty: {item.quantity} × ₹{item.price.toFixed(2)} = ₹
                           {(item.quantity * item.price).toFixed(2)}
                         </p>
+
+                        {/* Addons / Customizations / Variations / Notes */}
+                        {(() => {
+                          console.log('FULL MANAGER ITEM:', JSON.stringify(item, null, 2))
+                          
+                          const extractedOptions: string[] = []
+
+                          // 1. HANDLE addOns ARRAY
+                          if (Array.isArray(item.addOns)) {
+                            item.addOns.forEach(addon => {
+                              const addonName = addon?.name || addon?.title || addon?.label
+                              if (addonName) {
+                                extractedOptions.push(
+                                  `+ ${addonName}${addon?.price ? ` (+₹${addon.price})` : ''}`
+                                )
+                              }
+                            })
+                          }
+
+                          // 2. HANDLE variation OBJECT
+                          if (item.variation && typeof item.variation === 'object') {
+                            Object.values(item.variation).forEach((v: any) => {
+                              if (typeof v === 'string') {
+                                extractedOptions.push(`+ ${v}`)
+                              } else if (v && typeof v === 'object') {
+                                const variationName = v?.name || v?.title || v?.label
+                                if (variationName) {
+                                  extractedOptions.push(`+ ${variationName}`)
+                                }
+                              }
+                            })
+                          }
+
+                          // 3. HANDLE variations ARRAY
+                          if (Array.isArray((item as any).variations)) {
+                            ;(item as any).variations.forEach((v: any) => {
+                              const variationName = v?.name || v?.title || v?.label || v?.option || v?.type
+                              if (variationName) {
+                                extractedOptions.push(`+ ${variationName}`)
+                              }
+                            })
+                          }
+
+                          // 4. HANDLE customizations OBJECT or ARRAY
+                          if ((item as any).customizations && typeof (item as any).customizations === 'object') {
+                            Object.values((item as any).customizations).forEach((group: any) => {
+                              // If it's an array of options (like selected items from a group)
+                              if (Array.isArray(group)) {
+                                group.forEach(opt => {
+                                  const optionName = opt?.name || opt?.title || opt?.label
+                                  // Add option only if it's selected or has no isSelected field
+                                  if (optionName && (opt?.isSelected !== false)) {
+                                    extractedOptions.push(`+ ${optionName}`)
+                                  }
+                                })
+                              // If it's a group object with options array
+                              } else if (group && typeof group === 'object' && Array.isArray(group.options)) {
+                                group.options.forEach((opt: any) => {
+                                  const optionName = opt?.name || opt?.title || opt?.label
+                                  if (optionName && opt?.isSelected) {
+                                    extractedOptions.push(`+ ${optionName}`)
+                                  }
+                                })
+                              // If it's a direct option object
+                              } else if (group && typeof group === 'object') {
+                                const optionName = group?.name || group?.title || group?.label
+                                if (optionName && group?.isSelected !== false) {
+                                  extractedOptions.push(`+ ${optionName}`)
+                                }
+                              }
+                            })
+                          }
+
+                          // 5. HANDLE notes
+                          if (item.notes && typeof item.notes === 'string' && item.notes.trim()) {
+                            extractedOptions.push(`+ ${item.notes.trim()}`)
+                          }
+
+                          // 6. REMOVE DUPLICATES
+                          const uniqueOptions = [...new Set(extractedOptions)]
+
+                          if (uniqueOptions.length === 0) return null
+
+                          // 7. RENDER
+                          return (
+                            <div className="text-xs text-muted-foreground ml-2 mt-1 flex flex-col gap-0.5">
+                              {uniqueOptions.map((opt, i) => (
+                                <span key={i}>{opt}</span>
+                              ))}
+                            </div>
+                          )
+                        })()}
                       </div>
                       <button
                         onClick={() => handleRemoveItem(item.id)}
-                        className="text-muted-foreground hover:text-destructive ml-2"
+                        className="text-muted-foreground hover:text-destructive ml-2 mt-1"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -464,6 +674,97 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
           </div>
         </div>
       </Card>
+
+      {/* Customization Modal */}
+      <Dialog open={isCustomizationOpen} onOpenChange={setIsCustomizationOpen}>
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Customize {selectedProduct?.name}</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Variations */}
+            {(selectedProduct?.variations || []).map((group: any, i: number) => (
+              <div key={`var-${i}`} className="space-y-3">
+                <h3 className="font-semibold text-sm text-foreground">{group.label || group.name || 'Variation'}</h3>
+                <div className="flex flex-wrap gap-2">
+                  {group.options?.map((opt: any) => {
+                    const active = variation[i] === opt.name;
+                    return (
+                      <button
+                        key={opt.name}
+                        onClick={() => setVariation(prev => ({ ...prev, [i]: opt.name }))}
+                        className={`px-4 py-2 rounded-full border text-sm transition-all ${
+                          active
+                            ? "bg-green-700 text-white border-green-700 font-medium"
+                            : "bg-background border-border hover:border-green-600 text-foreground"
+                        }`}
+                      >
+                        {opt.name} {opt.price ? `(+₹${opt.price})` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            {/* Add-ons */}
+            {(selectedProduct?.customizations || []).map((group: any, i: number) => {
+              if (!group.options?.length) return null;
+              
+              return (
+                <div key={`addon-${i}`} className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-sm text-foreground">{group.groupName}</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {group.max === 1 ? 'Choose 1' : `Choose up to ${group.max || 'any'}`}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {group.options.map((opt: any) => {
+                      const selectedList = addons[i] || [];
+                      const active = selectedList.includes(opt.name);
+                      
+                      return (
+                        <div
+                          key={opt.name}
+                          onClick={() => toggleAddon(i, opt.name)}
+                          className={`flex justify-between items-center p-3 rounded-xl border cursor-pointer transition-all ${
+                            active
+                              ? "border-green-700 bg-green-50 dark:bg-green-900/20"
+                              : "border-border bg-background hover:border-green-600"
+                          }`}
+                        >
+                          <span className="text-sm font-medium">{opt.name}</span>
+                          {opt.price > 0 && (
+                            <span className="text-sm text-muted-foreground">+₹{opt.price}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0 mt-4 border-t pt-4 border-border">
+            <Button
+              onClick={() => setIsCustomizationOpen(false)}
+              variant="outline"
+              className="flex-1 bg-transparent"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmCustomization}
+              className="flex-1 bg-green-700 hover:bg-green-800 text-white"
+            >
+              Add To Order • ₹{calculateTotalPrice().toFixed(2)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

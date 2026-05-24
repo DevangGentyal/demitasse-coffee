@@ -7,6 +7,8 @@ import { Plus, Trash2, Edit2, Check, Eye, Pencil, Printer, X, Power } from 'luci
 import { useAuth } from '@/context/AuthContext'
 import { floorMapService, type Wall as IWall } from '@/lib/services/floorMapService'
 import { tableSessionService } from '@/lib/services/tableSessionService'
+import { db } from '@/lib/firebase/app'
+import { doc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore'
 import { toast } from 'sonner'
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
 import { CancellationModal } from '@/app/components/CancellationModal'
@@ -416,6 +418,98 @@ export function FloorCanvas() {
   const initialTablesRef = useRef<Table[]>([])
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
 
+  // Payment collection highlight (tracks tables the manager has been notified about)
+  const [paymentHighlightIds, setPaymentHighlightIds] = useState<Set<string>>(new Set())
+  const prevPaymentFlagRef = useRef<Record<string, boolean>>({})
+
+  // Detect needsPaymentCollection transitions on tables and show notifications
+  useEffect(() => {
+    const prevFlags = prevPaymentFlagRef.current
+    const nextFlags: Record<string, boolean> = {}
+
+    tables.forEach((table) => {
+      const flag = Boolean(table.needsPaymentCollection)
+      nextFlags[table.id] = flag
+
+      // Detect false→true transition (new payment notification)
+      if (flag && !prevFlags[table.id]) {
+        // Define unique key for this notification instance to prevent double trigger/double toasts
+        const notificationKey = `${table.id}_${(table as any).needsPaymentCollectionAt?.seconds || Date.now()}`
+        
+        let shouldToast = true
+        if (typeof window !== 'undefined') {
+          if (!(window as any).__notifiedPayments) {
+            (window as any).__notifiedPayments = new Set<string>()
+          }
+          if ((window as any).__notifiedPayments.has(notificationKey)) {
+            shouldToast = false
+          } else {
+            (window as any).__notifiedPayments.add(notificationKey)
+          }
+        }
+
+        if (shouldToast) {
+          console.log(`[FLOOR_CANVAS_PAYMENT_DEBUG] Displaying toast for ${table.name}. Key: ${notificationKey}`);
+          // Show toast notification
+          toast(
+            <div className="flex items-center gap-4 bg-red-600 text-white px-5 py-4 rounded-xl shadow-[0_8px_30px_rgba(220,38,38,0.5)] border-2 border-red-500 w-[380px] md:w-[420px] pointer-events-auto">
+              <span className="text-2xl animate-bounce">🚨</span>
+              <div className="flex-1">
+                <div className="font-extrabold text-base tracking-tight leading-snug">
+                  {table.name} ordering closed
+                </div>
+                <div className="text-xs font-semibold text-red-100 mt-1">
+                  Please collect payment immediately
+                </div>
+              </div>
+            </div>,
+            {
+              duration: 12000,
+              style: {
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                boxShadow: 'none',
+              },
+            }
+          )
+        }
+
+        console.log(`[FLOOR_CANVAS_PAYMENT_DEBUG] Turning table ${table.name} RED (highlighted)`);
+        // Add to highlight set
+        setPaymentHighlightIds((prev) => {
+          const next = new Set(prev)
+          next.add(table.id)
+          return next
+        })
+
+        // Auto-remove highlight after ~10 seconds and clear Firestore flag
+        window.setTimeout(async () => {
+          setPaymentHighlightIds((prev) => {
+            const next = new Set(prev)
+            next.delete(table.id)
+            return next
+          })
+
+          // Clear the flag in Firestore so it doesn't re-trigger
+          try {
+            const tableDocRef = doc(db, 'tables', table.id)
+            await updateDoc(tableDocRef, {
+              needsPaymentCollection: deleteField(),
+              needsPaymentCollectionAt: deleteField(),
+            })
+          } catch (err) {
+            console.error(`Failed to clear payment flag for ${table.id}:`, err)
+          }
+        }, 10000)
+
+        // No cleanup needed — fire-and-forget timeout is intentional
+      }
+    })
+
+    prevPaymentFlagRef.current = nextFlags
+  }, [tables])
+
   // Modals
   const [showOrderView, setShowOrderView] = useState(false)
   const [showAddOrder, setShowAddOrder] = useState(false)
@@ -691,7 +785,7 @@ export function FloorCanvas() {
         const shouldAutoGenerateName = !draftedName || /^table\s*\(auto\)$/i.test(draftedName)
 
         const createResult = await floorMapService.addTable({
-          capacity: table.capacity,
+          capacity: table.capacity || 2,
           x: toFiniteNumber(table.x, 100),
           y: toFiniteNumber(table.y, 100),
           color: table.color,
@@ -710,7 +804,7 @@ export function FloorCanvas() {
             x: toFiniteNumber(table.x, 100),
             y: toFiniteNumber(table.y, 100),
             name: table.name,
-            capacity: table.capacity,
+            capacity: table.capacity || 2,
             color: table.color,
           }))
         )
@@ -1166,8 +1260,7 @@ export function FloorCanvas() {
             const relatedOrders = tableSessionOrders[table.id] || []
             const hasLiveOrders = relatedOrders.length > 0
             const isTableActive = Boolean(table.occupied || table.isOccupied || hasLiveOrders)
-            const isBillRequested = String(table.status || table.paymentStatus || '').toUpperCase() === 'BILL'
-            const paymentDue = isBillRequested
+            const isPaymentHighlighted = paymentHighlightIds.has(table.id)
             const tableBillAmount = relatedOrders.reduce((sum, o) => {
               const orderTotal = toSafeNumber((o as { totalAmount?: unknown }).totalAmount, NaN)
               if (Number.isFinite(orderTotal)) {
@@ -1194,12 +1287,12 @@ export function FloorCanvas() {
               >
                 <div
                   className={`
-                    w-full h-full rounded-xl border bg-white flex flex-col justify-between p-2.5 gap-1.5
-                    ${paymentDue
-                        ? 'border-red-300 bg-red-50 shadow-[0_1px_8px_rgba(239,68,68,0.18)]'
+                    w-full h-full rounded-xl border flex flex-col justify-between p-2.5 gap-1.5
+                    ${isPaymentHighlighted
+                        ? 'border-red-400 bg-red-50 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse'
                         : isTableActive
-                        ? 'border-emerald-300 shadow-[0_1px_8px_rgba(16,185,129,0.18)]'
-                        : 'border-gray-300 shadow-sm'
+                          ? 'border-emerald-300 bg-white shadow-[0_1px_8px_rgba(16,185,129,0.18)]'
+                          : 'border-gray-300 bg-white shadow-sm'
                     }
                   `}
                 >

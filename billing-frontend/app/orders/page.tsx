@@ -7,8 +7,14 @@ import { Sidebar } from '@/app/components/Sidebar'
 import { OrderCard } from '@/app/components/OrderCard'
 import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { AddOrderModal } from '@/app/components/AddOrderModal'
+import { db } from '@/lib/firebase/app'
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
+import { KotTemplate, KotData, PrintItem } from '@/app/components/print/KotTemplate'
+
+// ------------------------------
+
 
 export default function OrdersPage() {
   const router = useRouter()
@@ -84,7 +90,7 @@ export default function OrdersPage() {
   const readyOrders = orders.filter( (o: any) => o.orderStatus === 'ready')
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen print:hidden">
       <Sidebar />
       <main className="flex-1 bg-background overflow-auto">
         <div className="p-8">
@@ -165,6 +171,8 @@ export default function OrdersPage() {
       </main>
 
       <AddOrderModal isOpen={showAddOrder} onClose={() => setShowAddOrder(false)} />
+      
+      {/* Background worker that handles automated KOT printing for incoming real orders */}
     </div>
   )
 }
