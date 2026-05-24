@@ -1,16 +1,30 @@
 export interface OfferConfig {
   combo: {
-    items: { productId: string; quantity: number }[]
+    productIds?: string[]
+    groups?: {
+      groupName: string
+      isFree: boolean
+      selectionType: 'ONE' | 'MULTIPLE'
+      items: { productId: string; isCustomizable: boolean }[]
+    }[]
     comboPrice: number
-  } | null
+  } | {
+    groupName: string
+    isFree: boolean
+    selectionType: 'ONE' | 'MULTIPLE'
+    items: { productId: string; isCustomizable: boolean }[]
+  }[] | null
   b1g1: {
-    applicableProductIds: string[]
+    productIds?: string[]
+    applicableProductIds?: string[]
     type: string
   } | null
   discount: {
-    type: 'PRODUCT' | 'CATEGORY'
+    mode?: 'PRODUCT' | 'CATEGORY'
+    type?: 'PRODUCT' | 'CATEGORY'
     productIds: string[]
-    category: string | null
+    categoryName?: string | null
+    category?: string | null
     discountValue: number
   } | null
   freeItem: any | null
@@ -37,6 +51,7 @@ export interface Offer {
   title: string
   description: string
   type: OfferType | string
+  offerType?: OfferType | string
   category?: string | null
 
   outletId: string

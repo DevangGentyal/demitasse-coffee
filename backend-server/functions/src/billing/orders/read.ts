@@ -19,7 +19,7 @@ export const syncOrderCreated = onDocumentCreated('orders/{orderId}', async (eve
 	const tableData = tableSnap.data() || {};
 	const currentStatus = String(tableData?.status || '').trim().toUpperCase();
 	const nextStatus = !currentStatus || currentStatus === 'IDLE' ? 'ACTIVE' : currentStatus;
-	const orderTotal = Number(orderData?.itemTotal ?? orderData?.totalAmount ?? orderData?.grandTotal ?? 0);
+	const orderTotal = Number(orderData?.subTotal ?? orderData?.itemTotal ?? orderData?.totalAmount ?? 0);
 	const resolvedOutletId = orderData?.outletId || tableData?.outletId || '';
 
 	await db.runTransaction(async (tx) => {

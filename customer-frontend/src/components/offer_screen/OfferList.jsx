@@ -118,6 +118,8 @@ const OfferList = () => {
               !!(offer.autoApply) || 
               !!(offer.userRules?.firstOrderOnly) ||
               offer.applicableFor === "new_user" ||
+              offer.offerType === "NEW_USER" ||
+              offer.offerType === "FIRSTORDER" ||
               offer.type === "firstOrder"
             }
           />

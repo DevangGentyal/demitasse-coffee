@@ -25,7 +25,6 @@ export default function CreateOfferPage() {
 
   const [currentStep, setCurrentStep] = useState(1)
 
-  const [appSearchQuery, setAppSearchQuery] = useState('')
   const [appCategory, setAppCategory] = useState<string>('all')
 
   // ─── Form State (new schema) ───
@@ -33,7 +32,6 @@ export default function CreateOfferPage() {
     title: '',
     description: '',
     type: 'DISCOUNT' as string,
-    category: '',
     startDate: '',
     endDate: '',
     minOrderValue: '',
@@ -48,20 +46,9 @@ export default function CreateOfferPage() {
     discountProductIds: [] as string[],
     discountCategory: '',
     comboPrice: '',
+    comboGroupCount: '1',
     b1g1ProductIds: [] as string[],
-    comboGroups: [] as { groupName: string; isFree: boolean; selectionType: "ONE" | "MULTIPLE"; items: { productId: string; isCustomizable: boolean }[] }[],
-
-    // userRules fields
-    birthdayOnly: false,
-    firstOrderOnly: false,
-    inactivityDays: '',
-    minOrdersRequired: '',
-    usageLimit: '',
-    perUserLimit: '1',
-
-    // display fields
-    badge: '',
-    highlightText: '',
+    comboGroups: [] as { categoryName: string; groupName: string; isFree: boolean; selectionType: "ONE" | "MULTIPLE"; items: { productId: string; isCustomizable: boolean }[] }[],
   })
 
   // FETCH DATA
@@ -131,16 +118,12 @@ export default function CreateOfferPage() {
         setError("Min Order Value must be >= 0")
         return
       }
-      if (formData.usageLimit !== '' && Number(formData.usageLimit) < 1) {
-        setError("Usage Limit must be >= 1")
-        return
-      }
     }
 
     if (currentStep === 2) {
       if (formData.type === 'B1G1') {
-        if (formData.b1g1ProductIds.length === 0) {
-          setError("B1G1 requires at least 1 applicable product")
+        if (formData.b1g1ProductIds.length < 2) {
+          setError("B1G1 requires at least 2 products")
           return
         }
       } else if (formData.type === 'DISCOUNT') {
@@ -192,56 +175,34 @@ export default function CreateOfferPage() {
 
       if (formData.type === 'DISCOUNT') {
         config.discount = {
-          type: formData.discountScope,
+          mode: formData.discountScope,
           productIds: formData.discountScope === 'PRODUCT' ? formData.discountProductIds : [],
-          category: formData.discountScope === 'CATEGORY' ? formData.discountCategory : null,
+          categoryName: formData.discountScope === 'CATEGORY' ? formData.discountCategory : null,
           discountValue: Number(formData.discountValue) || 0,
-          discountType: "PERCENT",
-        }
-        config.selection = {
-          enabled: formData.discountScope === 'PRODUCT',
-          ...(formData.discountScope === 'PRODUCT' ? { maxSelection: 1 } : {})
         }
       }
       if (formData.type === 'B1G1') {
         config.b1g1 = {
-          applicableProductIds: formData.b1g1ProductIds,
+          productIds: formData.b1g1ProductIds,
           type: "CHEAPEST_FREE",
         }
       }
       if (formData.type === 'COMBO') {
-        config.combo = formData.comboGroups
-        config.comboPrice = Number(formData.comboPrice) || 0
-      }
-
-      // Build userRules
-      const userRules = {
-        birthdayOnly: formData.birthdayOnly,
-        firstOrderOnly: formData.firstOrderOnly,
-        inactivityDays: formData.inactivityDays ? Number(formData.inactivityDays) : 0,
-        minOrdersRequired: formData.minOrdersRequired ? Number(formData.minOrdersRequired) : 0,
-        perUserLimit: formData.perUserLimit ? Number(formData.perUserLimit) : 1,
-      }
-
-      // Build display
-      const display = {
-        badge: formData.badge || null,
-        highlightText: formData.highlightText || null,
-      }
-
-      // Auto-set userRules based on type
-      if (formData.type === 'BIRTHDAY') {
-        userRules.birthdayOnly = true
-      }
-      if (formData.type === 'NEW_USER') {
-        userRules.firstOrderOnly = true
+        config.combo = {
+          productIds: formData.comboGroups.flatMap(group => group.items.map(item => item.productId)),
+          groups: formData.comboGroups,
+          comboPrice: Number(formData.comboPrice) || 0,
+        }
       }
 
       const payload = {
         title: formData.title,
         description: formData.description,
-        type: formData.type,
-        category: formData.category || null,
+        offerType: formData.type,
+        createdAt: new Date().toISOString(),
+        category: formData.type === 'DISCOUNT' && formData.discountScope === 'CATEGORY'
+          ? formData.discountCategory || null
+          : null,
         startDate: formData.startDate,
         endDate: formData.endDate,
         minOrderValue: formData.minOrderValue ? Number(formData.minOrderValue) : 0,
@@ -249,10 +210,7 @@ export default function CreateOfferPage() {
         isActive: formData.isActive,
         autoApply: formData.autoApply,
         isStackable: formData.isStackable,
-        usageLimit: formData.usageLimit ? Number(formData.usageLimit) : 0,
         config,
-        userRules,
-        display,
       }
 
       await createOffer(outletId as string, payload)
@@ -265,34 +223,114 @@ export default function CreateOfferPage() {
 
   const categories = Array.from(new Set(products.map(p => p.category).filter(Boolean)))
 
-  const filteredAppProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(appSearchQuery.toLowerCase())
-    const matchesCategory = appCategory === 'all' || p.category === appCategory
-    return matchesSearch && matchesCategory;
-  })
+  const filteredAppProducts = products.filter(p => appCategory === 'all' || p.category === appCategory)
+
+  const getProductLabel = (productId: string) => {
+    const product = products.find(p => p.id === productId)
+    return product ? `${product.name}${product.category ? ` · ${product.category}` : ''}` : productId
+  }
+
+  const getProductName = (productId: string) => {
+    const product = products.find(p => p.id === productId)
+    return product ? product.name : productId
+  }
+
+  const addUniqueProductId = (list: string[], productId: string) => (
+    list.includes(productId) ? list : [...list, productId]
+  )
+
+  const addLimitedProductId = (list: string[], productId: string, limit = 2) => {
+    if (list.includes(productId) || list.length >= limit) return list
+    return [...list, productId]
+  }
+
+  const removeProductId = (list: string[], productId: string) => list.filter(id => id !== productId)
+
+  const addComboProduct = (groupIndex: number, productId: string) => {
+    const newGroups = [...formData.comboGroups]
+    const group = newGroups[groupIndex]
+    if (!group) return
+    if (group.items.some(item => item.productId === productId)) return
+    group.items.push({ productId, isCustomizable: false })
+    handleChange('comboGroups', newGroups)
+  }
+
+  const removeComboProduct = (groupIndex: number, productId: string) => {
+    const newGroups = [...formData.comboGroups]
+    const group = newGroups[groupIndex]
+    if (!group) return
+    group.items = group.items.filter(item => item.productId !== productId)
+    handleChange('comboGroups', newGroups)
+  }
+
+  const updateComboCustomization = (groupIndex: number, productId: string, isCustomizable: boolean) => {
+    const newGroups = [...formData.comboGroups]
+    const group = newGroups[groupIndex]
+    if (!group) return
+    const item = group.items.find(entry => entry.productId === productId)
+    if (!item) return
+    item.isCustomizable = isCustomizable
+    handleChange('comboGroups', newGroups)
+  }
+
+  const syncComboGroups = (count: number) => {
+    const safeCount = Math.max(1, Math.floor(count))
+    const nextGroups = Array.from({ length: safeCount }, (_, index) => formData.comboGroups[index] || ({
+      categoryName: '',
+      groupName: `Group ${index + 1}`,
+      isFree: false,
+      selectionType: 'ONE' as const,
+      items: [],
+    }))
+    handleChange('comboGroups', nextGroups)
+    handleChange('comboGroupCount', String(safeCount))
+  }
+
+  const updateComboGroupCategory = (groupIndex: number, categoryName: string) => {
+    const newGroups = [...formData.comboGroups]
+    const group = newGroups[groupIndex]
+    if (!group) return
+    group.categoryName = categoryName
+    group.groupName = categoryName || `Group ${groupIndex + 1}`
+    group.items = []
+    handleChange('comboGroups', newGroups)
+  }
 
   // Check if step 2 is needed
   const needsStep2 = formData.type === 'B1G1' || formData.type === 'COMBO' || (formData.type === 'DISCOUNT' && formData.discountScope === 'PRODUCT')
 
   return (
-    <div className="flex h-screen">
+    <div className="flex min-h-screen bg-[#f8f1e8]">
       <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight text-[#4c372a]">Create Offers</h1>
+              <p className="mt-1 text-sm text-[#8b6f5e]">Set up a discount, B1G1, or combo in a clean structured form.</p>
+            </div>
+            <Button variant="outline" onClick={() => router.push('/offers')}>Cancel</Button>
+          </div>
 
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold">Create Offer - Step {currentStep} of {needsStep2 ? 3 : 2}</h1>
-          <Button variant="outline" onClick={() => router.push('/offers')}>Cancel</Button>
-        </div>
+          <div className="mb-6 flex items-center gap-3 rounded-2xl border border-[#ead6c2] bg-white px-4 py-3 shadow-sm">
+            <span className="text-sm font-medium text-[#5C4033]">Step {currentStep} of {needsStep2 ? 3 : 2}</span>
+            <div className="h-1.5 flex-1 rounded-full bg-[#f0e1d4]">
+              <div
+                className="h-1.5 rounded-full bg-[#AE7A65] transition-all"
+                style={{ width: `${(currentStep / (needsStep2 ? 3 : 2)) * 100}%` }}
+              />
+            </div>
+          </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-100 text-red-600 rounded">
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
             {error}
           </div>
         )}
 
         {/* ═══════════ STEP 1: Basic Info ═══════════ */}
         {currentStep === 1 && (
-        <div className="space-y-3 max-w-2xl">
+        <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
           <Input placeholder="Title *" value={formData.title} onChange={e => handleChange("title", e.target.value)} />
           <Input placeholder="Description" value={formData.description} onChange={e => handleChange("description", e.target.value)} />
 
@@ -311,7 +349,7 @@ export default function CreateOfferPage() {
           </div>
 
           {formData.type === 'DISCOUNT' && (
-            <div className="space-y-3 p-3 border rounded bg-gray-50">
+            <div className="space-y-3 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
               <Input type="number" placeholder="Discount % *" value={formData.discountValue} onChange={e => handleChange("discountValue", e.target.value)} />
               
               <div>
@@ -339,8 +377,6 @@ export default function CreateOfferPage() {
             </div>
           )}
 
-          <Input placeholder="Category (Optional)" value={formData.category} onChange={e => handleChange("category", e.target.value)} />
-
           <div className="flex gap-2">
             <div className="flex-1">
               <Label className="text-xs text-gray-500">Start Date *</Label>
@@ -352,8 +388,16 @@ export default function CreateOfferPage() {
             </div>
           </div>
 
-          <Input type="number" placeholder="Min Order Value (Optional)" value={formData.minOrderValue} onChange={e => handleChange("minOrderValue", e.target.value)} />
-          <Input type="number" placeholder="Priority" value={formData.priority} onChange={e => handleChange("priority", e.target.value)} />
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <Label className="text-xs text-gray-500 mb-1 block">Min Order Value</Label>
+              <Input type="number" placeholder="0" value={formData.minOrderValue} onChange={e => handleChange("minOrderValue", e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1 block">Priority</Label>
+              <Input type="number" placeholder="0" value={formData.priority} onChange={e => handleChange("priority", e.target.value)} />
+            </div>
+          </div>
 
           <div className="flex flex-wrap gap-4 pt-2">
             <label className="flex items-center gap-1"><input type="checkbox" checked={formData.isActive} onChange={e => handleChange("isActive", e.target.checked)} /> Active</label>
@@ -361,265 +405,161 @@ export default function CreateOfferPage() {
             <label className="flex items-center gap-1"><input type="checkbox" checked={formData.isStackable} onChange={e => handleChange("isStackable", e.target.checked)} /> Stackable</label>
           </div>
 
-          {/* ── userRules section ── */}
-          <div className="border-t pt-3 mt-3">
-            <h3 className="font-semibold text-sm mb-2">User Rules (Optional)</h3>
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-1"><input type="checkbox" checked={formData.birthdayOnly} onChange={e => handleChange("birthdayOnly", e.target.checked)} /> Birthday Only</label>
-                <label className="flex items-center gap-1"><input type="checkbox" checked={formData.firstOrderOnly} onChange={e => handleChange("firstOrderOnly", e.target.checked)} /> First Order Only</label>
-              </div>
-              <Input type="number" placeholder="Inactivity Days" value={formData.inactivityDays} onChange={e => handleChange("inactivityDays", e.target.value)} />
-              <Input type="number" placeholder="Min Orders Required" value={formData.minOrdersRequired} onChange={e => handleChange("minOrdersRequired", e.target.value)} />
-              <Input type="number" placeholder="Global Usage Limit (0 = unlimited)" value={formData.usageLimit} onChange={e => handleChange("usageLimit", e.target.value)} />
-              <Input type="number" placeholder="Per User Limit (default = 1)" value={formData.perUserLimit} onChange={e => handleChange("perUserLimit", e.target.value)} />
-            </div>
-          </div>
-
-          {/* ── display section ── */}
-          <div className="border-t pt-3 mt-3">
-            <h3 className="font-semibold text-sm mb-2">Display (Optional)</h3>
-            <div className="space-y-2">
-              <Input placeholder="Badge Text" value={formData.badge} onChange={e => handleChange("badge", e.target.value)} />
-              <Input placeholder="Highlight Text" value={formData.highlightText} onChange={e => handleChange("highlightText", e.target.value)} />
-            </div>
-          </div>
-
         </div>
         )}
 
         {/* ═══════════ STEP 2: Product Selection (B1G1 / COMBO / DISCOUNT-PRODUCT only) ═══════════ */}
         {currentStep === 2 && needsStep2 && (
-          <div className="space-y-4 max-w-2xl">
+          <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
 
             {/* ── DISCOUNT (PRODUCT Scope): Select applicable products ── */}
             {formData.type === 'DISCOUNT' && formData.discountScope === 'PRODUCT' && (
-            <div>
-              <h3 className="font-semibold mb-2">Select Discounted Products</h3>
-              <div className="flex gap-2 mb-2">
-                <Input 
-                  placeholder="Search products..." 
-                  value={appSearchQuery} 
-                  onChange={e => setAppSearchQuery(e.target.value)} 
-                  className="flex-1"
-                />
-                <Select value={appCategory} onValueChange={setAppCategory}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+            <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
+                  <Select value={appCategory} onValueChange={setAppCategory}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
+                  <Select onValueChange={(value) => handleChange('discountProductIds', addUniqueProductId(formData.discountProductIds, value))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pick products" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredAppProducts.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="max-h-52 overflow-y-auto border p-2 rounded">
-                {filteredAppProducts.map(p => (
-                  <div key={`disc-${p.id}`} className="flex items-center gap-2 mb-2 p-1 hover:bg-gray-50">
-                    <input 
-                      type="checkbox" 
-                      checked={formData.discountProductIds.includes(p.id)}
-                      onChange={() => {
-                        const exists = formData.discountProductIds.includes(p.id);
-                        handleChange("discountProductIds", exists 
-                          ? formData.discountProductIds.filter(id => id !== p.id)
-                          : [...formData.discountProductIds, p.id]);
-                      }}
-                    />
-                    <span>{p.name}</span>
-                    <span className="text-xs text-gray-400 ml-auto">{p.category}</span>
-                  </div>
+              <div className="flex flex-wrap gap-2">
+                {formData.discountProductIds.map(id => (
+                  <span key={id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
+                    {getProductLabel(id)}
+                    <button type="button" className="text-[#AE7A65]" onClick={() => handleChange('discountProductIds', removeProductId(formData.discountProductIds, id))}>×</button>
+                  </span>
                 ))}
-                {filteredAppProducts.length === 0 && <span className="text-gray-500 text-sm">No products found.</span>}
               </div>
-              <p className="text-xs mt-1 text-gray-500">{formData.discountProductIds.length} product(s) selected</p>
+              <p className="text-xs text-[#8b6f5e]">Selected products are stored in the discount config.</p>
             </div>
             )}
 
             {/* ── B1G1: Select applicable products ── */}
             {formData.type === 'B1G1' && (
-            <div>
-              <h3 className="font-semibold mb-2">Select B1G1 Applicable Products</h3>
-              <p className="text-xs text-gray-500 mb-2">Selected products will be stored in config.b1g1.applicableProductIds — type: CHEAPEST_FREE</p>
-              <div className="flex gap-2 mb-2">
-                <Input 
-                  placeholder="Search products..." 
-                  value={appSearchQuery} 
-                  onChange={e => setAppSearchQuery(e.target.value)} 
-                  className="flex-1"
-                />
-                <Select value={appCategory} onValueChange={setAppCategory}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+            <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
+              <p className="text-xs text-[#8b6f5e]">Pick exactly two products.</p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
+                  <Select value={appCategory} onValueChange={setAppCategory}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
+                  <Select onValueChange={(value) => handleChange('b1g1ProductIds', addLimitedProductId(formData.b1g1ProductIds, value, 10))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pick products" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredAppProducts.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="max-h-52 overflow-y-auto border p-2 rounded">
-                {filteredAppProducts.map(p => (
-                  <div key={`b1g1-${p.id}`} className="flex items-center gap-2 mb-2 p-1 hover:bg-gray-50">
-                    <input 
-                      type="checkbox" 
-                      checked={formData.b1g1ProductIds.includes(p.id)}
-                      onChange={() => {
-                        const exists = formData.b1g1ProductIds.includes(p.id);
-                        handleChange("b1g1ProductIds", exists 
-                          ? formData.b1g1ProductIds.filter(id => id !== p.id)
-                          : [...formData.b1g1ProductIds, p.id]);
-                      }}
-                    />
-                    <span>{p.name}</span>
-                    <span className="text-xs text-gray-400 ml-auto">{p.category}</span>
-                  </div>
+              <div className="flex flex-wrap gap-2">
+                {formData.b1g1ProductIds.map(id => (
+                  <span key={id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
+                    {getProductLabel(id)}
+                    <button type="button" className="text-[#AE7A65]" onClick={() => handleChange('b1g1ProductIds', removeProductId(formData.b1g1ProductIds, id))}>×</button>
+                  </span>
                 ))}
-                {filteredAppProducts.length === 0 && <span className="text-gray-500 text-sm">No products found.</span>}
               </div>
-              <p className="text-xs mt-1 text-gray-500">{formData.b1g1ProductIds.length} product(s) selected</p>
+              <p className="text-xs text-[#8b6f5e]">{formData.b1g1ProductIds.length}/10 selected</p>
             </div>
             )}
 
             {/* ── COMBO: Select and group products ── */}
             {formData.type === 'COMBO' && (
-            <div className="p-3 border rounded bg-gray-50">
-              <h3 className="font-semibold mb-2">Configure Combo Groups</h3>
+            <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
+              <p className="text-xs text-[#8b6f5e]">Set the combo price first, then define how many groups you want and choose a category for each group.</p>
 
-              <div className="mb-4">
-                <Label className="text-sm">Combo Price *</Label>
+              <div>
+                <Label className="text-xs text-gray-500 mb-1 block">Combo price</Label>
                 <Input
                   type="number"
-                  placeholder="Set price for the entire combo"
+                  placeholder="Set price for the combo"
                   value={formData.comboPrice}
-                  onChange={e => handleChange("comboPrice", e.target.value)}
-                  className="mt-1 bg-white"
+                  onChange={e => handleChange('comboPrice', e.target.value)}
                 />
               </div>
 
-              <div className="mb-4">
-                <Button 
-                  type="button" 
-                  variant="outline"
-                  onClick={() => {
-                    const newGroup = { groupName: `Group ${formData.comboGroups.length + 1}`, isFree: false, selectionType: "ONE" as const, items: [] };
-                    handleChange("comboGroups", [...formData.comboGroups, newGroup]);
-                  }}
-                >
-                  + Add Group
-                </Button>
+              <div>
+                <Label className="text-xs text-gray-500 mb-1 block">Number of groups</Label>
+                <Input type="number" min={1} placeholder="1" value={formData.comboGroupCount} onChange={e => syncComboGroups(Number(e.target.value || 1))} />
               </div>
 
               {formData.comboGroups.map((group, gIdx) => (
-                <div key={gIdx} className="border p-4 mb-4 bg-white rounded shadow-sm">
-                  <div className="flex flex-wrap gap-4 items-end mb-4">
-                    <div className="flex-1">
-                      <Label className="text-xs text-gray-500">Group Name</Label>
-                      <Input 
-                        value={group.groupName} 
-                        onChange={e => {
-                          const newGroups = [...formData.comboGroups];
-                          newGroups[gIdx].groupName = e.target.value;
-                          handleChange("comboGroups", newGroups);
-                        }} 
-                      />
-                    </div>
-                    <div className="w-[180px]">
-                      <Label className="text-xs text-gray-500">Selection Type</Label>
-                      <Select 
-                        value={group.selectionType} 
-                        onValueChange={v => {
-                          const newGroups = [...formData.comboGroups];
-                          newGroups[gIdx].selectionType = v as "ONE" | "MULTIPLE";
-                          handleChange("comboGroups", newGroups);
-                        }}
-                      >
-                        <SelectTrigger><SelectValue/></SelectTrigger>
+                <div key={gIdx} className="space-y-4 rounded-2xl border border-[#ead6c2] bg-white p-4 shadow-sm">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
+                      <Select value={group.categoryName || ''} onValueChange={(value) => updateComboGroupCategory(gIdx, value)}>
+                        <SelectTrigger><SelectValue placeholder="Choose category" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="ONE">Select 1</SelectItem>
-                          <SelectItem value="MULTIPLE">Select Multiple</SelectItem>
+                          {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <input 
-                        type="checkbox" 
-                        checked={group.isFree} 
-                        onChange={e => {
-                          const newGroups = [...formData.comboGroups];
-                          newGroups[gIdx].isFree = e.target.checked;
-                          handleChange("comboGroups", newGroups);
-                        }}
-                      />
-                      <Label className="text-sm">Is Free</Label>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Group name</Label>
+                      <Input value={group.groupName} readOnly />
                     </div>
-                    <Button variant="destructive" size="sm" onClick={() => {
-                      const newGroups = formData.comboGroups.filter((_, i) => i !== gIdx);
-                      handleChange("comboGroups", newGroups);
-                    }}>Remove</Button>
+                    <div />
                   </div>
 
-                  <Label className="text-sm font-semibold mb-2 block">Group Products</Label>
-                  <div className="flex gap-2 mb-2">
-                    <Input 
-                      placeholder="Search products..." 
-                      value={appSearchQuery} 
-                      onChange={e => setAppSearchQuery(e.target.value)} 
-                      className="flex-1"
-                    />
-                    <Select value={appCategory} onValueChange={setAppCategory}>
-                      <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder="Category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
-                        {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
+                      <Select value="" onValueChange={(value) => addComboProduct(gIdx, value)} disabled={!group.categoryName}>
+                        <SelectTrigger>
+                          <SelectValue placeholder={group.categoryName ? 'Pick products' : 'Choose a category first'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {products.filter(p => p.category === group.categoryName).map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div className="max-h-52 overflow-y-auto border p-2 rounded">
-                    {filteredAppProducts.map(p => {
-                      const existing = group.items.find(i => i.productId === p.id)
-                      return (
-                        <div key={`combo-${gIdx}-${p.id}`} className="flex items-center gap-2 mb-2 p-1 hover:bg-gray-50">
-                          <input 
-                            type="checkbox" 
-                            checked={!!existing}
-                            onChange={() => {
-                              const newGroups = [...formData.comboGroups];
-                              if (existing) {
-                                newGroups[gIdx].items = newGroups[gIdx].items.filter(i => i.productId !== p.id);
-                              } else {
-                                newGroups[gIdx].items.push({ productId: p.id, isCustomizable: false });
-                              }
-                              handleChange("comboGroups", newGroups);
-                            }}
-                          />
-                          <span>{p.name}</span>
-                          {existing && p.category?.toLowerCase() === 'coffee' && (
-                             <label className="flex items-center gap-1 ml-4 text-xs">
-                               <input 
-                                 type="checkbox"
-                                 checked={existing.isCustomizable || false}
-                                 onChange={(e) => {
-                                    const newGroups = [...formData.comboGroups];
-                                    const itemIdx = newGroups[gIdx].items.findIndex(i => i.productId === p.id);
-                                    if(itemIdx !== -1) {
-                                       newGroups[gIdx].items[itemIdx].isCustomizable = e.target.checked;
-                                       handleChange("comboGroups", newGroups);
-                                    }
-                                 }}
-                               />
-                               Customizable
-                             </label>
-                          )}
-                          <span className="text-xs text-gray-400 ml-auto">{p.category}</span>
-                        </div>
-                      )
-                    })}
-                    {filteredAppProducts.length === 0 && <span className="text-gray-500 text-sm">No products found.</span>}
+
+                  <div className="flex flex-wrap gap-2">
+                    {group.items.map(item => (
+                      <div key={item.productId} className="inline-flex items-center gap-2 rounded-full bg-[#f9f3ec] px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
+                        <span>{getProductName(item.productId)}</span>
+                        <button type="button" className="text-[#AE7A65]" onClick={() => removeComboProduct(gIdx, item.productId)}>×</button>
+                      </div>
+                    ))}
                   </div>
-                  <p className="text-xs mt-1 text-gray-500">{group.items.length} item(s) selected in {group.groupName}</p>
                 </div>
               ))}
             </div>
@@ -629,13 +569,12 @@ export default function CreateOfferPage() {
 
         {/* ═══════════ STEP 2 (if no product step) / STEP 3: Summary ═══════════ */}
         {((currentStep === 2 && !needsStep2) || (currentStep === 3 && needsStep2)) && (
-          <div className="space-y-4 max-w-2xl">
+          <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
             <h3 className="font-semibold">Summary</h3>
             <div className="text-sm space-y-2 bg-gray-50 p-4 rounded border">
               <p><strong>Title:</strong> {formData.title}</p>
-              <p><strong>Type:</strong> {formData.type}</p>
+              <p><strong>offerType:</strong> {formData.type}</p>
               {formData.description && <p><strong>Description:</strong> {formData.description}</p>}
-              {formData.category && <p><strong>Category:</strong> {formData.category}</p>}
 
               {formData.type === 'DISCOUNT' && (
                 <>
@@ -664,31 +603,12 @@ export default function CreateOfferPage() {
                 {formData.isStackable && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">Stackable</span>}
               </div>
 
-              {(formData.birthdayOnly || formData.firstOrderOnly || formData.usageLimit || formData.inactivityDays || formData.minOrdersRequired) && (
-                <div className="border-t pt-2 mt-2">
-                  <p className="font-semibold text-xs">User Rules:</p>
-                  {formData.birthdayOnly && <p className="text-xs">• Birthday Only</p>}
-                  {formData.firstOrderOnly && <p className="text-xs">• First Order Only</p>}
-                  {formData.inactivityDays && <p className="text-xs">• Inactivity Days: {formData.inactivityDays}</p>}
-                  {formData.minOrdersRequired && <p className="text-xs">• Min Orders Required: {formData.minOrdersRequired}</p>}
-                  {formData.usageLimit && <p className="text-xs">• Global Usage Limit: {formData.usageLimit}</p>}
-                  {formData.perUserLimit && <p className="text-xs">• Per User Limit: {formData.perUserLimit}</p>}
-                </div>
-              )}
-
-              {(formData.badge || formData.highlightText) && (
-                <div className="border-t pt-2 mt-2">
-                  <p className="font-semibold text-xs">Display:</p>
-                  {formData.badge && <p className="text-xs">• Badge: {formData.badge}</p>}
-                  {formData.highlightText && <p className="text-xs">• Highlight: {formData.highlightText}</p>}
-                </div>
-              )}
             </div>
           </div>
         )}
 
         {/* ═══════════ Navigation Buttons ═══════════ */}
-        <div className="flex justify-between w-full mt-6 max-w-2xl">
+        <div className="mt-6 flex justify-between pb-8">
           <div className="flex-1">
             {currentStep > 1 && (
               <Button variant="outline" onClick={handleBack}>Back</Button>
@@ -707,6 +627,7 @@ export default function CreateOfferPage() {
           </div>
         </div>
 
+        </div>
       </main>
     </div>
   )

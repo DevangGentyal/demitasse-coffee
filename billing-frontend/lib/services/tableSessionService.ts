@@ -8,7 +8,7 @@ const getIdToken = async (): Promise<string> => {
 }
 
 export const tableSessionService = {
-  async closeSession(payload: { sessionId?: string; tableId?: string; paymentStatus?: string }) {
+  async closeSession(payload: { sessionId?: string; tableId?: string; status?: string }) {
     if (!payload?.sessionId && !payload?.tableId) {
       throw new Error('sessionId or tableId is required')
     }

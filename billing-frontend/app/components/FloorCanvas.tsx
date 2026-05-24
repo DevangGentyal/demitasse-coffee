@@ -65,8 +65,26 @@ interface OrderItem {
   qty: number
   unitPrice: number   // base unit price
   totalPrice: number  // (unitPrice + addons) * qty  ← DB key: totalPrice
-  orderTotalAmount: number // parent order's totalAmount
+  orderSubTotal: number // parent order's subTotal
   addOns: AddOn[]     // DB key: addOns – array of { name, price }
+  orderOfferId?: string
+  orderOfferType?: string
+  orderOfferTitle?: string
+  orderDiscount?: number
+  orderDiscountedPrice?: number
+  orderHasOffer?: boolean
+  offerId?: string
+  offerType?: string
+  offerTitle?: string
+  originalPrice?: number | null
+  finalPrice?: number | null
+  discountAmount?: number | null
+  dealPrice?: number | null
+  isOfferItem?: boolean
+  isCombo?: boolean
+  isManualB1G1?: boolean
+  isDiscount?: boolean
+  isBirthday?: boolean
   notes?: string      // DB key: notes
 }
 
@@ -74,6 +92,26 @@ interface TableOrder {
   tableId: string
   items: OrderItem[]
   createdAt: Date
+}
+
+interface AppliedOfferLogItem {
+  name: string
+  productId: string
+  qty: number
+  unitPrice: number
+  totalPrice: number
+  isFree: boolean
+}
+
+interface AppliedOfferLog {
+  offerId: string
+  offerTitle: string
+  offerType: string
+  description: string
+  groupSubtotal?: number
+  groupDiscount?: number
+  groupDiscountedPrice?: number
+  items: AppliedOfferLogItem[]
 }
 
 // ─── Safe numeric helpers ─────────────────────────────────────────────────────
@@ -108,18 +146,18 @@ const getItemTotalPrice = (item: { totalPrice?: unknown; unitPrice?: unknown; qt
 }
 
 /**
- * Grand total shown in the bill view.
+ * Subtotal shown in the bill view.
  *
  * Strategy:
- *  1. Prefer summing the unique order-level `totalAmount` values (most accurate).
+ *  1. Prefer summing the unique order-level `subTotal` values (most accurate).
  *  2. Fall back to summing item-level `totalPrice` when order totals are absent.
  */
 const getViewBillSubtotal = (items: OrderItem[]): number => {
-  // Collect one totalAmount per unique order
+  // Collect one subTotal per unique order
   const seenOrders = new Map<string, number>()
   for (const item of items) {
     if (!seenOrders.has(item.orderId)) {
-      seenOrders.set(item.orderId, item.orderTotalAmount)
+      seenOrders.set(item.orderId, item.orderSubTotal)
     }
   }
 
@@ -151,8 +189,9 @@ function OrderViewModal({
   orders: TableOrder | undefined
   onClose: () => void
   billData?: {
-    pricing: { subtotal: number; discount: number; tax: number; total: number }
-    appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }>
+    pricing: { subtotal: number; discount: number; discountedPrice?: number; tax: number; total: number }
+    appliedOffers: Array<{ offerId: string; title: string; type: string; offerType?: string; amount: number }>
+    appliedOfferLogs?: AppliedOfferLog[]
   } | null
 }) {
   const { outletId } = useAuth()
@@ -176,12 +215,14 @@ function OrderViewModal({
     const discount = 0
     const tax = Math.floor(subtotal * 0.05)
     const total = subtotal - discount + tax
-    return { subtotal, discount, tax, total }
+    return { subtotal, discount, discountedPrice: subtotal - discount, tax, total }
   }, [hasBill, billData, items])
 
-  const displayTotal = Number(pricing.subtotal - pricing.discount + pricing.tax)
+  const displayTotal = Number(pricing.total ?? (pricing.subtotal - pricing.discount + pricing.tax))
+  const displayDiscountedPrice = Number(pricing.discountedPrice ?? Math.max(pricing.subtotal - pricing.discount, 0))
 
   const appliedOffers = billData?.appliedOffers ?? []
+  const appliedOfferLogs = (billData as any)?.appliedOfferLogs ?? []
 
   // ── Delete item ────────────────────────────────────────────────────────────
   const handleDeleteItem = async (orderId: string, itemId: string) => {
@@ -237,94 +278,210 @@ function OrderViewModal({
                 return acc
               }, {})
 
-              return Object.entries(groups).map(([orderId, group]) => (
-                <div key={orderId}>
-                  {group.map((item) => {
-                    const hasAddons = item.addOns.length > 0
-                    const hasNotes = !!item.notes?.trim()
-                    const hasDetails = hasAddons || hasNotes
-                    const isExpanded = !!expandedItems[item.id]
+              return Object.entries(groups).map(([orderId, group]) => {
+                const offerBuckets = new Map<string, {
+                  offerId: string
+                  offerType: string
+                  offerTitle: string
+                  rows: Array<{ item: OrderItem; index: number }>
+                }>()
+                const regularRows: Array<{ item: OrderItem; index: number }> = []
 
-                    return (
-                      <div key={item.id} className="px-6 py-3 border-b border-gray-100 last:border-0">
-                        {/* Main item row */}
-                        <div className="flex items-center gap-2">
-                          {/* Name + unit price + expand toggle */}
-                          <div
-                            className={`flex-1 min-w-0 ${hasDetails ? 'cursor-pointer' : ''}`}
-                            onClick={() => hasDetails && toggleExpanded(item.id)}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm font-medium text-gray-900 truncate">{item.name}</span>
-                              {hasDetails && (
-                                <span
-                                  className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${
-                                    isExpanded ? 'rotate-180' : ''
-                                  }`}
-                                >
-                                  ▼
-                                </span>
+                group.forEach((item, index) => {
+                  const rawOfferId = String(item.offerId || '').trim()
+                  const rawOfferTitle = String(item.offerTitle || '').trim()
+                  const rawOfferType = String(item.offerType || '').trim()
+                  const fallbackOfferId = `${rawOfferType || 'offer'}::${rawOfferTitle || 'group'}`
+                  const bucketId = rawOfferId || (item.isOfferItem ? fallbackOfferId : '')
+
+                  if (!bucketId) {
+                    regularRows.push({ item, index })
+                    return
+                  }
+
+                  if (!offerBuckets.has(bucketId)) {
+                    offerBuckets.set(bucketId, {
+                      offerId: bucketId,
+                      offerType: rawOfferType || 'Offer',
+                      offerTitle: rawOfferTitle || 'Offer Group',
+                      rows: [],
+                    })
+                  }
+                  offerBuckets.get(bucketId)!.rows.push({ item, index })
+                })
+
+                const renderOrderRow = (
+                  rowItem: OrderItem,
+                  rowIndex: number,
+                  keyPrefix: string,
+                  hideOfferMeta = false,
+                ) => {
+                  const hasAddons = rowItem.addOns.length > 0
+                  const hasNotes = !!rowItem.notes?.trim()
+                  const hasDetails = hasAddons || hasNotes
+                  const rowKey = `${keyPrefix}-${orderId}-${rowItem.id || 'item'}-${rowIndex}`
+                  const isExpanded = !!expandedItems[rowKey]
+
+                  return (
+                    <div key={rowKey} className="px-6 py-3 border-b border-gray-100 last:border-0">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`flex-1 min-w-0 ${hasDetails ? 'cursor-pointer' : ''}`}
+                          onClick={() => hasDetails && toggleExpanded(rowKey)}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium text-gray-900 truncate">{rowItem.name}</span>
+                            {hasDetails && (
+                              <span
+                                className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${
+                                  isExpanded ? 'rotate-180' : ''
+                                }`}
+                              >
+                                ▼
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-0.5">{formatRupee(rowItem.unitPrice)} each</div>
+                          {!hideOfferMeta && rowItem.isOfferItem && (rowItem.offerTitle || rowItem.orderOfferTitle) && (
+                            <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{rowItem.offerType || rowItem.orderOfferType || 'Offer'}</span>
+                              <span className="truncate">{rowItem.offerTitle || rowItem.orderOfferTitle}</span>
+                              {Number(rowItem.discountAmount ?? 0) > 0 && (
+                                <span className="text-blue-600/80">-{formatRupee(Number(rowItem.discountAmount ?? 0))}</span>
                               )}
                             </div>
-                            <div className="text-xs text-gray-400 mt-0.5">{formatRupee(item.unitPrice)} each</div>
-                          </div>
-
-                          {/* qty */}
-                          <div className="w-16 text-center text-sm font-medium text-gray-700 shrink-0">
-                            {item.qty}
-                          </div>
-
-                          {/* totalPrice */}
-                          <div className="w-24 text-right text-sm font-semibold text-gray-900 shrink-0">
-                            {formatRupee(item.totalPrice)}
-                          </div>
-
-                          {/* Delete */}
-                          <button
-                            onClick={() => handleDeleteItem(item.orderId, item.id)}
-                            disabled={isDeletingItem === item.id || items.length <= 1}
-                            className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400 shrink-0"
-                            title={items.length <= 1 ? 'Cannot remove last item' : 'Remove item'}
-                          >
-                            {isDeletingItem === item.id ? (
-                              <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <Trash2 size={15} />
-                            )}
-                          </button>
+                          )}
                         </div>
 
-                        {/* Expandable add-on / notes section */}
-                        {isExpanded && hasDetails && (
-                          <div className="mt-2 ml-1 pl-3 border-l-2 border-gray-200 space-y-1 pb-1">
-                            {hasAddons && (
-                              <>
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
-                                  Add-ons
-                                </p>
-                                {item.addOns.map((addon, i) => (
-                                  <div key={i} className="flex items-center justify-between text-xs text-amber-700">
-                                    <span>+ {addon.name}</span>
-                                    {addon.price > 0 && (
-                                      <span className="text-amber-600/70 tabular-nums">+₹{addon.price}</span>
-                                    )}
-                                  </div>
-                                ))}
-                              </>
-                            )}
-                            {hasNotes && (
-                              <div className="flex items-start gap-1.5 text-xs text-gray-500 pt-1">
-                                <span className="font-semibold text-gray-400 shrink-0">Note:</span>
-                                <span className="italic">{item.notes}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        <div className="w-16 text-center text-sm font-medium text-gray-700 shrink-0">
+                          {rowItem.qty}
+                        </div>
+
+                        <div className="w-24 text-right text-sm font-semibold text-gray-900 shrink-0">
+                          {formatRupee(rowItem.totalPrice)}
+                        </div>
+
+                        <button
+                          onClick={() => handleDeleteItem(rowItem.orderId, rowItem.id)}
+                          disabled={isDeletingItem === rowItem.id || items.length <= 1}
+                          className="text-gray-400 hover:text-red-500 disabled:opacity-30 p-1.5 transition-colors rounded hover:bg-slate-50 disabled:hover:text-gray-400 shrink-0"
+                          title={items.length <= 1 ? 'Cannot remove last item' : 'Remove item'}
+                        >
+                          {isDeletingItem === rowItem.id ? (
+                            <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Trash2 size={15} />
+                          )}
+                        </button>
                       </div>
-                    )
-                  })}
-                </div>
-              ))
+
+                      {isExpanded && hasDetails && (
+                        <div className="mt-2 ml-1 pl-3 border-l-2 border-gray-200 space-y-1 pb-1">
+                          {hasAddons && (
+                            <>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                                Add-ons
+                              </p>
+                              {rowItem.addOns.map((addon, i) => (
+                                <div key={i} className="flex items-center justify-between text-xs text-amber-700">
+                                  <span>+ {addon.name}</span>
+                                  {addon.price > 0 && (
+                                    <span className="text-amber-600/70 tabular-nums">+₹{addon.price}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </>
+                          )}
+                          {hasNotes && (
+                            <div className="flex items-start gap-1.5 text-xs text-gray-500 pt-1">
+                              <span className="font-semibold text-gray-400 shrink-0">Note:</span>
+                              <span className="italic">{rowItem.notes}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+
+                return (
+                  <div key={orderId}>
+                    {(() => {
+                      const offerBucketList = Array.from(offerBuckets.values())
+                      const orderDiscountRaw = toSafeNumber(group[0]?.orderDiscount, 0)
+                      const orderDiscount = Math.max(orderDiscountRaw, 0)
+                      const orderDiscountedPriceDirect = toSafeNumber(group[0]?.orderDiscountedPrice, NaN)
+                      const orderDiscountedPriceFallback = toSafeNumber(group[0]?.orderSubTotal, NaN)
+                      const orderDiscountedPrice = Number.isFinite(orderDiscountedPriceDirect)
+                        ? orderDiscountedPriceDirect
+                        : Number.isFinite(orderDiscountedPriceFallback)
+                          ? orderDiscountedPriceFallback
+                          : NaN
+                      const basicSubtotal = regularRows.reduce((sum, row) => sum + toSafeNumber(row.item.totalPrice, 0), 0)
+                      const totalOfferSubtotal = offerBucketList.reduce((sum, b) => {
+                        const bucketSum = b.rows.reduce((acc, row) => acc + toSafeNumber(row.item.totalPrice, 0), 0)
+                        return sum + bucketSum
+                      }, 0)
+
+                      return offerBucketList.map((bucket) => {
+                      const matchedLog = appliedOfferLogs.find((log: AppliedOfferLog) => {
+                        const sameOfferId = String(log?.offerId || '').trim() === String(bucket.offerId || '').trim()
+                        const sameTitleAndType =
+                          String(log?.offerTitle || '').trim().toLowerCase() === String(bucket.offerTitle || '').trim().toLowerCase() &&
+                          String(log?.offerType || '').trim().toLowerCase() === String(bucket.offerType || '').trim().toLowerCase()
+                        return sameOfferId || sameTitleAndType
+                      })
+                      const bucketSubtotal = bucket.rows.reduce((sum, row) => sum + toSafeNumber(row.item.totalPrice, 0), 0)
+                      const logBasedPrice = Number.isFinite(Number(matchedLog?.groupDiscountedPrice))
+                        ? Number(matchedLog?.groupDiscountedPrice)
+                        : NaN
+
+                      let orderBasedPrice = NaN
+                      if (Number.isFinite(orderDiscountedPrice)) {
+                        if (offerBucketList.length === 1) {
+                          // Offer price = order discounted total minus non-offer (basic) items in that order.
+                          orderBasedPrice = Math.max(orderDiscountedPrice - basicSubtotal, 0)
+                        } else if (totalOfferSubtotal > 0) {
+                          // If multiple offers are present in same order, distribute order-level discount
+                          // proportionally across offer buckets by their pre-discount subtotal.
+                          const bucketDiscountShare = (orderDiscount * bucketSubtotal) / totalOfferSubtotal
+                          orderBasedPrice = Math.max(bucketSubtotal - bucketDiscountShare, 0)
+                        }
+                      }
+
+                      const consideredPrice = Number.isFinite(orderBasedPrice)
+                        ? orderBasedPrice
+                        : Number.isFinite(logBasedPrice)
+                          ? logBasedPrice
+                          : bucketSubtotal
+
+                      return (
+                      <div key={`offer-group-${orderId}-${bucket.offerId}`} className="mx-3 my-3 rounded-xl border border-blue-200 bg-blue-50/60">
+                        <div className="flex items-center justify-between border-b border-blue-200 px-3 py-2">
+                          <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
+                            <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
+                              {bucket.offerType}
+                            </span>
+                            <span className="truncate max-w-[220px]">{bucket.offerTitle}</span>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[10px] font-medium uppercase tracking-wide text-blue-600">
+                              {bucket.rows.length} item{bucket.rows.length > 1 ? 's' : ''}
+                            </div>
+                            <div className="text-xs font-bold text-blue-800">
+                              Offer Price: {formatRupee(consideredPrice)}
+                            </div>
+                          </div>
+                        </div>
+                        {bucket.rows.map(({ item, index }) => renderOrderRow(item, index, `offer-${bucket.offerId}`, true))}
+                      </div>
+                    )})
+                    })()}
+
+                    {regularRows.map(({ item, index }) => renderOrderRow(item, index, 'regular'))}
+                  </div>
+                )
+              })
             })()
           )}
         </div>
@@ -332,27 +489,56 @@ function OrderViewModal({
         {/* Footer – pricing */}
         <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 space-y-4">
           <div className="space-y-2">
-            <div className="flex justify-between items-center text-sm text-gray-600">
-              <span>Subtotal</span>
-              <span>{formatRupee(pricing.subtotal)}</span>
-            </div>
-
-            {appliedOffers.map((offer, idx) => (
-              <div key={idx} className="flex justify-between items-center text-sm text-green-600 font-medium">
-                <span className="flex items-center gap-1.5">
-                  <span className="text-[10px] bg-green-100 px-1.5 py-0.5 rounded uppercase">{offer.type || 'Offer'}</span>
-                  {offer.title}
-                </span>
-                <span>-{formatRupee(offer.amount)}</span>
+            {/* {(items.some((item) => item.isOfferItem) || appliedOffers.length > 0) && (
+              <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                Offer applied to the specific item rows above. The footer shows the table grand total and final payable amount.
               </div>
-            ))}
+            )} */}
 
-            {pricing.discount > 0 && appliedOffers.length === 0 && (
-              <div className="flex justify-between items-center text-sm text-green-600 font-medium">
-                <span>Discount</span>
-                <span>-{formatRupee(pricing.discount)}</span>
+            {Array.isArray(appliedOfferLogs) && appliedOfferLogs.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {appliedOfferLogs.map((log: any, idx: number) => (
+                  <div key={idx} className="rounded-md border border-gray-200 bg-white p-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700">{log.offerTitle || log.offerId}</div>
+                        <div className="text-[12px] text-gray-500 mt-1">{log.description}</div>
+                      </div>
+                      <div className="text-xs text-gray-600 font-semibold">{log.offerType}</div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-gray-600">
+                      <div className="rounded bg-gray-50 px-2 py-1">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Subtotal</div>
+                        <div className="font-semibold text-gray-900">{formatRupee(Number(log.groupSubtotal || 0))}</div>
+                      </div>
+                      <div className="rounded bg-gray-50 px-2 py-1">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Discount</div>
+                        <div className="font-semibold text-green-700">-{formatRupee(Number(log.groupDiscount || 0))}</div>
+                      </div>
+                      <div className="rounded bg-gray-50 px-2 py-1">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Net</div>
+                        <div className="font-semibold text-blue-700">{formatRupee(Number(log.groupDiscountedPrice || 0))}</div>
+                      </div>
+                    </div>
+                    {Array.isArray(log.items) && log.items.length > 0 && (
+                      <div className="mt-2 border-t border-gray-100 pt-2 space-y-1">
+                        {log.items.map((it: any, i: number) => (
+                          <div key={i} className="flex items-center justify-between text-xs text-gray-600">
+                            <div className="truncate max-w-[320px]">{it.name} {it.qty ? `(x${it.qty})` : ''}</div>
+                            <div className="font-semibold text-gray-900">{it.isFree ? 'FREE' : formatRupee(it.totalPrice)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
+
+            <div className="flex justify-between items-center text-sm text-blue-700 font-semibold">
+              <span>Grand Total</span>
+              <span>{formatRupee(displayDiscountedPrice)}</span>
+            </div>
 
             <div className="flex justify-between items-center text-sm text-gray-600">
               <span>Tax (5% GST)</span>
@@ -361,7 +547,7 @@ function OrderViewModal({
 
             <div className="flex justify-between items-center pt-2 border-t border-gray-200">
               <span className="text-base font-semibold text-gray-700">
-                {hasBill ? 'Total Payable' : 'Total'}
+                Total Payable
               </span>
               <span className="text-2xl font-bold text-gray-900">{formatRupee(displayTotal)}</span>
             </div>
@@ -487,7 +673,7 @@ const buildWallFromAnchors = (start: WallAnchor, end: WallAnchor): IWall | null 
 
 export function FloorCanvas() {
   const { outletId } = useAuth()
-  const { tables, setTables, updateTable, orders } = useApp()
+  const { tables, setTables, updateTable, orders, setIsLayoutEditing } = useApp()
   const canvasRef = useRef<HTMLDivElement>(null)
   const safeSetTables = typeof setTables === 'function' ? setTables : null
 
@@ -503,11 +689,12 @@ export function FloorCanvas() {
   const [activeTableId, setActiveTableId] = useState<string | null>(null)
   const [printerMenuTableId, setPrinterMenuTableId] = useState<string | null>(null)
   const [closingSessionTable, setClosingSessionTable] = useState<Table | null>(null)
-  const [closePaymentStatus, setClosePaymentStatus] = useState<'SUCCESS' | 'FAILED'>('SUCCESS')
+  const [closeStatus, setCloseStatus] = useState<'SUCCESS' | 'FAILED'>('SUCCESS')
   const [isClosingSession, setIsClosingSession] = useState(false)
   const [billData, setBillData] = useState<{
     pricing: { subtotal: number; discount: number; tax: number; total: number }
-    appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }>
+    appliedOffers: Array<{ offerId: string; title: string; type: string; offerType?: string; amount: number }>
+    appliedOfferLogs?: AppliedOfferLog[]
   } | null>(null)
 
   // Walls
@@ -519,6 +706,14 @@ export function FloorCanvas() {
 
   const drawingWall = useRef<{ startX: number; startY: number } | null>(null)
   const [previewWall, setPreviewWall] = useState<IWall | null>(null)
+
+  useEffect(() => {
+    setIsLayoutEditing(isEditMode)
+  }, [isEditMode, setIsLayoutEditing])
+
+  useEffect(() => {
+    return () => setIsLayoutEditing(false)
+  }, [setIsLayoutEditing])
 
   // ── Fetch floor map ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -603,14 +798,14 @@ export function FloorCanvas() {
 
   /**
    * Compute the display bill amount per table for the table card.
-   * Uses order-level totalAmount (most accurate) and falls back to summing
+  * Uses order-level subTotal (most accurate) and falls back to summing
    * item-level totalPrice.
    */
   const getTableBillAmount = (tableId: string): number => {
     const relatedOrders = tableSessionOrders[tableId] || []
     return relatedOrders.reduce((sum, order) => {
-      // Prefer order.totalAmount (DB field on the Order document)
-      const orderTotal = toSafeNumber((order as any).totalAmount, NaN)
+    // Prefer order.discountedPrice (server-calculated billed total) first.
+    const orderTotal = toSafeNumber((order as any).discountedPrice ?? (order as any).grandTotal ?? (order as any).subTotal ?? (order as any).totalAmount, NaN)
       if (Number.isFinite(orderTotal)) return sum + orderTotal
 
       // Fallback: sum item.totalPrice values
@@ -625,16 +820,40 @@ export function FloorCanvas() {
    * Build normalised OrderItem[] for the OrderViewModal from raw DB orders.
    */
   const buildOrderItems = (relatedOrders: Order[]): OrderItem[] =>
-    relatedOrders.flatMap((order: any) =>
-      (order.items || []).map((item: any): OrderItem => ({
+    relatedOrders.flatMap((order: any) => {
+      const orderDiscount = toFiniteNumber((order as any).discount ?? (order as any).pricing?.discount, 0)
+      const orderDiscountedPrice = toFiniteNumber((order as any).discountedPrice ?? (order as any).pricing?.discountedPrice ?? (order as any).pricing?.subtotal ?? (order as any).subTotal ?? (order as any).totalAmount, NaN)
+      const orderOfferId = String((order as any).offerId || (order as any).autoAppliedOfferId || '')
+      const orderOfferTitle = String((order as any).offerTitle || (Array.isArray((order as any).appliedOffers) ? (order as any).appliedOffers[0]?.title : '') || '')
+      const orderOfferType = String((order as any).offerType || (Array.isArray((order as any).appliedOffers) ? (order as any).appliedOffers[0]?.offerType || (order as any).appliedOffers[0]?.type : '') || '')
+      const orderHasOffer = Boolean(orderOfferId || orderOfferType || orderOfferTitle || orderDiscount > 0)
+
+      return (order.items || []).map((item: any): OrderItem => ({
         id: String(item.id),
         orderId: String(order.id),
         name: String(item.name || ''),
         qty: getItemQty(item),
         unitPrice: getItemUnitPrice(item),
-        totalPrice: getItemTotalPrice(item),           // DB: item.totalPrice
-        orderTotalAmount: toFiniteNumber(order.totalAmount, NaN), // DB: order.totalAmount
-        // DB: item.addOns – array of { name, price }; normalise both casings
+        totalPrice: getItemTotalPrice(item),
+        orderSubTotal: toFiniteNumber((order as any).discountedPrice ?? (order as any).pricing?.discountedPrice ?? order.totalAmount ?? order.subTotal, NaN),
+        orderOfferId,
+        orderOfferType,
+        orderOfferTitle,
+        orderDiscount,
+        orderDiscountedPrice,
+        orderHasOffer,
+        offerId: String(item.offerId || ''),
+        offerType: String(item.offerType || ''),
+        offerTitle: String(item.offerTitle || ''),
+        originalPrice: Number.isFinite(Number(item.originalPrice)) ? Number(item.originalPrice) : null,
+        finalPrice: Number.isFinite(Number(item.finalPrice)) ? Number(item.finalPrice) : null,
+        discountAmount: Number.isFinite(Number(item.discountAmount)) ? Number(item.discountAmount) : null,
+        dealPrice: Number.isFinite(Number(item.dealPrice)) ? Number(item.dealPrice) : null,
+        isOfferItem: Boolean(item.isOfferItem || item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.offerTitle),
+        isCombo: Boolean(item.isCombo),
+        isManualB1G1: Boolean(item.isManualB1G1),
+        isDiscount: Boolean(item.isDiscount),
+        isBirthday: Boolean(item.isBirthday),
         addOns: Array.isArray(item.addOns)
           ? item.addOns
           : Array.isArray(item.addons)
@@ -642,7 +861,7 @@ export function FloorCanvas() {
           : [],
         notes: item.notes || '',
       }))
-    )
+    })
 
   // ── Table drag ─────────────────────────────────────────────────────────────
   const handleTableMouseDown = (e: React.MouseEvent, tableId: string) => {
@@ -994,13 +1213,13 @@ export function FloorCanvas() {
 
   const closeSession = (table: Table) => {
     setClosingSessionTable(table)
-    setClosePaymentStatus('SUCCESS')
+    setCloseStatus('SUCCESS')
   }
 
   const confirmCloseSession = async () => {
     if (!closingSessionTable) return
     const confirmMessage =
-      closePaymentStatus === 'SUCCESS'
+      closeStatus === 'SUCCESS'
         ? `Mark payment as completed for ${closingSessionTable.name} and close the session?`
         : `Mark payment as failed for ${closingSessionTable.name}? The table will be freed, but the customer payment wall will stay locked until they pay.`
     const confirmed = window.confirm(confirmMessage)
@@ -1010,7 +1229,7 @@ export function FloorCanvas() {
       const response = await tableSessionService.closeSession({
         sessionId: closingSessionTable.activeSessionId || undefined,
         tableId: closingSessionTable.id,
-        paymentStatus: closePaymentStatus,
+        status: closeStatus,
       })
       toast.success(response?.message || 'Session update saved')
       setClosingSessionTable(null)
@@ -1053,6 +1272,7 @@ export function FloorCanvas() {
           total: Number.isFinite(result.pricing?.total) ? Math.round(result.pricing.total) : 0,
         },
         appliedOffers: Array.isArray(result.appliedOffers) ? result.appliedOffers : [],
+        appliedOfferLogs: Array.isArray(result.appliedOfferLogs) ? result.appliedOfferLogs : [],
       })
       setActiveTableId(table.id)
       setShowOrderView(true)
@@ -1281,7 +1501,7 @@ export function FloorCanvas() {
             const hasLiveOrders = relatedOrders.length > 0
             const isTableActive = Boolean(table.occupied || hasLiveOrders)
             const isBillRequested =
-              String(table.status || table.paymentStatus || '').toUpperCase() === 'BILL'
+              String(table.status || '').toUpperCase() === 'BILL'
 
             // Bill amount shown on the card:
             // sum of order.totalAmount across all orders for this table
@@ -1511,8 +1731,8 @@ export function FloorCanvas() {
                 Payment status
               </label>
               <select
-                value={closePaymentStatus}
-                onChange={(e) => setClosePaymentStatus(e.target.value as 'SUCCESS' | 'FAILED')}
+                value={closeStatus}
+                onChange={(e) => setCloseStatus(e.target.value as 'SUCCESS' | 'FAILED')}
                 className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
               >
                 <option value="SUCCESS">Payment Completed</option>

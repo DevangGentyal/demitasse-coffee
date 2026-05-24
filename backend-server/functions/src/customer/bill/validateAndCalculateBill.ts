@@ -5,47 +5,9 @@ import { calculateSubtotal } from '../../shared/utilities/billing/pricing';
 import { applyOffer } from '../../shared/utilities/offers/applyOffer';
 import { applyTax } from '../../shared/utilities/billing/tax';
 import { handleCustomerPreflight } from '../../shared/utilities/security/cors';
+import { normalizeBillItemsForDisplay } from '../../shared/utilities/offers/orderPricing';
 
 const db = admin.firestore();
-
-const readString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-const readNumber = (value: unknown, fallback = 0): number => {
-	const numeric = Number(value);
-	return Number.isFinite(numeric) ? numeric : fallback;
-};
-
-const sanitizeCartItems = (rawItems: unknown[]): any[] => Array.isArray(rawItems)
-	? rawItems.map((item) => {
-		const data = (item || {}) as Record<string, unknown>;
-		const qty = Math.max(1, Math.floor(readNumber(data.qty ?? data.quantity, 1)));
-		const unitPrice = readNumber(data.finalUnitPrice ?? data.price, 0);
-		const explicitTotal = readNumber(data.totalPrice, NaN);
-		const normalizedItem: any = {
-			productId: String(data.productId || data.id || ''),
-			id: String(data.id || data.productId || ''),
-			name: String(data.name || data.title || data.productName || ''),
-			qty,
-			quantity: qty,
-			status: readString(data.status) || 'in-progress',
-			price: unitPrice,
-			finalUnitPrice: unitPrice,
-			totalPrice: Number.isFinite(explicitTotal) ? explicitTotal : unitPrice * qty,
-			addOns: Array.isArray(data.addOns) ? data.addOns : (Array.isArray(data.addons) ? data.addons : []),
-			variation: readString(data.variation) || null,
-			notes: readString(data.notes),
-			offerId: readString(data.offerId) || null,
-		};
-
-		if (Array.isArray(data.items)) {
-			normalizedItem.items = data.items.map((sub: any) => ({
-				...sub,
-				addOns: Array.isArray(sub.addOns) ? sub.addOns : (Array.isArray(sub.addons) ? sub.addons : []),
-			}));
-		}
-
-		return normalizedItem;
-	})
-	: [];
 
 export const validateAndCalculateBill = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {
 	if (handleCustomerPreflight(req, res)) return;
@@ -78,35 +40,86 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			autoAppliedOfferId: autoAppliedOfferId || null,
 		});
 
-		const items = sanitizeCartItems(Array.isArray(cartItems) ? cartItems : []);
+		const items = normalizeBillItemsForDisplay(Array.isArray(cartItems) ? cartItems : []);
 		if (items.length === 0) {
 			res.status(400).json({ success: false, message: 'cartItems is required' });
 			return;
 		}
 
-		let subtotal = calculateSubtotal(items);
-		// Ensure subtotal is integer rupees
-		subtotal = Math.round(subtotal);
-		let discount = 0;
-		let appliedOffers: Array<{ offerId: string; title: string; type: string; amount: number }> = [];
-		let discountSources: Array<{ offerId: string; title: string; type: string; amount: number }> = [];
-
-		if (autoAppliedOfferId) {
-			const offerSnap = await db.collection('offers').doc(String(autoAppliedOfferId)).get();
-			if (offerSnap.exists) {
-				const offerResult = applyOffer(
-					{ outletId: String(outletId || ''), items, subtotal },
-					{ id: offerSnap.id, ...(offerSnap.data() || {}) }
-				);
-				discount = offerResult.discount;
-				appliedOffers = offerResult.appliedOffers;
-				discountSources = offerResult.appliedOffers;
+		// ── Enrich item categories from Firestore products collection ────────
+		const getUniqueProductIds = (itemsList: any[]): Set<string> => {
+			const ids = new Set<string>();
+			for (const item of itemsList) {
+				const pid = String(item.productId || item.id || '').trim();
+				if (pid && !pid.startsWith('discount_') && !pid.startsWith('combo_') && !pid.startsWith('b1g1_') && !pid.startsWith('birthday_')) {
+					ids.add(pid);
+				}
+				if (Array.isArray(item.items)) {
+					getUniqueProductIds(item.items).forEach(id => ids.add(id));
+				}
 			}
+			return ids;
+		};
+
+		const uniqueProductIds = Array.from(getUniqueProductIds(items));
+		const productDataMap = new Map<string, { category: string; subcategory: string; name?: string }>();
+
+		if (uniqueProductIds.length > 0) {
+			await Promise.all(uniqueProductIds.map(async (pid) => {
+				try {
+					const snap = await db.collection('products').doc(pid).get();
+					if (snap.exists) {
+						const data = snap.data() || {};
+						productDataMap.set(pid, {
+							category: String(data.category || '').trim(),
+							subcategory: String(data.subcategory || '').trim(),
+							name: String(data.name || '').trim(),
+						});
+					}
+				} catch (err) {
+					console.warn(`Failed to fetch product metadata for ${pid}`, err);
+				}
+			}));
 		}
 
-		const taxableAmount = Math.max(subtotal - discount, 0);
-		const tax = applyTax(taxableAmount); // already floored
-		const total = Math.round(taxableAmount) - Math.round(discount) + Math.round(tax);
+		const enrichItemsTree = (itemsList: any[]) => {
+			for (const item of itemsList) {
+				const pid = String(item.productId || item.id || '').trim();
+				const meta = productDataMap.get(pid);
+				if (meta) {
+					item.category = meta.category || null;
+					item.subcategory = meta.subcategory || null;
+					if (!item.name) item.name = meta.name;
+				} else {
+					item.category = item.category || null;
+					item.subcategory = item.subcategory || null;
+				}
+				if (Array.isArray(item.items)) {
+					enrichItemsTree(item.items);
+				}
+			}
+		};
+
+		enrichItemsTree(items);
+
+		let offerDoc: FirebaseFirestore.DocumentData | null = null;
+		const requestedOfferId = String(autoAppliedOfferId || '').trim();
+		if (requestedOfferId) {
+			const offerSnap = await db.collection('offers').doc(requestedOfferId).get();
+			offerDoc = offerSnap.exists ? { id: offerSnap.id, ...(offerSnap.data() || {}) } : null;
+		}
+		const orderType = offerDoc?.offerType || offerDoc?.type ? String(offerDoc.offerType || offerDoc.type).toUpperCase() : 'BASIC';
+		let subtotal = calculateSubtotal(items as any);
+		// Ensure subtotal is integer rupees
+		subtotal = Math.round(subtotal);
+		const offerResult = applyOffer(
+			{ outletId: String(outletId || ''), items: items as any, subTotal: subtotal },
+			offerDoc as any
+		);
+		const discount = offerResult.discount;
+		const discountedPrice = Math.max(subtotal - discount, 0);
+		const tax = applyTax(discountedPrice);
+		const total = discountedPrice + tax;
 
 		console.info('[customerBillingValidateAndCalculateBill] response', {
 			sessionId: sessionId || null,
@@ -115,14 +128,20 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			discount,
 			tax,
 			total,
-			discountSources,
+			orderType,
 		});
 
 		res.status(200).json({
 			success: true,
-			pricing: { subtotal, discount, tax, total },
-			appliedOffers,
-			discountSources,
+			orderType,
+			subTotal: subtotal,
+			discount,
+			discountedPrice,
+			tax,
+			grandTotal: total,
+			pricing: { subtotal, discount, discountedPrice, tax, total },
+			appliedOffers: offerResult.appliedOffers,
+			discountSources: offerResult.appliedOffers,
 			items,
 			noteToCustomer: 'Your calculated bill is ready.',
 		});

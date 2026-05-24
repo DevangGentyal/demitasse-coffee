@@ -19,7 +19,8 @@ export interface Offer {
     id: string;
     title: string;
     description: string;
-    type?: string; 
+    type?: string;
+    offerType?: string;
     discountType: string;
     discountValue: number;
     couponCode?: string;
@@ -48,10 +49,14 @@ export interface Offer {
     };
     // ✅ NEW: Combo config
     config?: {
-        combo?: ComboGroup[];
-        comboPrice?: number;
+        combo?: {
+            productIds?: string[];
+            groups?: ComboGroup[];
+            comboPrice?: number;
+        } | ComboGroup[];
         b1g1?: {
-            applicableProductIds: string[];
+            productIds?: string[];
+            applicableProductIds?: string[];
         };
         discountValue?: number;
         selection?: {
@@ -59,9 +64,11 @@ export interface Offer {
             maxSelection?: number;
         };
         discount?: {
+            mode?: string;
             type?: string;
             discountValue?: number;
             productIds?: string[];
+            categoryName?: string | null;
         };
         reward?: {
             productIds?: string[];
@@ -161,7 +168,9 @@ export const validateOffer = (
     }
 
     // Eligibility check (legacy applicableFor support)
-    if (offer.applicableFor === "new_user" || offer.type === "firstOrder") {
+    const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
+
+    if (offer.applicableFor === "new_user" || offerKind === "NEW_USER" || offerKind === "FIRSTORDER") {
         if (user.hasPlacedFirstOrder) return { valid: false, message: "Only for first-time orders" };
     }
 
@@ -171,8 +180,8 @@ export const validateOffer = (
     }
 
     if (
-        offer.applicableFor === "birthday" || offer.type === "birthday" ||
-        (offer.type === "REWARD" && offer.category === "BIRTHDAY") ||
+        offer.applicableFor === "birthday" || offerKind === "BIRTHDAY" ||
+        (offerKind === "REWARD" && offer.category === "BIRTHDAY") ||
         offer.userRules?.birthdayOnly
     ) {
         if (!isBirthday(user.dob)) return { valid: false, message: "Only valid on your birthday 🎂" };
@@ -186,15 +195,22 @@ export const validateOffer = (
         }
     }
 
-    // Product requirements (e.g. BOGO)
-    if (offer.products && offer.products.length > 0) {
-        const requiredProductIds = offer.products.map(p => p.productId).filter(Boolean);
-        const requiredNames = offer.products.map(p => p.name.toLowerCase());
+    const discountConfig = offer.config?.discount;
+    const discountMode = String(discountConfig?.mode || discountConfig?.type || '').toUpperCase();
+    const requiredProductIds = Array.isArray(discountConfig?.productIds) && discountConfig.productIds.length > 0
+        ? discountConfig.productIds.filter(Boolean)
+        : offer.products?.map(p => p.productId).filter(Boolean) || [];
+    const requiredNames = offer.products?.map(p => p.name.toLowerCase()) || [];
+    const requiredCategory = String(discountConfig?.categoryName || offer.category || '').toLowerCase();
+
+    // Product/category requirements (legacy and new config)
+    if (discountMode === 'PRODUCT' || discountMode === 'CATEGORY' || (offer.products && offer.products.length > 0)) {
 
         const matchingItems = cartItems.filter(item => 
             !item.isFree && (
                 (item.id && requiredProductIds.includes(item.id)) || 
-                requiredNames.includes(item.name.toLowerCase())
+                requiredNames.includes(item.name.toLowerCase()) ||
+                (discountMode === 'CATEGORY' && requiredCategory && String(item.category || item.productCategory || '').toLowerCase() === requiredCategory)
             )
         );
 
@@ -205,7 +221,7 @@ export const validateOffer = (
         const totalQty = matchingItems.reduce((sum: number, item: any) => sum + item.qty, 0);
 
         // BOGO specific logic (Buy 1 Get 1)
-        const isBogo = offer.discountType === "BOGO" || (offer.title && offer.title.toLowerCase().includes("buy 1 get 1"));
+           const isBogo = offer.discountType === "BOGO" || (offer.title && offer.title.toLowerCase().includes("buy 1 get 1"));
         if (isBogo && totalQty < 1) { // Assuming user needs at least 1 to get 1 free
              return { valid: false, message: "Add at least 1 item for BOGO" };
         }
@@ -217,11 +233,12 @@ export const validateOffer = (
 // ✅ NEW: Helper to determine offer priority (higher = more important)
 export const getOfferPriority = (offer: Offer): number => {
     // COMBO = highest
-    if (offer.discountType === "COMBO" || offer.config?.combo) return 3;
+    const comboConfig = offer.config?.combo;
+    if ((offer.offerType || offer.type || '').toString().toUpperCase() === "COMBO" || comboConfig) return 3;
     // BOGO = medium
-    if (offer.discountType === "BOGO") return 2;
+    if ((offer.offerType || offer.type || '').toString().toUpperCase() === "B1G1" || offer.discountType === "BOGO") return 2;
     // Registration/firstOrder = lowest
-    if (offer.userRules?.firstOrderOnly || offer.applicableFor === "new_user" || offer.type === "firstOrder") return 1;
+    if (offer.userRules?.firstOrderOnly || offer.applicableFor === "new_user" || ["NEW_USER", "FIRSTORDER"].includes(String(offer.offerType || offer.type || '').toUpperCase())) return 1;
     // Everything else
     return 0;
 };
@@ -264,16 +281,17 @@ export const revalidateCart = (
     // 2. Identify and Validate Auto-Apply Offers
     if (newCart.length > 0) {
         allOffers.forEach(offer => {
+            const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
             if (offer.autoApply) {
                 // Special Case: Birthday Offer is disabled for now by user request
-                if (offer.type === "birthday" || offer.applicableFor === "birthday") return;
+                if (offerKind === "BIRTHDAY" || offer.applicableFor === "birthday") return;
 
                 // ✅ COMBO offers already in cart — skip auto-apply of lower priority
-                if (offer.discountType === "COMBO" || offer.config?.combo) return;
+                if (offerKind === "COMBO" || offer.discountType === "COMBO" || offer.config?.combo) return;
 
                 // ✅ PRIORITY: If combo is in cart, skip registration offer
                 const isRegistrationOffer = offer.userRules?.firstOrderOnly || 
-                    offer.applicableFor === "new_user" || offer.type === "firstOrder";
+                    offer.applicableFor === "new_user" || offerKind === "NEW_USER" || offerKind === "FIRSTORDER";
                 if (isRegistrationOffer && hasComboInCart) return;
 
                 // ✅ userRules.firstOrderOnly check
@@ -284,7 +302,7 @@ export const revalidateCart = (
                     appliedOffers.push({
                         offerId: offer.id,
                         couponCode: offer.couponCode || null,
-                        type: offer.type || offer.applicableFor || "registration",
+                        type: offer.offerType || offer.type || offer.applicableFor || "registration",
                         autoApplied: true
                     });
                 }
@@ -305,7 +323,7 @@ export const revalidateCart = (
                     appliedOffers.push({
                         offerId: offer.id,
                         couponCode: code,
-                        type: offer.type || offer.applicableFor
+                        type: offer.offerType || offer.type || offer.applicableFor
                     });
                 }
             }
@@ -342,9 +360,10 @@ export const filterOffers = (
     let normalOffers: Offer[] = [];
 
     validOffers.forEach((offer) => {
+        const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
         // ✅ Support both legacy applicableFor AND new userRules.firstOrderOnly
         if (
-            (offer.applicableFor === "new_user" || offer.type === "firstOrder" || offer.userRules?.firstOrderOnly) &&
+            (offer.applicableFor === "new_user" || offerKind === "NEW_USER" || offerKind === "FIRSTORDER" || offer.userRules?.firstOrderOnly) &&
             !user?.hasPlacedFirstOrder
         ) {
             registrationOffer = offer;
@@ -352,8 +371,8 @@ export const filterOffers = (
         }
 
         if (
-            (offer.applicableFor === "birthday" || offer.type === "birthday" ||
-             (offer.type === "REWARD" && offer.category === "BIRTHDAY") ||
+            (offer.applicableFor === "birthday" || offerKind === "BIRTHDAY" ||
+             (offerKind === "REWARD" && offer.category === "BIRTHDAY") ||
              offer.userRules?.birthdayOnly) &&
             isBirthday(user?.dob)
         ) {

@@ -25,6 +25,8 @@ const Banner = ({ message, type = "error", onClose }) => {
   );
 };
 
+const getOfferTypeFromOffer = (offer) => String(offer?.offerType || offer?.type || offer?.discountType || '').trim().toUpperCase();
+
 const BillDetails = () => {
   const navigate = useNavigate();
   const { state } = useLocation();
@@ -332,8 +334,9 @@ const BillDetails = () => {
             {appliedOffers.length > 0 && appliedOffers.map((o, i) => {
               const matchedOffer = offers.find(off => off.id === o.offerId);
               if (!matchedOffer) return null;
+              const offerType = getOfferTypeFromOffer(matchedOffer);
 
-              if (matchedOffer.discountType === "BOGO") {
+              if (offerType === "B1G1" || offerType === "BOGO") {
                 return (
                   <div key={i} className="flex justify-between text-sm text-green-600 font-medium">
                     <span>🎉 {matchedOffer.title}</span>
@@ -342,9 +345,10 @@ const BillDetails = () => {
                 );
               }
 
-              if (matchedOffer.discountType === "COMBO") return null; // Already in item price
+              if (offerType === "COMBO") return null; // Already in item price
 
-              const discAmt = Math.round((itemTotal * matchedOffer.discountValue) / 100);
+              const discValue = Number(matchedOffer.config?.discount?.discountValue ?? matchedOffer.discountValue ?? 0) || 0;
+              const discAmt = Math.round((itemTotal * discValue) / 100);
 
               return (
                 <div key={i} className="flex justify-between text-sm text-green-600 font-medium">

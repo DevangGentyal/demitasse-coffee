@@ -67,20 +67,27 @@ export default function OffersPage() {
 
   // Helper: get a readable config summary per type
   const getConfigSummary = (offer: Offer): string => {
-    switch (offer.type) {
+    const kind = (offer.offerType || offer.type || '').toString().toUpperCase()
+
+    switch (kind) {
       case 'DISCOUNT':
         if (offer.config?.discount) {
           const d = offer.config.discount;
-          const scope = d.type === 'PRODUCT' ? `${d.productIds?.length || 0} products` : d.category;
+          const scope = (d.mode || d.type) === 'PRODUCT'
+            ? `${d.productIds?.length || 0} products`
+            : (d.categoryName || d.category || '-');
           return `${d.discountValue}% off (${scope})`
         }
         return '-'
       case 'B1G1':
-        return `${offer.config?.b1g1?.applicableProductIds?.length ?? 0} product(s)`
+        return `${offer.config?.b1g1?.productIds?.length ?? offer.config?.b1g1?.applicableProductIds?.length ?? 0} product(s)`
       case 'COMBO':
-        const groupCount = offer.config?.combo?.length ?? 0
-        const totalItems = offer.config?.combo?.reduce((acc, g) => acc + (g.items?.length || 0), 0) ?? 0
-        return `${groupCount} group(s), ${totalItems} item(s) (₹${offer.config?.comboPrice ?? 0})`
+        const combo = offer.config?.combo
+        const groups = Array.isArray(combo) ? combo : combo?.groups || []
+        const groupCount = groups.length
+        const totalItems = groups.reduce((acc, g) => acc + (g.items?.length || 0), 0)
+        const price = Array.isArray(combo) ? 0 : (combo?.comboPrice ?? 0)
+        return `${groupCount} group(s), ${totalItems} item(s) (₹${price})`
       case 'BIRTHDAY':
         return 'Birthday'
       case 'NEW_USER':
@@ -88,6 +95,13 @@ export default function OffersPage() {
       default:
         return '-'
     }
+  }
+
+  const formatOfferDate = (value: unknown): string => {
+    if (!value) return '-'
+    const parsed = new Date(String(value))
+    if (Number.isNaN(parsed.getTime())) return '-'
+    return parsed.toLocaleDateString()
   }
 
   return (
@@ -124,17 +138,13 @@ export default function OffersPage() {
             <div key={o.id} className="grid grid-cols-7 border-t">
 
               <div className="p-2">{o.title}</div>
-              <div className="p-2">{o.type}</div>
+              <div className="p-2">{o.offerType || o.type}</div>
               <div className="p-2 text-sm">{getConfigSummary(o)}</div>
               <div className="p-2 text-sm">{o.category || '-'}</div>
 
               <div className="p-2 text-sm">
-                {new Date(
-                  o.startDate?.toDate ? o.startDate.toDate() : o.startDate
-                ).toLocaleDateString()} <br />
-                {new Date(
-                  o.endDate?.toDate ? o.endDate.toDate() : o.endDate
-                ).toLocaleDateString()}
+                {formatOfferDate(o.startDate)} <br />
+                {formatOfferDate(o.endDate)}
               </div>
 
               <div className="p-2">

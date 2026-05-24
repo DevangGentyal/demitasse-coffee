@@ -3,6 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useOffers } from "../../context/OfferContext";
 import { useMenu } from "../../context/MenuContext";
 
+const getOfferTypeFromOffer = (offer) => String(offer?.offerType || offer?.type || offer?.discountType || '').trim().toUpperCase();
+
 const OfferDetails = () => {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -40,7 +42,11 @@ const OfferDetails = () => {
         </div>
     );
 
-    const isCombo = !!(offer.config?.combo && offer.config?.comboPrice);
+    const comboConfig = offer.config?.combo;
+    const comboGroups = Array.isArray(comboConfig) ? comboConfig : (comboConfig?.groups || []);
+    const comboPrice = comboConfig?.comboPrice ?? offer.config?.combo.comboPrice;
+    const isCombo = !!(comboGroups.length && comboPrice !== undefined);
+    const offerType = getOfferTypeFromOffer(offer);
 
     // Product lookup
     const productsMap = {};
@@ -84,10 +90,10 @@ const OfferDetails = () => {
                     <div className="text-sm text-[#5C4033]">
                         <span className="font-medium">Discount: </span>
                         {isCombo
-                            ? <span className="font-bold text-[#AE7A65]">Combo at ₹{offer.config.comboPrice}</span>
-                            : offer.discountType === "BOGO"
+                            ? <span className="font-bold text-[#AE7A65]">Combo at ₹{comboPrice}</span>
+                            : (offer.config?.discount?.mode || offer.config?.discount?.type || offerType) === "BOGO"
                                 ? <span className="font-bold text-green-600">Buy 1 Get 1 FREE</span>
-                                : <span className="font-bold text-green-600">{offer.discountValue}% OFF</span>
+                                : <span className="font-bold text-green-600">{offer.config?.discount?.discountValue ?? offer.discountValue}% OFF</span>
                         }
                     </div>
 
@@ -102,16 +108,16 @@ const OfferDetails = () => {
                         <div className="text-sm text-[#8B6F5E]">Min Order: ₹{offer.minOrderValue}</div>
                     )}
 
-                    {offer.category && (
-                        <div className="text-sm text-[#8B6F5E]">Category: {offer.category}</div>
+                    {(offer.config?.discount?.categoryName || offer.config?.discount?.category || offer.category) && (
+                        <div className="text-sm text-[#8B6F5E]">Category: {offer.config?.discount?.categoryName || offer.config?.discount?.category || offer.category}</div>
                     )}
                 </div>
 
                 {/* ✅ COMBO DETAILS */}
-                {isCombo && offer.config?.combo && (
+                {isCombo && comboGroups.length > 0 && (
                     <div className="bg-white rounded-2xl p-4 shadow-md space-y-3">
                         <h3 className="font-semibold text-[#5C4033] border-b border-[#e0d2c3] pb-2">Combo Contents</h3>
-                        {offer.config.combo.map((group, gIdx) => (
+                        {comboGroups.map((group, gIdx) => (
                             <div key={gIdx}>
                                 <p className="text-sm font-semibold text-[#AE7A65] mb-1">{group.groupName}</p>
                                 <div className="space-y-1.5 ml-2">
@@ -136,7 +142,7 @@ const OfferDetails = () => {
                         <div className="bg-[#f7efe6] rounded-xl p-3 mt-2">
                             <div className="flex justify-between text-sm font-bold text-[#5C4033]">
                                 <span>Combo Price</span>
-                                <span className="text-[#AE7A65]">₹{offer.config.comboPrice}</span>
+                                <span className="text-[#AE7A65]">₹{comboPrice}</span>
                             </div>
                             <p className="text-[10px] text-[#8B6F5E] mt-1">*Add-ons will be charged extra</p>
                         </div>

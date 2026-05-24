@@ -137,16 +137,18 @@ export function CartProvider({ children }) {
       }
     */
     const addOnsCost = comboData.items.reduce((sum, item) => sum + (item.addOnsCost || 0), 0);
+    const comboBasePrice = Number(comboData.comboPrice);
+    const safeComboPrice = Number.isFinite(comboBasePrice) ? comboBasePrice : 0;
 
     const comboCartItem = {
       id: `combo_${comboData.offerId}_${Date.now()}`,
       offerId: comboData.offerId,
       offerType: "COMBO",
       offerTitle: comboData.offerTitle || "Combo Offer",
-      comboPrice: comboData.comboPrice,
+      comboPrice: safeComboPrice,
       isCombo: true,
       name: comboData.offerTitle || "Combo Deal",
-      price: comboData.comboPrice + addOnsCost,
+      price: safeComboPrice + addOnsCost,
       qty: 1,
       isFree: false,
       variation: {},

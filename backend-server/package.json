@@ -6,6 +6,7 @@
     "node": "18"
   },
   "scripts": {
+    "normalize:offers": "node scripts/normalizeOffers.js",
     "build": "tsc",
     "lint": "eslint --ext .js,.ts src",
     "serve": "firebase emulators:start --only functions",

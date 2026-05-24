@@ -12,19 +12,68 @@ import CartItem from "../../components/cart_screen/CartItem.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
 
-const serializeOrderItem = (item) => ({
-  id: item.id || item.productId || null,
-  productId: item.productId || item.id || null,
-  name: item.name || item.title || item.productName || '',
-  quantity: item.qty || item.quantity || 1,
-  // Do not send frontend-calculated prices. Backend will fetch authoritative product price.
-  // price: item.price || item.finalUnitPrice || 0,
-  status: item.status || 'in-progress',
-  addOns: Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [],
-  notes: item.notes || '',
-  offerId: item.offerId || null,
-  ...(Array.isArray(item.items) ? { items: item.items.map(subItem => serializeOrderItem(subItem)) } : {}),
-});
+const getOfferType = (item) => {
+  if (item?.offerType) return String(item.offerType).trim();
+  if (item?.isCombo) return 'COMBO';
+  if (item?.isManualB1G1) return 'B1G1';
+  if (item?.isDiscount) return 'DISCOUNT';
+  if (item?.isBirthday) return 'BIRTHDAY';
+  return '';
+};
+
+const getOfferTypeFromOffer = (offer) => String(offer?.offerType || offer?.type || offer?.discountType || '').trim().toUpperCase();
+
+const serializeOrderItem = (item) => {
+  const qty = Number(item?.qty || item?.quantity || 1) || 1;
+  const unitPrice = Number(item?.unitPrice ?? item?.price ?? item?.finalUnitPrice ?? 0) || 0;
+  const totalPrice = Number.isFinite(Number(item?.totalPrice))
+    ? Number(item.totalPrice)
+    : unitPrice * qty;
+  const hasNestedItems = Array.isArray(item?.items) && item.items.length > 0;
+
+  return {
+    id: item.id || item.productId || null,
+    productId: item.productId || (!hasNestedItems ? item.id || null : null),
+    name: item.name || item.title || item.productName || '',
+    quantity: qty,
+    qty,
+    unitPrice,
+    price: unitPrice,
+    totalPrice,
+    status: item.status || 'in-progress',
+    addOns: Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [],
+    notes: item.notes || '',
+    offerId: item.offerId || null,
+    offerType: getOfferType(item) || null,
+    isFree: !!item.isFree,
+    variation: item.variation || {},
+    isCombo: !!item.isCombo,
+    isManualB1G1: !!item.isManualB1G1,
+    isDiscount: !!item.isDiscount,
+    isBirthday: !!item.isBirthday,
+    offerTitle: item.offerTitle || item.title || null,
+    comboPrice: item.comboPrice ?? null,
+    items: hasNestedItems ? item.items.map((nested) => serializeOrderItem(nested)) : undefined,
+  };
+};
+
+const getSubmittedOfferItem = (cartItems, autoAppliedOffer) => {
+  if (autoAppliedOffer?.offerId) return autoAppliedOffer;
+  return Array.isArray(cartItems)
+    ? cartItems.find((item) => item && (item.offerId || item.offerType || item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday)) || null
+    : null;
+};
+
+const getSubmittedOfferType = (cartItems, autoAppliedOffer) => {
+  if (autoAppliedOffer?.offerType) return String(autoAppliedOffer.offerType).trim();
+  const specialItem = getSubmittedOfferItem(cartItems, autoAppliedOffer);
+  return String(specialItem?.offerType || '').trim();
+};
+
+const getSubmittedOfferId = (cartItems, autoAppliedOffer) => {
+  const specialItem = getSubmittedOfferItem(cartItems, autoAppliedOffer);
+  return String(autoAppliedOffer?.offerId || specialItem?.offerId || '').trim();
+};
 
 const Cart = () => {
   const navigate = useNavigate();
@@ -55,10 +104,32 @@ const Cart = () => {
     const offer = offers.find((o) => o.id === applied.offerId);
     if (!offer) return;
 
+    const discountConfig = offer.config?.discount || {};
+    const discountMode = String(discountConfig.mode || discountConfig.type || '').toUpperCase();
+    const discountValue = Number(discountConfig.discountValue ?? offer.discountValue ?? 0) || 0;
+
     let base = totalPrice;
-    if (offer.products && offer.products.length > 0) {
-      const allowedIds = offer.products.map((p) => p.productId).filter(Boolean);
-      const allowedNames = offer.products.map((p) => p.name?.toLowerCase());
+    const allowedIds = (discountConfig.productIds && discountConfig.productIds.length > 0)
+      ? discountConfig.productIds
+      : (offer.products || []).map((p) => p.productId).filter(Boolean);
+    const allowedNames = (offer.products || []).map((p) => p.name?.toLowerCase());
+
+    if (discountMode === 'PRODUCT' && allowedIds.length > 0) {
+      base = cart
+        .filter(
+          (item) =>
+            !item.isFree &&
+            !item.isCombo &&
+            (allowedIds.includes(item.id) ||
+              allowedNames.includes(item.name?.toLowerCase()))
+        )
+        .reduce((sum, item) => sum + item.price * item.qty, 0);
+    } else if (discountMode === 'CATEGORY' && (discountConfig.categoryName || offer.category)) {
+      const categoryName = String(discountConfig.categoryName || offer.category || '').toLowerCase();
+      base = cart
+        .filter((item) => !item.isFree && !item.isCombo && String(item.category || item.productCategory || '').toLowerCase() === categoryName)
+        .reduce((sum, item) => sum + item.price * item.qty, 0);
+    } else if (offer.products && offer.products.length > 0) {
       base = cart
         .filter(
           (item) =>
@@ -70,7 +141,7 @@ const Cart = () => {
         .reduce((sum, item) => sum + item.price * item.qty, 0);
     }
     // Always treat discountValue as a percentage
-    calculatedDiscount += Math.round((base * offer.discountValue) / 100);
+    calculatedDiscount += Math.round((base * discountValue) / 100);
     // BOGO: free items already have price 0, no numeric discount shown
     // COMBO: price already calculated correctly in cart item
   });
@@ -78,6 +149,9 @@ const Cart = () => {
   // ✅ AUTO REGISTRATION OFFER DISCOUNT (Calculates ONLY on normal items)
   let autoDiscount = 0;
   if (autoAppliedOffer) {
+      const eligibleTotal = cart
+        .filter(item => !item.isFree && !item.isCombo && !item.isManualB1G1 && !item.isDiscount && !item.isBirthday)
+        .reduce((sum, item) => sum + item.price * item.qty, 0);
       // Always treat discountValue as a percentage
       autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
   }
@@ -150,7 +224,7 @@ const Cart = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cartItems: cart,
+          cartItems: cart.map(item => serializeOrderItem(item)),
           outletId: selectedOutlet,
           tableId: selectedTableId || null,
           sessionId: activeSessionId || null,
@@ -259,7 +333,9 @@ const Cart = () => {
           customerId: auth.currentUser?.uid || null,
           items: cart.map(item => serializeOrderItem(item)),
           totalAmount: grandTotal,
-          autoAppliedOfferId: autoAppliedOffer?.offerId || null,
+          offerId: getSubmittedOfferId(cart, autoAppliedOffer) || null,
+          orderType: getSubmittedOfferType(cart, autoAppliedOffer) || null,
+          autoAppliedOfferId: autoAppliedOffer?.offerId || getSubmittedOfferId(cart, autoAppliedOffer) || null,
         }),
       })
       const b = await createOrderRes.json().catch(() => ({}))
@@ -524,22 +600,24 @@ const Cart = () => {
             {appliedOffers.map((applied, idx) => {
               const offer = offers.find((o) => o.id === applied.offerId);
               if (!offer) return null;
+              const offerType = getOfferTypeFromOffer(offer);
 
-              if (offer.discountType === "BOGO") {
+              if (offerType === "B1G1" || offerType === "BOGO") {
                 return (
                   <div
                     key={idx}
                     className="flex justify-between text-sm text-green-600 mt-1"
                   >
-                    <span>🎉 {offer.title} ({offer.discountValue}%)</span>
+                    <span>🎉 {offer.title} ({offer.config?.discount?.discountValue ?? offer.discountValue}%)</span>
                     <span>FREE item added</span>
                   </div>
                 );
               }
 
-              if (offer.discountType === "COMBO") return null; // Combo price already in item
+              if (offerType === "COMBO") return null; // Combo price already in item
 
-              const discAmt = Math.round((totalPrice * offer.discountValue) / 100);
+              const discValue = Number(offer.config?.discount?.discountValue ?? offer.discountValue ?? 0) || 0;
+              const discAmt = Math.round((totalPrice * discValue) / 100);
 
               return (
                 <div

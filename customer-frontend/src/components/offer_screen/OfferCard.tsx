@@ -18,6 +18,7 @@ interface Offer {
   id: string;
   title?: string;
   description?: string;
+  offerType?: string;
   discountType?: string;
   discountValue?: number;
   couponCode?: string;
@@ -39,10 +40,10 @@ interface Offer {
   config?: {
     combo?: ComboGroup[];
     comboPrice?: number;
-    b1g1?: { applicableProductIds: string[] };
+    b1g1?: { productIds?: string[]; applicableProductIds?: string[]; type?: string };
     discountValue?: number;
     selection?: { enabled?: boolean; maxSelection?: number; };
-    discount?: { type?: string; discountValue?: number; productIds?: string[]; };
+    discount?: { mode?: string; type?: string; discountValue?: number; productIds?: string[]; categoryName?: string | null; category?: string | null; };
     reward?: { productIds?: string[]; maxSelection?: number; };
     applicableProductIds?: string[];
   };
@@ -98,6 +99,61 @@ const transformAddOns = (product: any, addons: Record<number, string[]>) => {
   return result;
 };
 
+const getResolvedOfferType = (offer?: Offer | null) => String(offer?.offerType || offer?.type || offer?.discountType || "").trim().toUpperCase();
+
+const normalizeProductIds = (rawIds: unknown): string[] => {
+  const values = Array.isArray(rawIds) ? rawIds : [];
+  return values
+    .map((item: any) => {
+      if (!item) return "";
+      if (typeof item === "string") return String(item).trim();
+      return String(item.productId || item.id || "").trim();
+    })
+    .filter((id: string) => id.length > 0);
+};
+
+const getOfferComboGroups = (offer: Offer | null | undefined): ComboGroup[] => {
+  const comboConfig: any = offer?.config?.combo;
+  if (Array.isArray(comboConfig)) return comboConfig;
+  if (Array.isArray(comboConfig?.groups)) return comboConfig.groups;
+  if (Array.isArray(offer?.combo)) return offer.combo;
+  return [];
+};
+
+const getOfferComboPrice = (offer: Offer | null | undefined): number => {
+  const comboConfig: any = offer?.config?.combo;
+  const rawPrice = comboConfig?.comboPrice ?? (offer as any)?.config?.comboPrice ?? offer?.comboPrice;
+  const parsed = Number(rawPrice);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getOfferDiscountProductIds = (offer: Offer | null | undefined): string[] => {
+  const discountConfig = offer?.config?.discount || {};
+  const rawIds = discountConfig.productIds
+    || offer?.config?.applicableProductIds
+    || offer?.applicableItems
+    || offer?.applicableProductIds
+    || offer?.products
+    || [];
+  return normalizeProductIds(rawIds);
+};
+
+const getOfferB1G1ProductIds = (offer: Offer | null | undefined): string[] => {
+  const b1g1Config: any = offer?.config?.b1g1 || {};
+  const rawIds = b1g1Config.productIds
+    || b1g1Config.applicableProductIds
+    || offer?.applicableProductIds
+    || offer?.products
+    || [];
+  return normalizeProductIds(rawIds);
+};
+
+const getOfferBirthdayProductIds = (offer: Offer | null | undefined): string[] => {
+  const rewardConfig: any = offer?.config?.reward || {};
+  const rawIds = rewardConfig.productIds || offer?.rewardItems || [];
+  return normalizeProductIds(rawIds);
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = false }) => {
   const { cart, appliedOffers, addComboToCart, addB1G1ToCart, addDiscountToCart, addBirthdayToCart } = useCart();
@@ -125,35 +181,36 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   }, [products]);
 
   // ─── Combo detection (safe array access) ────────────────────────────────────
-  const comboGroups: ComboGroup[] = offer ? (
-    Array.isArray(offer?.config?.combo)
-      ? offer.config.combo
-      : Array.isArray(offer?.combo)
-        ? offer.combo
-        : []
-  ) : [];
-  const comboPrice = offer?.config?.comboPrice || offer?.comboPrice || 0;
-  const isCombo = offer?.discountType === "COMBO" || offer?.type === "COMBO";
+  const comboGroups: ComboGroup[] = getOfferComboGroups(offer);
+  const comboPrice = getOfferComboPrice(offer);
+  const resolvedOfferType = getResolvedOfferType(offer);
+  const isCombo = offer?.discountType === "COMBO" || resolvedOfferType === "COMBO" || Boolean(offer?.config?.combo);
 
   const isApplied = appliedOffers.some((a: any) => a.offerId === offer?.id);
 
   // ─── B1G1 detection (safe access) ───────────────────────────────────────────
   const b1g1Config = offer?.config?.b1g1 || null;
-  const isB1G1 = offer?.discountType === "BOGO" || offer?.discountType === "B1G1" || offer?.type === "BOGO" || offer?.type === "B1G1";
+  const isB1G1 = offer?.discountType === "BOGO" || offer?.discountType === "B1G1" || resolvedOfferType === "B1G1" || resolvedOfferType === "BOGO" || Boolean(offer?.config?.b1g1);
 
   // ─── Interactive Discount detection ──────────────────────────────────────────
-  const rawProductIds = offer?.config?.discount?.productIds || offer?.config?.applicableProductIds || offer?.applicableItems || offer?.applicableProductIds || [];
-  const isProductOffer = Array.isArray(rawProductIds) && rawProductIds.length > 0;
-  const isCategoryOffer = offer?.type === "CATEGORY_DISCOUNT" || Boolean(offer?.applicableCategory && offer?.applicableCategory !== "all");
+  const rawProductIds = getOfferDiscountProductIds(offer);
+  const isProductOffer = rawProductIds.length > 0;
+  const isCategoryOffer = resolvedOfferType === "DISCOUNT" && (
+    offer?.config?.discount?.mode === "CATEGORY" ||
+    Boolean(offer?.config?.discount?.categoryName) ||
+    Boolean(offer?.config?.discount?.category) ||
+    Boolean(offer?.applicableCategory && offer?.applicableCategory !== "all") ||
+    Boolean(offer?.category && offer?.category !== "all")
+  );
 
   const isInteractiveDiscount =
-    (offer?.type === "DISCOUNT" || isCategoryOffer || offer?.discountType === "PERCENT" || offer?.discountType === "FLAT") &&
+    (resolvedOfferType === "DISCOUNT" || isCategoryOffer || offer?.discountType === "PERCENT" || offer?.discountType === "FLAT" || offer?.config?.discount) &&
     (isProductOffer || isCategoryOffer || offer?.config?.selection?.enabled === true) &&
     !isCombo && !isB1G1;
 
-  if (offer?.type === "CATEGORY_DISCOUNT" || isCategoryOffer) {
+  if (resolvedOfferType === "CATEGORY_DISCOUNT" || isCategoryOffer) {
     console.log("=== APPLY BUTTON DEBUG ===");
-    console.log("Offer Type:", offer?.type);
+    console.log("Offer Type:", resolvedOfferType || offer?.type);
     console.log("Product IDs:", rawProductIds);
     console.log("Is Product Offer:", isProductOffer);
     console.log("Is Category Offer:", isCategoryOffer);
@@ -163,8 +220,8 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
 
   // ─── Birthday Offer detection ───────────────────────────────────────────
   const isBirthdayOffer = offer ? (
-    (offer.type === "REWARD" && offer.category === "BIRTHDAY") ||
-    offer.type === "birthday" ||
+    (resolvedOfferType === "REWARD" && offer.category === "BIRTHDAY") ||
+    resolvedOfferType === "BIRTHDAY" ||
     offer.applicableFor === "birthday" ||
     offer.userRules?.birthdayOnly === true
   ) : false;
@@ -431,20 +488,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   // Extract the configured product IDs from config.reward.productIds
   // NOTE: Firestore keys may have leading spaces (e.g. " reward" instead of "reward")
   const configuredIds = useMemo(() => {
-    const config = offer.config || {};
-    // Handle both "reward" and " reward" (with leading space) keys
-    const rewardConfig = config.reward || config[" reward"] || {};
-    // Handle both "productIds" and " productIds" (with leading space) keys
-    const rawIds = rewardConfig.productIds || rewardConfig[" productIds"] || [];
-
-    if (!Array.isArray(rawIds)) return [];
-    return rawIds
-      .map((item: any) => {
-        if (!item) return "";
-        if (typeof item === 'string') return String(item).trim();
-        return String(item.productId || item.id || "").trim();
-      })
-      .filter((id: string) => id.length > 0);
+    return getOfferBirthdayProductIds(offer);
   }, [offer]);
 
   // Try productsMap first, then fetch from Firestore for any missing ones
@@ -672,6 +716,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
   const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const resolvedOfferType = getResolvedOfferType(offer);
 
   // If it's a category discount, allow selecting all applicable items. Otherwise, rely on config.
   const isCategoryDiscount = Boolean(offer.applicableCategory && offer.applicableCategory !== "all");
@@ -682,8 +727,8 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
     const allProducts = Object.values(productsMap);
 
     // If it's a category discount, filter all products by that category
-    if (offer.applicableCategory && offer.applicableCategory !== "all") {
-      const offerCat = String(offer.applicableCategory).toLowerCase().trim();
+    if (offer.category && offer.category !== "all") {
+      const offerCat = String(offer.category).toLowerCase().trim();
 
       console.log("============= CATEGORY DISCOUNT DEBUG =============");
       console.log("Offer Config:", offer);
@@ -710,21 +755,13 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
     }
 
     // Otherwise, it's a product-specific discount
-    const discountConfig = offer.config?.discount || {};
-    let rawIds = discountConfig.productIds || offer.config?.applicableProductIds || offer.applicableItems || offer.applicableProductIds || [];
-    if (!Array.isArray(rawIds)) rawIds = [];
-
-    const ids = rawIds.map((item: any) => {
-      if (!item) return "";
-      if (typeof item === 'string') return String(item).trim();
-      return String(item.productId || item.id || "").trim();
-    }).filter((id: string) => id.length > 0);
+    const ids = getOfferDiscountProductIds(offer);
 
     return allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
   }, [offer, productsMap]);
 
   // Discount config
-  const discountType = offer.config?.discount?.type || offer.discountType || "PERCENT";
+  const discountType = offer.config?.discount?.mode || offer.config?.discount?.type || offer.discountType || "PERCENT";
   const discountValue = offer.config?.discount?.discountValue || offer.discountValue || offer.config?.discountValue || 0;
 
   const handleSelect = (productId: string) => {
@@ -802,7 +839,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
 
     addDiscountToCart({
       offerId: offer.id,
-      offerType: offer.type || "DISCOUNT",
+      offerType: resolvedOfferType || "DISCOUNT",
       offerTitle: offer.title || "Discount Offer",
       originalPrice: basePrice,
       discountAmount,
@@ -972,23 +1009,13 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
   const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
 
+  const resolvedOfferType = getResolvedOfferType(offer);
+
   // Track which product description is expanded
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
   const applicableProducts = useMemo(() => {
-    // Handling a known typo in the database ("applicableProductIds:") as well
-    const b1g1Config = offer.config?.b1g1 || {};
-    let rawIds = b1g1Config.applicableProductIds || b1g1Config["applicableProductIds:"] || offer.applicableProductIds || [];
-
-    // Safety check for rawIds
-    if (!Array.isArray(rawIds)) rawIds = [];
-
-    // Normalize to handle array of object shapes just in case
-    const ids = rawIds.map((item: any) => {
-      if (!item) return "";
-      if (typeof item === 'string') return String(item).trim();
-      return String(item.productId || item.id || "").trim();
-    }).filter((id: string) => id.length > 0);
+    const ids = getOfferB1G1ProductIds(offer);
 
     const allProducts = Object.values(productsMap);
     return allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
@@ -1055,7 +1082,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
 
     addB1G1ToCart({
       offerId: offer.id,
-      offerType: "B1G1",
+      offerType: resolvedOfferType || "B1G1",
       offerTitle: offer.title || "B1G1 Deal",
       items: rawItems
     });

@@ -112,7 +112,6 @@ export const createOrGetSession = async (
 		customerCount: 0,
 		activeOrderCount: 0,
 		totalAmount: 0,
-		paymentStatus: 'PENDING',
 	};
 
 	await db.runTransaction(async (tx) => {

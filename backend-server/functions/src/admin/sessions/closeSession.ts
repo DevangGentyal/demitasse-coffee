@@ -6,7 +6,7 @@ import { FieldValue } from "firebase-admin/firestore";
 const db = admin.firestore();
 
 const readString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-const normalizePaymentStatus = (value: unknown): string => {
+const normalizeStatus = (value: unknown): string => {
 	const normalized = readString(value).toUpperCase();
 	if (["SUCCESS", "COMPLETED", "PAID"].includes(normalized)) return "SUCCESS";
 	if (["FAILED", "FAILURE", "DECLINED"].includes(normalized)) return "FAILED";
@@ -60,13 +60,13 @@ export const closeSession = functions.https.onRequest(
 		try {
 			if (req.method !== "POST") { res.status(405).json({ success: false, message: "Method not allowed" }); return; }
 
-			const { sessionId, tableId, paymentStatus } = req.body as { sessionId?: string; tableId?: string; paymentStatus?: string };
+			const { sessionId, tableId, status } = req.body as { sessionId?: string; tableId?: string; status?: string };
 			if (!sessionId && !tableId) { res.status(400).json({ success: false, message: "sessionId or tableId is required" }); return; }
 
 			const resolvedSessionId = readString(sessionId);
 			const resolvedTableId = readString(tableId);
-			const resolvedPaymentStatus = normalizePaymentStatus(paymentStatus);
-			const isPaymentSuccessful = resolvedPaymentStatus === "SUCCESS";
+			const resolvedStatus = normalizeStatus(status);
+			const isPaymentSuccessful = resolvedStatus === "SUCCESS";
 			const sessionRef = resolvedSessionId ? db.collection("sessions").doc(resolvedSessionId) : null;
 			const sessionSnap = sessionRef ? await sessionRef.get() : null;
 
@@ -95,11 +95,10 @@ export const closeSession = functions.https.onRequest(
 			await db.runTransaction(async (tx) => {
 				const archiveTimestamp = FieldValue.serverTimestamp();
 
-				if (resolvedPaymentStatus === "BILL") {
+				if (resolvedStatus === "BILL") {
 					if (sessionRef) {
 						tx.update(sessionRef, {
 							status: "BILL",
-							paymentStatus: "BILL",
 							updatedAt: archiveTimestamp,
 						});
 					}
@@ -107,13 +106,12 @@ export const closeSession = functions.https.onRequest(
 					if (resolvedTableId || resolvedSessionTableId) {
 						tx.update(tableRef, {
 							status: "BILL",
-							paymentStatus: "BILL",
 							occupied: true,
 							updatedAt: archiveTimestamp,
 						});
 					}
 
-					return { paymentStatus: "BILL", sessionStatus: "BILL" };
+					return { status: "BILL", sessionStatus: "BILL" };
 				}
 
 				if (!isPaymentSuccessful) {
@@ -127,7 +125,7 @@ export const closeSession = functions.https.onRequest(
 						userId: customerId || null,
 						pricing,
 						items: allItems,
-						paymentStatus: "FAILED",
+						status: "FAILED",
 						settlementStatus: "FAILED",
 						payAt: "COUNTER",
 						generatedAt: FieldValue.serverTimestamp(),
@@ -142,7 +140,6 @@ export const closeSession = functions.https.onRequest(
 					if (sessionRef) {
 						tx.update(sessionRef, {
 							status: "CLOSED",
-							paymentStatus: resolvedPaymentStatus,
 							closedAt: archiveTimestamp,
 							updatedAt: archiveTimestamp,
 							totalAmount: pricing.total,
@@ -160,7 +157,7 @@ export const closeSession = functions.https.onRequest(
 						});
 					}
 
-					return { paymentStatus: resolvedPaymentStatus, sessionStatus: "CLOSED" };
+					return { status: resolvedStatus, sessionStatus: "CLOSED" };
 				}
 
 				const successPaymentRef = db.collection("successPayments").doc();
@@ -173,7 +170,7 @@ export const closeSession = functions.https.onRequest(
 					userId: customerId || null,
 					pricing,
 					items: allItems,
-					paymentStatus: "SUCCESS",
+					status: "SUCCESS",
 					settlementStatus: "PAID",
 					payAt: "COUNTER",
 					generatedAt: FieldValue.serverTimestamp(),
@@ -186,7 +183,7 @@ export const closeSession = functions.https.onRequest(
 				}
 
 				if (sessionRef) {
-					tx.update(sessionRef, { status: "CLOSED", paymentStatus: "SUCCESS", closedAt: archiveTimestamp, updatedAt: archiveTimestamp, totalAmount: pricing.total });
+					tx.update(sessionRef, { status: "CLOSED", closedAt: archiveTimestamp, updatedAt: archiveTimestamp, totalAmount: pricing.total });
 				}
 				tx.update(tableRef, {
 					occupied: false,
@@ -197,11 +194,11 @@ export const closeSession = functions.https.onRequest(
 					updatedAt: archiveTimestamp,
 				});
 
-				return { paymentId: successPaymentRef.id };
+				return { paymentId: successPaymentRef.id, status: "SUCCESS" };
 			});
 
 			if (!isPaymentSuccessful) {
-				res.status(200).json({ success: true, message: `Session moved to BILL with payment status ${resolvedPaymentStatus.toLowerCase()}.` });
+				res.status(200).json({ success: true, message: `Session moved to BILL with status ${resolvedStatus.toLowerCase()}.` });
 				return;
 			}
 

@@ -4,6 +4,7 @@ import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { applyOffer } from "../../shared/utilities/offers/applyOffer";
 import { applyTax } from "../../shared/utilities/billing/tax";
+import { buildPricingSummary } from "../../shared/utilities/offers/orderPricing";
 import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
 
 const isActiveOrder = (orderData: FirebaseFirestore.DocumentData): boolean => !["CANCELLED", "CLOSED", "DELETED"].includes(String(orderData.status || orderData.orderStatus || orderData.orderLifecycleStatus || "").trim().toUpperCase());
@@ -52,19 +53,26 @@ export const removeOrderItem = functions.https.onRequest(async (req: Request, re
 			const remainingItems = items.filter((i: any) => getItemKey(i) !== itemId);
 			const subtotal = remainingItems.reduce((sum: number, item: any) => sum + getItemTotal(item), 0);
 			const nextOfferId = orderData.offerId ? String(orderData.offerId) : null;
-			let appliedOffers: any[] = []; let discount = 0;
+			let offerDoc: any = null;
 			if (nextOfferId) {
 				const offerSnap = await tx.get(db.collection("offers").doc(nextOfferId));
 				if (offerSnap.exists) {
-					const offerResult = applyOffer({ outletId, items: remainingItems, subtotal }, { id: offerSnap.id, ...(offerSnap.data() || {}) });
-					discount = offerResult.discount; appliedOffers = offerResult.appliedOffers;
+					offerDoc = { id: offerSnap.id, ...(offerSnap.data() || {}) };
 				}
 			}
+			const { orderType, discount } = applyOffer({ subTotal: subtotal, items: remainingItems }, offerDoc);
+			const pricing = buildPricingSummary(subtotal, discount, applyTax);
 
-			const taxableAmount = Math.max(subtotal - discount, 0);
-			const tax = applyTax(taxableAmount);
-			const grandTotal = taxableAmount + tax;
-			const updatePayload = { items: remainingItems, appliedOffers, itemTotal: subtotal, discount, tax, grandTotal, pricing: { subtotal, discount, tax, total: grandTotal }, totalAmount: taxableAmount, updatedAt: FieldValue.serverTimestamp() };
+			const updatePayload = {
+				items: remainingItems,
+				orderType,
+				offerId: nextOfferId,
+				subTotal: pricing.subTotal,
+				discount: pricing.discount,
+				discountedPrice: pricing.discountedPrice,
+				tax: pricing.tax,
+				updatedAt: FieldValue.serverTimestamp(),
+			};
 			tx.update(orderRef, updatePayload);
 			return { id: orderId, ...orderData, ...updatePayload, updatedAt: new Date().toISOString() };
 		});

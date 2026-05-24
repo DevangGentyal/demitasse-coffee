@@ -32,7 +32,6 @@ export interface Table {
   y: number
   color: string
   status?: string
-  paymentStatus?: string
   updatedAt?: unknown
   needsPaymentCollection?: boolean
 }
@@ -64,6 +63,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const { outletId, isLoggedIn } = useAuth()
   const [tables, setTables] = useState<Table[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const [isLayoutEditing, setIsLayoutEditing] = useState(false)
   const prevPaymentFlagRef = useRef<Record<string, boolean>>({})
 
   const showPaymentToast = (table: Table) => {
@@ -114,7 +114,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             y: toFiniteNumber((table as { y?: unknown }).y, 100),
             occupied: Boolean((table as { occupied?: unknown }).occupied),
             status: String((table as { status?: unknown }).status || ''),
-            paymentStatus: String((table as { paymentStatus?: unknown }).paymentStatus || ''),
             updatedAt: (table as { updatedAt?: unknown }).updatedAt,
             needsPaymentCollection: Boolean((table as { needsPaymentCollection?: unknown }).needsPaymentCollection),
           })) as Table[]
@@ -143,7 +142,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } as unknown as Order
         })
 
-        setTables(tablesList)
+        if (!isLayoutEditing) {
+          setTables(tablesList)
+        }
         setOrders(ordersList)
       } catch (error) {
         console.error(`[APP_CONTEXT] Failed to refresh outlet data for ${outletId}:`, error)
@@ -162,7 +163,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [isLoggedIn, outletId])
+  }, [isLayoutEditing, isLoggedIn, outletId])
 
   useEffect(() => {
     const prevFlags = prevPaymentFlagRef.current
@@ -171,8 +172,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     tables.forEach((table) => {
       const paymentFlag = Boolean(
         table.needsPaymentCollection ||
-        String(table.status || '').toUpperCase() === 'BILL' ||
-        String(table.paymentStatus || '').toUpperCase() === 'BILL'
+        String(table.status || '').toUpperCase() === 'BILL'
       )
       nextFlags[table.id] = paymentFlag
 
@@ -234,7 +234,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider
-      value={{ tables, setTables, orders, addOrder, updateOrder, updateOrderItem, deleteOrder, updateTable }}>
+      value={{
+        tables,
+        setTables,
+        orders,
+        addOrder,
+        updateOrder,
+        updateOrderItem,
+        deleteOrder,
+        updateTable,
+        isLayoutEditing,
+        setIsLayoutEditing,
+      }}>
       {children}
       <Toaster position="bottom-right" richColors />
     </AppContext.Provider>

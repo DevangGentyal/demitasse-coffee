@@ -33,7 +33,7 @@ export function Sidebar() {
   ]
 
   return (
-    <aside className="w-64 h-screen bg-sidebar text-sidebar-foreground flex flex-col p-6">
+    <aside className="sticky top-0 h-screen w-64 shrink-0 overflow-y-auto border-r border-white/10 bg-sidebar text-sidebar-foreground flex flex-col p-6">
       <div className="mb-8">
         <h1 className="text-2xl font-bold tracking-tight">Demitasse</h1>
         <p className="text-xs text-sidebar-foreground/60 mt-1">Admin Panel</p>

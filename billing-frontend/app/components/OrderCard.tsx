@@ -222,6 +222,14 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       .filter(Boolean)
   }
 
+  const getOfferBadgeLabel = (item: any): string => {
+    if (item?.isCombo) return 'Combo'
+    if (item?.isManualB1G1) return 'B1G1'
+    if (item?.isBirthday) return 'Birthday'
+    if (item?.isDiscount) return 'Discount'
+    return String(item?.offerType || 'Offer').trim() || 'Offer'
+  }
+
   return (
     <Card className="p-4 border-l-4 bg-card hover:shadow-lg transition-all duration-200 cursor-pointer group"
       style={{
@@ -283,6 +291,12 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
+                        {(item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.offerTitle) && (
+                          <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-700">
+                            <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px]">{getOfferBadgeLabel(item)}</span>
+                            <span className="truncate">Offer item</span>
+                          </div>
+                        )}
                         <div className="flex items-center">
                           <span className="font-bold text-sm">{item.quantity || item.qty || 1}x</span>
                           <span className="ml-2 truncate text-sm font-semibold">{item.name}</span>
@@ -347,8 +361,9 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
 
                         {/* Offer Display */}
                         {item.offerTitle && (
-                          <div className="text-xs font-semibold text-blue-700 dark:text-blue-400 ml-6 mt-1">
-                            Offer: {item.offerTitle}
+                          <div className="ml-6 mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                            <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{getOfferBadgeLabel(item)}</span>
+                            <span className="truncate">{item.offerTitle}</span>
                           </div>
                         )}
                       </div>
@@ -447,8 +462,9 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
 
                     {/* Offer Display */}
                     {item.offerTitle && (
-                      <div className="text-xs font-medium text-blue-600 dark:text-blue-400 ml-6 mt-0.5">
-                        Offer: {item.offerTitle}
+                      <div className="ml-6 mt-0.5 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                        <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{getOfferBadgeLabel(item)}</span>
+                        <span className="truncate">{item.offerTitle}</span>
                       </div>
                     )}
                   </div>

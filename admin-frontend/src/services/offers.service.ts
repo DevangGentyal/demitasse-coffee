@@ -6,6 +6,7 @@ export interface Offer {
   title: string
   description: string
   type: string
+  offerType?: string
   category?: string | null
   applicableCategory?: string | null
 
@@ -22,20 +23,31 @@ export interface Offer {
 
   config?: {
     combo?: {
+      productIds?: string[]
+      groups?: {
+        groupName: string
+        isFree: boolean
+        selectionType: "ONE" | "MULTIPLE"
+        items: { productId: string; isCustomizable: boolean }[]
+      }[]
+      comboPrice?: number
+    } | {
       groupName: string
       isFree: boolean
       selectionType: "ONE" | "MULTIPLE"
       items: { productId: string; isCustomizable: boolean }[]
     }[] | null
-    comboPrice?: number
     b1g1?: {
-      applicableProductIds: string[]
+      productIds?: string[]
+      applicableProductIds?: string[]
       type: string
     } | null
     discount?: {
-      type: 'PRODUCT' | 'CATEGORY'
+      mode?: 'PRODUCT' | 'CATEGORY'
+      type?: 'PRODUCT' | 'CATEGORY'
       productIds: string[]
-      category: string | null
+      categoryName?: string | null
+      category?: string | null
       discountValue: number
     } | null
     freeItem?: any | null
@@ -65,10 +77,56 @@ export interface Offer {
 
 const CLOUD_FUNCTIONS_URL = process.env.NEXT_PUBLIC_CLOUD_FUNCTIONS_URL || 'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
 
+type TimestampLike = {
+  toDate?: () => Date
+  seconds?: number
+  _seconds?: number
+}
+
+const toDateFromUnknown = (value: unknown): Date | null => {
+  if (!value) return null
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
+
+  if (typeof value === 'string') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  if (typeof value === 'object') {
+    const ts = value as TimestampLike
+    if (typeof ts.toDate === 'function') {
+      const parsed = ts.toDate()
+      return Number.isNaN(parsed.getTime()) ? null : parsed
+    }
+
+    const seconds = Number(ts.seconds ?? ts._seconds)
+    if (Number.isFinite(seconds)) return new Date(seconds * 1000)
+  }
+
+  return null
+}
+
+const formatDateInput = (value: unknown): string => {
+  const parsed = toDateFromUnknown(value)
+  if (!parsed) return ''
+
+  const year = parsed.getUTCFullYear()
+  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const normalizeOfferDates = (offer: Offer): Offer => ({
+  ...offer,
+  startDate: formatDateInput(offer.startDate),
+  endDate: formatDateInput(offer.endDate),
+})
+
 // 🔥 SAME AS PRODUCT → FIRESTORE DIRECT FETCH
 export const getOffersByOutletId = async (outletId: string): Promise<Offer[]> => {
   try {
-    return await getOffersByOutletIdFromBackend<Offer>(outletId)
+    const data = await getOffersByOutletIdFromBackend<Offer>(outletId)
+    return data.map(normalizeOfferDates)
   } catch (error) {
     console.error("Error fetching offers:", error)
     throw error
