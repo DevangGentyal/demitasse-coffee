@@ -18,11 +18,15 @@ const toDate = (value: unknown): Date | null => {
   if (value instanceof Date) return value
   return null
 }
+import { db } from '@/lib/firebase/app'
+import { collection, query, where, onSnapshot, Timestamp, doc, updateDoc, deleteField } from 'firebase/firestore'
+
+import { GlobalAutoPrintManager } from '@/app/components/GlobalAutoPrintManager'
 
 export interface Table {
   id: string
   name: string
-  capacity: number
+  capacity?: number
   occupied: boolean
   billAmount: number
   customerName?: string
@@ -41,7 +45,7 @@ export interface OrderItem {
   name: string
   quantity: number
   status?: 'in-progress' | 'ready' | 'completed'
-  addOns?: string
+  addOns?: any[]
   notes?: string
 }
 
@@ -157,8 +161,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    loadData()
-    const intervalId = window.setInterval(loadData, 5000)
+    // Subscribe to tables for this outlet
+    const tablesQuery = query(collection(db, 'tables'), where('outletId', '==', outletId))
+    const unsubscribeTables = onSnapshot(tablesQuery, (snapshot) => {
+      const tablesList = snapshot.docs
+        .filter(doc => {
+          const data = doc.data()
+          return data.outletId === outletId && data.name !== 'Counter'
+        })
+        .map(doc => {
+        const data = doc.data()
+        return {
+          ...data,
+          id: doc.id,
+          x: toFiniteNumber(data.x, 100),
+          y: toFiniteNumber(data.y, 100),
+          // Map backend isOccupied to occupied for frontend compatibility
+          occupied: data.isOccupied || false,
+          needsPaymentCollection: data.needsPaymentCollection || false,
+        } as Table
+      })
+      setTables(tablesList)
+    })
+
+    // Subscribe to orders for this outlet
+    const ordersQuery = query(collection(db, 'orders'), where('outletId', '==', outletId))
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+      console.log(`[APP_CONTEXT] 🔄 Realtime update: Received ${snapshot.size} orders for outlet ${outletId}`);
+      
+      const ordersList = snapshot.docs.map(doc => {
+        const data = doc.data()
+        const resolvedTime =
+          toDate(data.timeOfOrder) ||
+          toDate(data.createdAt) ||
+          toDate(data.updatedAt) ||
+          new Date()
+
+        // Source of truth: orderStatus
+        const rawStatus = data.orderStatus || data.status || 'in-progress';
+        let resolvedStatus: 'in-progress' | 'ready' | 'completed' = 'in-progress';
+        
+        const normalized = String(rawStatus).toLowerCase().trim();
+        if (normalized === 'ready') resolvedStatus = 'ready';
+        else if (normalized === 'completed' || normalized === 'complete' || normalized === 'finalized') resolvedStatus = 'completed';
+        else resolvedStatus = 'in-progress';
+
+        return {
+          ...data,
+          id: doc.id,
+          timeOfOrder: resolvedTime,
+          orderStatus: resolvedStatus,
+          status: resolvedStatus, // Maintain status for legacy components
+        } as unknown as Order
+      })
+      
+      console.log(`[APP_CONTEXT] ✅ Processed orders. In-Progress: ${ordersList.filter(o => o.orderStatus === 'in-progress').length}, Ready: ${ordersList.filter(o => o.orderStatus === 'ready').length}`);
+      setOrders(ordersList)
+    })
+
     return () => {
       cancelled = true
       window.clearInterval(intervalId)
@@ -247,6 +307,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsLayoutEditing,
       }}>
       {children}
+      <GlobalAutoPrintManager />
       <Toaster position="bottom-right" richColors />
     </AppContext.Provider>
   )

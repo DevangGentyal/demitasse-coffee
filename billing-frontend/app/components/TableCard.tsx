@@ -11,7 +11,7 @@ export function TableCard({ table }: { table: Table }) {
   const { updateTable } = useApp()
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState(table.name)
-  const [editCapacity, setEditCapacity] = useState(table.capacity)
+  const [editCapacity, setEditCapacity] = useState(table.capacity || 2)
 
   const handleSave = () => {
     updateTable(table.id, { name: editName, capacity: editCapacity })
@@ -20,7 +20,7 @@ export function TableCard({ table }: { table: Table }) {
 
   const handleCancel = () => {
     setEditName(table.name)
-    setEditCapacity(table.capacity)
+    setEditCapacity(table.capacity || 2)
     setIsEditing(false)
   }
 
@@ -79,7 +79,7 @@ export function TableCard({ table }: { table: Table }) {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold text-foreground">{table.name}</h3>
-                <p className="text-sm text-muted-foreground">Cap: {table.capacity}</p>
+                <p className="text-sm text-muted-foreground">Cap: {table.capacity || 2}</p>
               </div>
               <Button
                 onClick={() => setIsEditing(true)}

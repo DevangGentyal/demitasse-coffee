@@ -28,9 +28,9 @@ export default function HomePage() {
     return null
   }
 
-  const availableTables = tables.filter( (t: any) => !t.occupied).length
-  const occupiedTables = tables.filter( (t: any) => t.occupied).length
-  const totalRevenue = tables.reduce( (sum: number, t: any) => sum + t.billAmount, 0)
+  // Realtime Live Stats Calculation
+  const availableTables = tables.filter(t => !t.isOccupied).length
+  const occupiedTables = tables.filter(t => t.isOccupied).length
 
   return (
     <div className="flex h-screen">
@@ -46,22 +46,18 @@ export default function HomePage() {
             <FloorCanvas />
 
             {/* Floor Overview Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-4 bg-card rounded-lg border border-border text-center">
-                <p className="text-2xl font-bold text-accent">{availableTables}</p>
-                <p className="text-xs text-muted-foreground mt-1">Available</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              <div className="p-5 bg-card hover:scale-[1.02] hover:shadow-md transition-all duration-200 rounded-xl border border-border text-center">
+                <p className="text-3xl font-extrabold text-blue-600 dark:text-blue-400">{availableTables}</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mt-1.5">Available</p>
               </div>
-              <div className="p-4 bg-card rounded-lg border border-border text-center">
-                <p className="text-2xl font-bold text-success">{occupiedTables}</p>
-                <p className="text-xs text-muted-foreground mt-1">Occupied</p>
+              <div className="p-5 bg-card hover:scale-[1.02] hover:shadow-md transition-all duration-200 rounded-xl border border-border text-center">
+                <p className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400">{occupiedTables}</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mt-1.5">Occupied</p>
               </div>
-              <div className="p-4 bg-card rounded-lg border border-border text-center">
-                <p className="text-2xl font-bold text-accent">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Math.round(totalRevenue))}</p>
-                <p className="text-xs text-muted-foreground mt-1">Total Revenue</p>
-              </div>
-              <div className="p-4 bg-card rounded-lg border border-border text-center">
-                <p className="text-2xl font-bold text-foreground">{tables.length}</p>
-                <p className="text-xs text-muted-foreground mt-1">Total Tables</p>
+              <div className="p-5 bg-card hover:scale-[1.02] hover:shadow-md transition-all duration-200 rounded-xl border border-border text-center">
+                <p className="text-3xl font-extrabold text-slate-800 dark:text-slate-200">{tables.length}</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mt-1.5">Total Tables</p>
               </div>
             </div>
           </div>
