@@ -5,12 +5,19 @@ import { Request, Response } from "express";
 import { calculateSubtotal } from "../../shared/utilities/billing/pricing";
 import { applyTax } from "../../shared/utilities/billing/tax";
 import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
+import { FieldValue } from "firebase-admin/firestore";
 import {
 	normalizeOrderItemsForPricing,
 	buildPricingSummary,
 	NormalisedOrderItem,
 } from "../../shared/utilities/offers/orderPricing";
 import { applyOffer, OfferDocument } from "../../shared/utilities/offers/applyOffer";
+import {
+	collectRequestedOfferUsages,
+	findUsageLimitViolation,
+	getAppliedOfferUsageCounts,
+	mergeAppliedOfferUsages,
+} from "../../shared/utilities/offers/offerUsage";
 
 interface InputItem {
 	productId: string;
@@ -161,6 +168,37 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			// grandTotal      = discountedPrice + tax
 			const pricing = buildPricingSummary(subTotal, discount, applyTax);
 
+			const existingUsageCounts = getAppliedOfferUsageCounts(orderData.consumedOfferUsages);
+			const requestedOfferUsages = collectRequestedOfferUsages(newNormalized, effectiveOfferId);
+			const deltaOfferUsages = requestedOfferUsages.filter((usage) => {
+				const existingCount = existingUsageCounts.get(usage.offerId) || 0;
+				return usage.count > existingCount;
+			});
+			const consumedOfferUsages = mergeAppliedOfferUsages(orderData.consumedOfferUsages, deltaOfferUsages);
+
+			// ── Offer usage tracking (user-level) ─────────────────────────────
+			if (deltaOfferUsages.length > 0) {
+				const userRef = db.collection("users").doc(actorId);
+				const userSnap = await tx.get(userRef);
+				const userData = userSnap.data() || {};
+				const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
+				for (const usage of deltaOfferUsages) {
+					const offerSnap = await tx.get(db.collection("offers").doc(usage.offerId));
+					offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
+				}
+				const violation = findUsageLimitViolation(
+					deltaOfferUsages,
+					getAppliedOfferUsageCounts(userData.appliedOffers),
+					offersById,
+				);
+				if (violation) throw new Error("OFFER_USAGE_LIMIT_REACHED");
+
+				tx.set(userRef, {
+					appliedOffers: mergeAppliedOfferUsages(userData.appliedOffers, deltaOfferUsages),
+					updatedAt: FieldValue.serverTimestamp(),
+				}, { merge: true });
+			}
+
 			const updatePayload = {
 				orderType,
 				items: mergedItems,
@@ -171,6 +209,14 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 				discountedPrice: pricing.discountedPrice,
 				tax: pricing.tax,
 				// grandTotal is intentionally not stored on order documents.
+				...(consumedOfferUsages.length > 0
+					? {
+						consumedOfferUsages: Array.isArray(orderData.consumedOfferUsages)
+							? mergeAppliedOfferUsages(orderData.consumedOfferUsages, consumedOfferUsages)
+							: consumedOfferUsages,
+						offerUsageCounted: true,
+					}
+					: {}),
 				updatedAt: new Date(),
 			};
 

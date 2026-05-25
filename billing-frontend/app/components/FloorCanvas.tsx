@@ -926,7 +926,7 @@ export function FloorCanvas() {
       const orderHasOffer = Boolean(orderOfferId || orderOfferType || orderOfferTitle || orderDiscount > 0)
 
       return (order.items || []).map((item: any): OrderItem => ({
-        id: String(item.id),
+        id: String(item.id || item.productId || item.productID || item.product_id || ''),
         orderId: String(order.id),
         name: String(item.name || ''),
         qty: getItemQty(item),
@@ -1688,7 +1688,7 @@ export function FloorCanvas() {
               >
                 <div
                   className={`
-                    w-full h-full rounded-xl border flex flex-col justify-between p-2.5 gap-1.5
+                    w-full h-full rounded-xl border flex flex-col justify-between p-4 gap-1.5
                     ${isPaymentHighlighted
                         ? 'border-red-400 bg-red-50 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse'
                         : isTableActive

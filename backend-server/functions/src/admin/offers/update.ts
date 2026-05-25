@@ -8,6 +8,11 @@ const readNumber = (value: unknown, fallback = 0): number => {
 	return Number.isFinite(n) ? n : fallback;
 };
 
+const readPositiveInt = (value: unknown): number | null => {
+	const n = Number(value);
+	return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+};
+
 const parseOfferDateInput = (value: unknown, fieldName: string): Date => {
 	if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
 
@@ -215,6 +220,12 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
 		if (data.config !== undefined && data.config !== null) updateData.config = normalizeOfferConfig(finalType, data.config, existingData);
 		if (data.config === null) updateData.config = null;
 		if (data.userRules != null) updateData.userRules = data.userRules;
+		if (data.perUserLimit !== undefined) {
+			const perUserLimitVal = readPositiveInt(data.perUserLimit);
+			const base = existingData?.userRules && typeof existingData.userRules === 'object' ? { ...(existingData.userRules || {}) } : {};
+			if (perUserLimitVal !== null) base.perUserLimit = perUserLimitVal; else delete base.perUserLimit;
+			updateData.userRules = base;
+		}
 		if (data.display != null) updateData.display = data.display;
 
 		await offerRef.update(updateData);

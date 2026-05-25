@@ -10,6 +10,11 @@ const readNumber = (value: unknown, fallback = 0): number => {
 	return Number.isFinite(n) ? n : fallback;
 };
 
+const readPositiveInt = (value: unknown): number | null => {
+	const n = Number(value);
+	return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+};
+
 const parseOfferDateInput = (value: unknown, fieldName: string): Date => {
 	if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
 
@@ -173,6 +178,14 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 		const category = offerType === "DISCOUNT"
 			? readString(data.category || data.applicableCategory) || null
 			: null;
+		// Normalize userRules to include perUserLimit if provided top-level
+		let normalizedUserRules = data.userRules && typeof data.userRules === 'object' ? { ...(data.userRules || {}) } : null;
+		const perUserLimitVal = readPositiveInt(data.perUserLimit ?? data.userRules?.perUserLimit);
+		if (perUserLimitVal !== null) {
+			if (!normalizedUserRules) normalizedUserRules = {} as any;
+			(normalizedUserRules as any).perUserLimit = perUserLimitVal;
+		}
+
 		await offerRef.set({
 			title: readString(data.title),
 			description: readString(data.description),
@@ -189,7 +202,7 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 			usageLimit: Number(data.usageLimit || 0),
 			usedCount: 0,
 			config: normalizedConfig,
-			userRules: data.userRules || null,
+			userRules: normalizedUserRules || null,
 			display: data.display || null,
 			offerMeta: {
 				canonical: true,

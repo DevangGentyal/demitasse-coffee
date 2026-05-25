@@ -226,6 +226,8 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
     offer.userRules?.birthdayOnly === true
   ) : false;
 
+  const perUserLimit = offer.userRules?.perUserLimit ?? (offer as any).perUserLimit;
+
   // ─── Discount badge text ────────────────────────────────────────────────────
   const resolvedDiscountValue = offer?.discountValue || offer?.config?.discountValue || 0;
   const discountText = isCombo
@@ -364,6 +366,12 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
               <div className="text-[10px]">
                 <span className="text-[#8B6F5E]">Valid till</span>
                 <p className="font-bold text-[#5C4033]">{formattedDate}</p>
+              </div>
+            )}
+            {perUserLimit && (
+              <div className="text-[10px]">
+                <span className="text-[#8B6F5E]">Usage</span>
+                <p className="font-bold text-[#5C4033]">{(fullUser?.appliedOffers || []).filter(a => a.offerId === offer.id).reduce((s, u) => s + (Number(u.count) || 0), 0)} / {perUserLimit}</p>
               </div>
             )}
           </div>

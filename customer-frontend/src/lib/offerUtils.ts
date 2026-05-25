@@ -143,7 +143,7 @@ export const isBirthday = (dob?: string) => {
 
 export const isOfferAvailableToUser = (offer: Offer, user: User = {}): boolean => {
     if (user.userType === "guest") return true;
-    const limit = Number(offer.userRules?.perUserLimit);
+    const limit = Number(offer.userRules?.perUserLimit ?? offer.perUserLimit);
     if (!Number.isFinite(limit) || limit <= 0) return true;
     const usedCount = (user.appliedOffers || [])
         .filter((usage) => usage.offerId === offer.id)

@@ -38,13 +38,12 @@ export const collectRequestedOfferUsages = (
 		const item = (rawItem || {}) as Record<string, unknown>;
 		const offerId = String(item.offerId || "").trim();
 		if (!offerId) continue;
-		const count = readPositiveCount(item.qty ?? item.quantity, 1);
-		counts.set(offerId, (counts.get(offerId) || 0) + count);
+		counts.set(offerId, 1);
 	}
 
 	const autoOfferId = String(autoAppliedOfferId || "").trim();
 	if (autoOfferId) {
-		counts.set(autoOfferId, (counts.get(autoOfferId) || 0) + 1);
+		counts.set(autoOfferId, 1);
 	}
 
 	return Array.from(counts, ([offerId, count]) => ({ offerId, count }));

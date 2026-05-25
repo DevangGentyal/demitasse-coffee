@@ -35,6 +35,7 @@ export default function CreateOfferPage() {
     startDate: '',
     endDate: '',
     minOrderValue: '',
+    perUserLimit: '',
     priority: '0',
     isActive: true,
     autoApply: false,
@@ -211,6 +212,7 @@ export default function CreateOfferPage() {
         autoApply: formData.autoApply,
         isStackable: formData.isStackable,
         config,
+        perUserLimit: formData.perUserLimit ? Number(formData.perUserLimit) : undefined,
       }
 
       await createOffer(outletId as string, payload)
@@ -392,6 +394,10 @@ export default function CreateOfferPage() {
             <div>
               <Label className="text-xs text-gray-500 mb-1 block">Min Order Value</Label>
               <Input type="number" placeholder="0" value={formData.minOrderValue} onChange={e => handleChange("minOrderValue", e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1 block">Per-user Limit (optional)</Label>
+              <Input type="number" placeholder="e.g. 1" value={formData.perUserLimit} onChange={e => handleChange("perUserLimit", e.target.value)} />
             </div>
             <div>
               <Label className="text-xs text-gray-500 mb-1 block">Priority</Label>
