@@ -15,6 +15,22 @@ import {
 
 import { getOutletIdForCurrentUser } from '@/lib/services/productService'
 
+const toMillis = (value: unknown): number => {
+  if (!value) return 0
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+  }
+  if (typeof value === 'object' && value !== null) {
+    const maybeTimestamp = value as { toMillis?: () => number; seconds?: number; _seconds?: number }
+    if (typeof maybeTimestamp.toMillis === 'function') return maybeTimestamp.toMillis()
+    const seconds = Number(maybeTimestamp.seconds ?? maybeTimestamp._seconds)
+    if (Number.isFinite(seconds)) return seconds * 1000
+  }
+  return 0
+}
+
 export default function OffersPage() {
   const router = useRouter()
   const { isLoggedIn, isLoading } = useAuth()
@@ -38,7 +54,13 @@ export default function OffersPage() {
         setOutletId(outlet)
 
         const data = await getOffersByOutletId(outlet)
-        setOffers(data)
+        setOffers(
+          [...data].sort((left, right) => {
+            const rightCreated = toMillis(right.createdAt || right.updatedAt || right.startDate)
+            const leftCreated = toMillis(left.createdAt || left.updatedAt || left.startDate)
+            return rightCreated - leftCreated
+          })
+        )
 
       } catch (e: any) {
         setError(e.message)
@@ -59,9 +81,13 @@ export default function OffersPage() {
     await updateOffer(offer.id, { isActive: !offer.isActive })
 
     setOffers(prev =>
-      prev.map(o =>
+      [...prev.map(o =>
         o.id === offer.id ? { ...o, isActive: !o.isActive } : o
-      )
+      )].sort((left, right) => {
+        const rightCreated = toMillis(right.createdAt || right.updatedAt || right.startDate)
+        const leftCreated = toMillis(left.createdAt || left.updatedAt || left.startDate)
+        return rightCreated - leftCreated
+      })
     )
   }
 
@@ -124,24 +150,19 @@ export default function OffersPage() {
         {/* TABLE */}
         <div className="border mt-4 rounded overflow-hidden">
 
-          <div className="grid grid-cols-7 bg-black text-white">
+          <div className="grid grid-cols-5 bg-black text-white">
             <div className="p-2">Title</div>
             <div className="p-2">Type</div>
-            <div className="p-2">Config</div>
-            <div className="p-2">Category</div>
             <div className="p-2">Dates</div>
             <div className="p-2">Active</div>
             <div className="p-2">Action</div>
           </div>
 
           {offers.map(o => (
-            <div key={o.id} className="grid grid-cols-7 border-t">
+            <div key={o.id} className="grid grid-cols-5 border-t">
 
               <div className="p-2">{o.title}</div>
               <div className="p-2">{o.offerType || o.type}</div>
-              <div className="p-2 text-sm">{getConfigSummary(o)}</div>
-              <div className="p-2 text-sm">{o.category || '-'}</div>
-
               <div className="p-2 text-sm">
                 {formatOfferDate(o.startDate)} <br />
                 {formatOfferDate(o.endDate)}

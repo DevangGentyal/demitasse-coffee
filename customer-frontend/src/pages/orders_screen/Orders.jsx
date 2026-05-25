@@ -196,7 +196,7 @@ function OrderCard({ order }) {
         <div>
           <p className="text-xs uppercase tracking-wide text-gray-500">Order</p>
           <h3 className="text-base font-semibold text-gray-900">{order.id.slice(0, 8)}</h3>
-          <p className="text-xs text-gray-500 mt-1">{orderTimeFormat.format(placedAt)}</p>
+          <p className="mt-1 text-xs text-gray-500">{orderTimeFormat.format(placedAt)}</p>
         </div>
         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">{orderStatus}</span>
       </div>
@@ -247,7 +247,56 @@ function OrderCard({ order }) {
   );
 }
 
-export default function Orders() {
+const toBillDetails = (value) => {
+  const normalizeBillItem = (item) => ({
+    id: String(item.id || item.productId || item.name || Math.random().toString(36).slice(2)),
+    orderId: String(item.orderId || item.parentOrderId || value.orderId || value.id || ""),
+    orderDiscount: Number(item.orderDiscount ?? value?.pricing?.discount ?? value.discount ?? 0) || 0,
+    orderDiscountedPrice: Number(item.orderDiscountedPrice ?? value?.pricing?.discountedPrice ?? value.discountedPrice ?? value.totalAmount ?? value.subTotal ?? 0) || 0,
+    orderSubTotal: Number(item.orderSubTotal ?? value?.pricing?.subtotal ?? value.subTotal ?? value.itemTotal ?? value.totalAmount ?? 0) || 0,
+    productId: String(item.productId || item.id || ""),
+    name: String(item.name || item.title || item.productName || "Item"),
+    qty: Number(item.qty ?? item.quantity ?? 1) || 1,
+    unitPrice: Number(item.unitPrice ?? item.finalUnitPrice ?? item.price ?? (Number(item.totalPrice ?? 0) && (Number(item.qty ?? item.quantity ?? 1) > 0 ? Number(item.totalPrice ?? 0) / Number(item.qty ?? item.quantity ?? 1) : 0)) ?? 0) || 0,
+    totalPrice: Number(item.totalPrice ?? item.totalAmount ?? item.itemTotal ?? 0) || 0,
+    addOns: Array.isArray(item.addOns) ? item.addOns : (Array.isArray(item.addons) ? item.addons : []),
+    variations: Array.isArray(item.variations) ? item.variations : [],
+    customizations: Array.isArray(item.customizations) ? item.customizations : [],
+    items: Array.isArray(item.items) ? item.items.map(normalizeBillItem) : [],
+    isCombo: Boolean(item.isCombo),
+    isManualB1G1: Boolean(item.isManualB1G1),
+    isDiscount: Boolean(item.isDiscount),
+    isBirthday: Boolean(item.isBirthday),
+    isFree: Boolean(item.isFree),
+    offerId: String(item.offerId || ""),
+    offerType: String(item.offerType || ""),
+    offerTitle: String(item.offerTitle || ""),
+  });
+
+  if (!value) return null;
+  return {
+    orderId: String(value.orderId || value.id || ""),
+    paymentId: String(value.paymentId || ""),
+    tableId: String(value.tableId || ""),
+    sessionId: String(value.sessionId || ""),
+    createdAt: toDate(value.createdAt || value.updatedAt),
+    status: String(value.status || "PENDING_COUNTER"),
+    items: Array.isArray(value.items) ? value.items.map(normalizeBillItem) : [],
+    appliedOffers: Array.isArray(value.appliedOffers) ? value.appliedOffers : [],
+    pricing: {
+      subtotal: Number(value?.pricing?.subtotal ?? value.subTotal ?? value.itemTotal ?? value.totalAmount ?? 0),
+      discount: Number(value?.pricing?.discount || 0),
+      discountedPrice: Number(value?.pricing?.discountedPrice ?? (Number(value?.pricing?.subtotal ?? value.subTotal ?? value.itemTotal ?? value.totalAmount ?? 0) - Number(value?.pricing?.discount || 0)) ?? 0),
+      tax: Number(value?.pricing?.tax || 0),
+      total: Number(value?.pricing?.total ?? value.totalAmount ?? value.subTotal ?? 0),
+    },
+    appliedOfferLogs: Array.isArray(value?.appliedOfferLogs) ? value.appliedOfferLogs : [],
+    displayBillGroups: Array.isArray(value?.displayBillGroups) ? value.displayBillGroups : [],
+    noteToCustomer: String(value.noteToCustomer || "Please pay at the counter. Your bill is ready."),
+  };
+};
+
+const Orders = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { selectedOutlet, selectedTableId, selectedTableName, tableNumber, selectedTableOwnerId, selectedSessionId, requestPaymentLock, clearPaymentLock } = useLocationContext();
@@ -265,7 +314,7 @@ export default function Orders() {
   const [expandedBillItems, setExpandedBillItems] = useState({});
 
   const toggleBillItem = (key) => {
-    setExpandedBillItems(prev => ({ ...prev, [key]: !prev[key] }));
+    setExpandedBillItems((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const resolvedTableName = selectedTableName || tableNumber || "Current Table";
@@ -274,15 +323,9 @@ export default function Orders() {
   const isCurrentOwner = !!viewerId && !!effectiveTableOwnerId && viewerId === effectiveTableOwnerId;
   const currentSessionId = String(selectedSessionId || "").trim();
 
-  // CHANGE 2: All participants see all live orders (removed ownerId-based filtering)
   const visibleLiveOrders = liveOrders;
-  const billReadyOrders = useMemo(
-    () => visibleLiveOrders.filter(isBillReadyOrder),
-    [visibleLiveOrders]
-  );
-
+  const billReadyOrders = useMemo(() => visibleLiveOrders.filter(isBillReadyOrder), [visibleLiveOrders]);
   const allLiveOrdersCompleted = visibleLiveOrders.length > 0 && visibleLiveOrders.every(isBillReadyOrder);
-
   const mergedHistoryOrders = useMemo(() => {
     const byId = new Map();
     historyOrders.forEach((order) => {
@@ -290,7 +333,6 @@ export default function Orders() {
     });
     return [...byId.values()].sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime());
   }, [historyOrders]);
-
   const activeOrder = allLiveOrdersCompleted ? (billReadyOrders[0] || visibleLiveOrders[0] || null) : null;
 
   const dismissBanner = () => setBanner(null);
@@ -301,54 +343,6 @@ export default function Orders() {
     clearPaymentLock();
     setShowPayOverlay(false);
     setOverlayCountdown(10);
-  };
-
-  const toBillDetails = (value) => {
-    const normalizeBillItem = (item) => ({
-      id: String(item.id || item.productId || item.name || Math.random().toString(36).slice(2)),
-      orderId: String(item.orderId || item.parentOrderId || value.orderId || value.id || ""),
-      orderDiscount: Number(item.orderDiscount ?? value?.pricing?.discount ?? value.discount ?? 0) || 0,
-      orderDiscountedPrice: Number(item.orderDiscountedPrice ?? value?.pricing?.discountedPrice ?? value.discountedPrice ?? value.totalAmount ?? value.subTotal ?? 0) || 0,
-      orderSubTotal: Number(item.orderSubTotal ?? value?.pricing?.subtotal ?? value.subTotal ?? value.itemTotal ?? value.totalAmount ?? 0) || 0,
-      productId: String(item.productId || item.id || ""),
-      name: String(item.name || item.title || item.productName || "Item"),
-      qty: Number(item.qty ?? item.quantity ?? 1) || 1,
-      unitPrice: Number(item.unitPrice ?? item.finalUnitPrice ?? item.price ?? (Number(item.totalPrice ?? 0) && (Number(item.qty ?? item.quantity ?? 1) > 0 ? Number(item.totalPrice ?? 0) / Number(item.qty ?? item.quantity ?? 1) : 0)) ?? 0) || 0,
-      totalPrice: Number(item.totalPrice ?? item.totalAmount ?? item.itemTotal ?? 0) || 0,
-      addOns: Array.isArray(item.addOns) ? item.addOns : (Array.isArray(item.addons) ? item.addons : []),
-      variations: Array.isArray(item.variations) ? item.variations : [],
-      customizations: Array.isArray(item.customizations) ? item.customizations : [],
-      items: Array.isArray(item.items) ? item.items.map(normalizeBillItem) : [],
-      isCombo: Boolean(item.isCombo),
-      isManualB1G1: Boolean(item.isManualB1G1),
-      isDiscount: Boolean(item.isDiscount),
-      isBirthday: Boolean(item.isBirthday),
-      isFree: Boolean(item.isFree),
-      offerId: String(item.offerId || ""),
-      offerType: String(item.offerType || ""),
-      offerTitle: String(item.offerTitle || ""),
-    });
-
-    if (!value) return null;
-    return {
-      orderId: String(value.orderId || value.id || ""),
-      paymentId: String(value.paymentId || ""),
-      tableId: String(value.tableId || selectedTableId || ""),
-      sessionId: String(value.sessionId || ""),
-      createdAt: toDate(value.createdAt || value.updatedAt),
-        status: String(value.status || "PENDING_COUNTER"),
-      items: Array.isArray(value.items) ? value.items.map(normalizeBillItem) : [],
-      appliedOffers: Array.isArray(value.appliedOffers) ? value.appliedOffers : [],
-      pricing: {
-        subtotal: Number(value?.pricing?.subtotal ?? value.subTotal ?? value.itemTotal ?? value.totalAmount ?? 0),
-        discount: Number(value?.pricing?.discount || 0),
-          discountedPrice: Number(value?.pricing?.discountedPrice ?? (Number(value?.pricing?.subtotal ?? value.subTotal ?? value.itemTotal ?? value.totalAmount ?? 0) - Number(value?.pricing?.discount || 0)) ?? 0),
-        tax: Number(value?.pricing?.tax || 0),
-        total: Number(value?.pricing?.total ?? value.totalAmount ?? value.subTotal ?? 0),
-      },
-      appliedOfferLogs: Array.isArray(value?.appliedOfferLogs) ? value.appliedOfferLogs : [],
-      noteToCustomer: String(value.noteToCustomer || "Please pay at the counter. Your bill is ready."),
-    };
   };
 
   const handleGenerateBill = async () => {
@@ -629,325 +623,163 @@ export default function Orders() {
 
         {/* ✅ BILL OVERLAY (Detailed Modal) */}
         {billDetails && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4">
-            <div className="w-full max-w-[420px] rounded-t-[2.5rem] bg-white shadow-2xl animate-in slide-in-from-bottom duration-300 sm:rounded-[2.5rem]">
-              {/* Header */}
-              <div className="flex items-center justify-between px-6 pt-8 pb-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-6">
+            <div className="flex w-full max-w-[520px] max-h-[90vh] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Secure Billing</p>
-                  <h3 className="text-xl font-bold text-gray-900">Final Bill</h3>
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Bill Summary</p>
+                  <h3 className="text-lg font-semibold text-gray-900">{resolvedTableName}</h3>
                 </div>
-                <button 
+                <button
                   onClick={() => {
-                    setBillDetails(null);
-                    setExpandedBillItems({});
+                    setBillDetails(null)
+                    setExpandedBillItems({})
                   }}
-                  className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+                  className="p-1 text-gray-500 transition-colors hover:text-gray-800"
                 >
                   ✕
                 </button>
               </div>
 
-              {/* Bill Body */}
-              <div className="px-6 py-2 max-h-[60vh] overflow-y-auto">
-                <div className="space-y-4">
-                  {/* Items List */}
-                  <div className="space-y-3">
-                    {(() => {
-                      const allItems = Array.isArray(billDetails.items) ? billDetails.items : [];
-                      const rowsByOrder = new Map();
-                      allItems.forEach((item, idx) => {
-                        const orderKey = String(item.orderId || billDetails.orderId || `order-${idx}`);
-                        if (!rowsByOrder.has(orderKey)) rowsByOrder.set(orderKey, []);
-                        rowsByOrder.get(orderKey).push({ item, idx });
-                      });
+              <div className="flex items-center border-b border-gray-100 bg-gray-50 px-6 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                <span className="flex-1">Item</span>
+                <span className="w-16 text-center">Qty</span>
+                <span className="w-24 pr-6 text-right">Price</span>
+              </div>
 
-                      const renderBillRow = (item, idx, keyPrefix, hideOfferMeta = false) => {
-                        const rowKey = `${keyPrefix}-${idx}-${item.id || item.productId || 'item'}`;
-                        const isExpanded = !!expandedBillItems[rowKey];
-                        const directCustomizations = Array.isArray(item.customizations) ? item.customizations : [];
-                        const directSelected = directCustomizations.flatMap(g => (g.options || []).filter(o => o.isSelected));
-                        const hasVariations = Array.isArray(item.variations) && item.variations.length > 0;
-                        const hasAddons = Array.isArray(item.addOns) ? item.addOns : (Array.isArray(item.addons) ? item.addons : []);
-                        const hasSubItems = Array.isArray(item.items) && item.items.length > 0;
-                        const isOffer = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.isFree;
-                        const hasItemDetails = hasVariations || directSelected.length > 0 || hasAddons.length > 0 || hasSubItems || isOffer;
+              <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+                <div className="space-y-4 px-0 py-0">
+                  {(() => {
+                    const allItems = Array.isArray(billDetails.items) ? billDetails.items : []
+                    const serverGroups = Array.isArray(billDetails.displayBillGroups)
+                      ? billDetails.displayBillGroups
+                      : Array.isArray(billDetails.appliedOfferLogs)
+                        ? billDetails.appliedOfferLogs
+                        : []
+                    const regularItems = allItems.filter((item) => !item.offerId && !item.offerTitle && !item.isCombo && !item.isManualB1G1 && !item.isDiscount && !item.isBirthday && !item.isFree)
 
-                        return (
-                          <div key={rowKey} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
-                            <div
-                              className={`flex justify-between items-start text-sm ${hasItemDetails ? 'cursor-pointer select-none' : ''}`}
-                              onClick={() => hasItemDetails && toggleBillItem(rowKey)}
-                            >
-                              <div className="flex-1 pr-4">
-                                <p className="font-semibold text-gray-800 flex items-center gap-1.5">
-                                  {item.name || "Item"}
-                                  {hasItemDetails && (
-                                    <span className={`text-[10px] text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
-                                      ▼
-                                    </span>
-                                  )}
-                                </p>
-                                <p className="text-xs text-gray-500 mt-0.5">Qty: {item.qty} × {currency.format(item.unitPrice || 0)}</p>
-                                {!hideOfferMeta && isOffer && (item.offerTitle || item.name) && (
-                                  <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                                    <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
-                                      {item.offerType || (item.isCombo ? 'Combo' : item.isManualB1G1 ? 'B1G1' : item.isDiscount ? 'Discount' : item.isBirthday ? 'Birthday' : 'Offer')}
-                                    </span>
-                                    <span className="truncate">{item.offerTitle || item.name}</span>
-                                  </p>
-                                )}
-                              </div>
-                              <p className="font-bold text-gray-900 mt-0.5">{currency.format(item.totalPrice || 0)}</p>
-                            </div>
-
-                            {isExpanded && hasItemDetails && (
-                              <div className="mt-2.5 ml-1 pl-3 border-l-2 border-gray-200 space-y-1.5 text-xs text-gray-600 animate-in fade-in slide-in-from-top-1 duration-200 pb-1">
-                                {hasVariations && item.variations.map((v, i) => (
-                                  <p key={`var-${rowKey}-${i}`}>• {v.name || v.option || v.type} {v.price ? <span className="text-gray-400">(+₹{v.price})</span> : ''}</p>
-                                ))}
-
-                                {directSelected.map((opt, i) => (
-                                  <p key={`dcust-${rowKey}-${i}`}>• {opt.name} {opt.price ? <span className="text-gray-400">(+₹{opt.price})</span> : ''}</p>
-                                ))}
-
-                                {hasAddons.length > 0 && hasAddons.map((addon, i) => (
-                                  <p key={`addon-${rowKey}-${i}`} className="text-amber-700">+ {addon.name} {addon.price ? <span className="text-amber-700/60">(+₹{addon.price})</span> : ''}</p>
-                                ))}
-
-                                {hasSubItems && item.items.map((sub, i) => {
-                                  const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : [];
-                                  const subSelected = subCustomizations.flatMap(g => (g.options || []).filter(o => o.isSelected));
-                                  const subAddons = Array.isArray(sub.addOns) ? sub.addOns : (Array.isArray(sub.addons) ? sub.addons : []);
-                                  return (
-                                    <div key={`sub-${rowKey}-${i}`} className="mt-1.5">
-                                      <p className="font-medium text-gray-700 flex items-center">
-                                        - {sub.name} {sub.isFree && <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded ml-1.5 font-bold">FREE</span>}
-                                      </p>
-                                      <div className="pl-3 space-y-0.5 mt-1">
-                                        {subSelected.map((opt, j) => (
-                                          <p key={`subcust-${rowKey}-${i}-${j}`} className="text-[11px] text-gray-500">• {opt.name} {opt.price ? `(+₹${opt.price})` : ''}</p>
-                                        ))}
-                                        {subAddons.map((addon, j) => (
-                                          <p key={`subaddon-${rowKey}-${i}-${j}`} className="text-[11px] text-amber-700">+ {addon.name} {addon.price ? `(+₹${addon.price})` : ''}</p>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      };
+                    const renderBillRow = (item, idx, keyPrefix, hideOfferMeta = false) => {
+                      const rowKey = `${keyPrefix}-${idx}-${item.id || item.productId || 'item'}`
+                      const isExpanded = !!expandedBillItems[rowKey]
+                      const directCustomizations = Array.isArray(item.customizations) ? item.customizations : []
+                      const directSelected = directCustomizations.flatMap((group) => (group.options || []).filter((option) => option.isSelected))
+                      const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
+                      const hasAddons = Array.isArray(item.addOns) ? item.addOns : (Array.isArray(item.addons) ? item.addons : [])
+                      const hasSubItems = Array.isArray(item.items) && item.items.length > 0
+                      const isOffer = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.isFree
+                      const hasItemDetails = hasVariations || directSelected.length > 0 || hasAddons.length > 0 || hasSubItems || isOffer
 
                       return (
-                        <>
-                          {Array.from(rowsByOrder.entries()).map(([orderKey, orderRows], orderIdx) => {
-                            const offerBuckets = new Map();
-                            const regularRows = [];
+                        <div key={rowKey} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
+                          <div
+                            className={`flex items-start justify-between text-sm ${hasItemDetails ? 'cursor-pointer select-none' : ''}`}
+                            onClick={() => hasItemDetails && toggleBillItem(rowKey)}
+                          >
+                            <div className="flex-1 pr-4">
+                              <p className="flex items-center gap-1.5 font-semibold text-gray-800">
+                                {item.name || 'Item'}
+                                {hasItemDetails && <span className={`text-[10px] text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▼</span>}
+                              </p>
+                              <p className="mt-0.5 text-xs text-gray-500">Qty: {item.qty} × {currency.format(item.unitPrice || 0)}</p>
+                              {!hideOfferMeta && isOffer && (item.offerTitle || item.name) && (
+                                <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                  <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
+                                    {item.offerType || (item.isCombo ? 'Combo' : item.isManualB1G1 ? 'B1G1' : item.isDiscount ? 'Discount' : item.isBirthday ? 'Birthday' : 'Offer')}
+                                  </span>
+                                  <span className="truncate">{item.offerTitle || item.name}</span>
+                                </p>
+                              )}
+                            </div>
+                            <p className="mt-0.5 font-bold text-gray-900">{currency.format(item.totalPrice || 0)}</p>
+                          </div>
 
-                            orderRows.forEach(({ item, idx }) => {
-                              const rawOfferId = String(item.offerId || '').trim();
-                              const rawOfferTitle = String(item.offerTitle || '').trim();
-                              const rawOfferType = String(item.offerType || '').trim();
-                              const isOffer = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.isFree;
-                              const fallbackOfferId = `${rawOfferType || 'offer'}::${rawOfferTitle || 'group'}`;
-                              const bucketId = rawOfferId || (isOffer ? fallbackOfferId : '');
+                          {isExpanded && hasItemDetails && (
+                            <div className="mt-2.5 ml-1 space-y-1.5 border-l-2 border-gray-200 pl-3 pb-1 text-xs text-gray-600">
+                              {hasVariations && item.variations.map((v, i) => (
+                                <p key={`var-${rowKey}-${i}`}>• {v.name || v.option || v.type} {v.price ? <span className="text-gray-400">(+₹{v.price})</span> : ''}</p>
+                              ))}
 
-                              if (!bucketId) {
-                                regularRows.push({ item, idx });
-                                return;
-                              }
+                              {directSelected.map((opt, i) => (
+                                <p key={`dcust-${rowKey}-${i}`}>• {opt.name} {opt.price ? <span className="text-gray-400">(+₹{opt.price})</span> : ''}</p>
+                              ))}
 
-                              if (!offerBuckets.has(bucketId)) {
-                                offerBuckets.set(bucketId, {
-                                  offerId: bucketId,
-                                  offerType: rawOfferType || (item.isCombo ? 'COMBO' : item.isManualB1G1 ? 'B1G1' : item.isDiscount ? 'DISCOUNT' : item.isBirthday ? 'BIRTHDAY' : 'OFFER'),
-                                  offerTitle: rawOfferTitle || 'Offer Group',
-                                  rows: [],
-                                });
-                              }
-                              offerBuckets.get(bucketId).rows.push({ item, idx });
-                            });
+                              {hasAddons.length > 0 && hasAddons.map((addon, i) => (
+                                <p key={`addon-${rowKey}-${i}`} className="text-amber-700">+ {addon.name} {addon.price ? <span className="text-amber-700/60">(+₹{addon.price})</span> : ''}</p>
+                              ))}
 
-                            const offerBucketList = Array.from(offerBuckets.values());
-                            const firstOrderItem = orderRows[0]?.item || {};
-                            const orderDiscountRaw = Number(firstOrderItem.orderDiscount ?? 0);
-                            const orderDiscount = Number.isFinite(orderDiscountRaw) ? Math.max(orderDiscountRaw, 0) : 0;
-                            const orderDiscountedPriceDirect = Number(firstOrderItem.orderDiscountedPrice);
-                            const orderDiscountedPriceFallback = Number(firstOrderItem.orderSubTotal);
-                            const orderDiscountedPrice = Number.isFinite(orderDiscountedPriceDirect)
-                              ? orderDiscountedPriceDirect
-                              : Number.isFinite(orderDiscountedPriceFallback)
-                                ? orderDiscountedPriceFallback
-                                : NaN;
-                            const basicSubtotal = regularRows.reduce((sum, row) => sum + Number(row.item.totalPrice || 0), 0);
-                            const totalOfferSubtotal = offerBucketList.reduce((sum, bucket) => {
-                              const bucketSum = bucket.rows.reduce((acc, row) => acc + Number(row.item.totalPrice || 0), 0);
-                              return sum + bucketSum;
-                            }, 0);
-
-                            return (
-                              <div key={`bill-order-${orderKey}-${orderIdx}`} className="space-y-2">
-                                {offerBucketList.map((bucket, bucketIdx) => {
-                                  const matchedLog = (Array.isArray(billDetails.appliedOfferLogs) ? billDetails.appliedOfferLogs : []).find((log) => {
-                                    const sameOfferId = String(log?.offerId || '').trim() === String(bucket.offerId || '').trim();
-                                    const sameTitleAndType =
-                                      String(log?.offerTitle || '').trim().toLowerCase() === String(bucket.offerTitle || '').trim().toLowerCase() &&
-                                      String(log?.offerType || '').trim().toLowerCase() === String(bucket.offerType || '').trim().toLowerCase();
-                                    return sameOfferId || sameTitleAndType;
-                                  });
-                                  const bucketSubtotal = bucket.rows.reduce((sum, row) => sum + Number(row.item.totalPrice || 0), 0);
-                                  const logBasedPrice = Number.isFinite(Number(matchedLog?.groupDiscountedPrice))
-                                    ? Number(matchedLog.groupDiscountedPrice)
-                                    : NaN;
-
-                                  let orderBasedPrice = NaN;
-                                  if (Number.isFinite(orderDiscountedPrice)) {
-                                    if (offerBucketList.length === 1) {
-                                      orderBasedPrice = Math.max(orderDiscountedPrice - basicSubtotal, 0);
-                                    } else if (totalOfferSubtotal > 0) {
-                                      const bucketDiscountShare = (orderDiscount * bucketSubtotal) / totalOfferSubtotal;
-                                      orderBasedPrice = Math.max(bucketSubtotal - bucketDiscountShare, 0);
-                                    }
-                                  }
-
-                                  const consideredPrice = Number.isFinite(orderBasedPrice)
-                                    ? orderBasedPrice
-                                    : Number.isFinite(logBasedPrice)
-                                      ? logBasedPrice
-                                      : bucketSubtotal;
-
-                                  return (
-                                    <div key={`offer-group-${orderKey}-${bucket.offerId}-${bucketIdx}`} className="rounded-xl border border-blue-200 bg-blue-50/60">
-                                      <div className="flex items-center justify-between border-b border-blue-200 px-3 py-2">
-                                        <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
-                                          <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{bucket.offerType}</span>
-                                          <span className="truncate max-w-[180px]">{bucket.offerTitle}</span>
-                                        </div>
-                                        <div className="text-right">
-                                          <div className="text-[10px] font-medium uppercase tracking-wide text-blue-600">
-                                            {bucket.rows.length} item{bucket.rows.length > 1 ? 's' : ''}
-                                          </div>
-                                          <div className="text-xs font-bold text-blue-800">Offer Price: {billCurrency.format(consideredPrice)}</div>
-                                        </div>
-                                      </div>
-                                      <div className="px-3 py-2 space-y-2">
-                                        {bucket.rows.map(({ item, idx }) => renderBillRow(item, idx, `offer-${orderKey}-${bucket.offerId}`, true))}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-
-                                {regularRows.length > 0 && (
-                                  <div className="space-y-2">
-                                    {regularRows.map(({ item, idx }) => renderBillRow(item, idx, `basic-${orderKey}`))}
+                              {hasSubItems && item.items.map((sub, i) => (
+                                <div key={`sub-${rowKey}-${i}`} className="mt-1.5">
+                                  <p className="flex items-center font-medium text-gray-700">
+                                    - {sub.name} {sub.isFree && <span className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">FREE</span>}
+                                  </p>
+                                  <div className="mt-1 space-y-0.5 pl-3">
+                                    {Array.isArray(sub.addOns) && sub.addOns.map((addon, j) => (
+                                      <p key={`subaddon-${rowKey}-${i}-${j}`} className="text-[11px] text-amber-700">+ {addon.name} {addon.price ? `(+₹${addon.price})` : ''}</p>
+                                    ))}
                                   </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </>
-                      );
-                    })()}
-                  </div>
-
-                  <div className="h-px bg-gray-100 my-4" />
-                  {/* Server-provided offer grouping (if any) */}
-                  {Array.isArray(billDetails.appliedOfferLogs) && billDetails.appliedOfferLogs.length > 0 && (
-                    <div className="space-y-2 mb-3">
-                      {billDetails.appliedOfferLogs.map((log, i) => (
-                        <div key={i} className="rounded-md border border-gray-200 bg-white p-3 text-sm">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <div className="text-xs font-semibold text-gray-700">{log.offerTitle || log.offerId}</div>
-                              <div className="text-[12px] text-gray-500 mt-1">{log.description}</div>
-                            </div>
-                            <div className="text-xs text-gray-600 font-semibold">{log.offerType}</div>
-                          </div>
-                          <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-gray-600">
-                            <div className="rounded bg-gray-50 px-2 py-1">
-                              <div className="text-[10px] uppercase tracking-wide text-gray-500">Subtotal</div>
-                              <div className="font-semibold text-gray-900">{billCurrency.format(Number(log.groupSubtotal || 0))}</div>
-                            </div>
-                            <div className="rounded bg-gray-50 px-2 py-1">
-                              <div className="text-[10px] uppercase tracking-wide text-gray-500">Discount</div>
-                              <div className="font-semibold text-green-700">-{billCurrency.format(Number(log.groupDiscount || 0))}</div>
-                            </div>
-                            <div className="rounded bg-gray-50 px-2 py-1">
-                              <div className="text-[10px] uppercase tracking-wide text-gray-500">Net</div>
-                              <div className="font-semibold text-blue-700">{billCurrency.format(Number(log.groupDiscountedPrice || 0))}</div>
-                            </div>
-                          </div>
-                          {Array.isArray(log.items) && log.items.length > 0 && (
-                            <div className="mt-2 border-t border-gray-100 pt-2 space-y-1">
-                              {log.items.map((it, j) => (
-                                <div key={j} className="flex items-center justify-between text-xs text-gray-600">
-                                  <div className="truncate max-w-[260px]">{it.name} {it.qty ? `(x${it.qty})` : ''}</div>
-                                  <div className="font-semibold text-gray-900">{it.isFree ? 'FREE' : `₹${it.totalPrice}`}</div>
                                 </div>
                               ))}
                             </div>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      )
+                    }
 
-                  {/* Pricing Breakdown */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>Subtotal</span>
-                      <span>{billCurrency.format(billDetails.pricing.subtotal)}</span>
-                    </div>
+                    return (
+                      <div>
+                        {serverGroups.length > 0 && (
+                          <div className="space-y-2">
+                            {serverGroups.map((group, index) => (
+                              <div key={`server-group-${group.offerId || index}`} className="rounded-xl border border-blue-200 bg-blue-50/60">
+                                <div className="flex items-center justify-between border-b border-blue-200 px-3 py-2">
+                                  <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
+                                    <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{group.offerType || 'OFFER'}</span>
+                                    <span className="truncate max-w-[180px]">{group.offerTitle || group.offerId || 'Offer Group'}</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-[10px] font-medium uppercase tracking-wide text-blue-600">
+                                      {Array.isArray(group.items) ? group.items.length : 0} item{Array.isArray(group.items) && group.items.length === 1 ? '' : 's'}
+                                    </div>
+                                    <div className="text-xs font-bold text-blue-800">Offer Price: {billCurrency.format(Number(group.groupDiscountedPrice || 0))}</div>
+                                  </div>
+                                </div>
+                                <div className="space-y-2 px-3 py-2">
+                                  {Array.isArray(group.items) && group.items.map((item, itemIdx) => renderBillRow(item, itemIdx, `offer-${group.offerId || index}`, true))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
-                    <div className="flex justify-between text-sm text-blue-700 font-semibold">
-                      <span>Discounted Price</span>
-                      <span>{billCurrency.format(billDetails.pricing.discountedPrice || 0)}</span>
-                    </div>
+                        {regularItems.length > 0 && (
+                          <div className="space-y-2">
+                            {regularItems.map((item, index) => renderBillRow(item, index, 'basic'))}
+                          </div>
+                        )}
 
-                    {billDetails.appliedOffers.map((offer, idx) => (
-                      <div key={idx} className="flex justify-between text-sm text-green-600 font-medium">
-                        <span className="flex items-center gap-1.5">
-                          <span className="text-[10px] bg-green-100 px-1.5 py-0.5 rounded uppercase">{offer.offerType || offer.type || "Offer"}</span>
-                          {offer.title}
-                        </span>
-                        <span>-{billCurrency.format(offer.amount)}</span>
+                        <div className="h-px bg-gray-100 my-4" />
+
+                        <div className="space-y-2 px-6 py-4 bg-gray-50 border-t border-gray-200">
+                          <div className="flex justify-between items-center text-sm text-blue-700 font-semibold">
+                            <span>Grand Total</span>
+                            <span>{billCurrency.format(Number(billDetails.pricing.discountedPrice || 0))}</span>
+                          </div>
+
+                          <div className="flex justify-between items-center text-sm text-gray-600">
+                            <span>Tax (5% GST)</span>
+                            <span>{billCurrency.format(Number(billDetails.pricing.tax || 0))}</span>
+                          </div>
+
+                          <div className="mt-2 flex items-center justify-between border-t border-gray-200 pt-3">
+                            <span className="text-base font-semibold text-gray-700">Total Payable</span>
+                            <span className="text-2xl font-bold text-gray-900">
+                              {billCurrency.format(Number(billDetails.pricing.total || 0))}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    ))}
-
-                    {billDetails.pricing.discount > 0 && billDetails.appliedOffers.length === 0 && (
-                      <div className="flex justify-between text-sm text-green-600 font-medium">
-                        <span>Total Discount</span>
-                        <span>-{billCurrency.format(billDetails.pricing.discount)}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>Tax (5% GST)</span>
-                      <span>{billCurrency.format(billDetails.pricing.tax)}</span>
-                    </div>
-
-                    <div className="flex justify-between items-center pt-3 border-t border-gray-100 mt-2">
-                      <span className="text-base font-bold text-gray-900">Total Payable</span>
-                      <span className="text-2xl font-black text-blue-600 tracking-tight">
-                        {billCurrency.format(billDetails.pricing.total)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Ref info
-                  <div className="bg-gray-50 rounded-2xl p-4 mt-6 flex flex-col gap-1.5">
-                    <div className="flex justify-between text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                      <span>Order Ref</span>
-                      <span>{billDetails.orderId.slice(0, 12)}</span>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                      <span>Payment Ref</span>
-                      <span>{billDetails.paymentId.slice(0, 12)}</span>
-                    </div>
-                  </div> */}
+                    )
+                  })()}
                 </div>
               </div>
             </div>
@@ -1007,3 +839,5 @@ export default function Orders() {
     </div>
   );
 }
+
+export default Orders;

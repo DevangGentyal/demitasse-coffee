@@ -15,6 +15,7 @@ export interface KotData {
   tableNumber: string
   date: Date
   items: PrintItem[]
+  highlightTitle?: string
 }
 
 interface PrinterMargins {
@@ -76,6 +77,11 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
       <div className="text-center mb-2" style={{ lineHeight: lineHeight }}>
         {showRestaurantHeader && (
           <h2 className="font-bold text-sm mb-1">{restaurantHeader}</h2>
+        )}
+        {data.highlightTitle && (
+          <p className="mx-auto mb-1 inline-block rounded border border-red-600 bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
+            {data.highlightTitle}
+          </p>
         )}
         <h3 className="font-bold text-xs uppercase">{data.kotType} KOT</h3>
         <p className="text-[10px] uppercase">({printerName})</p>

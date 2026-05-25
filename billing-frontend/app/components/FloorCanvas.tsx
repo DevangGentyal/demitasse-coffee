@@ -14,6 +14,7 @@ import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderM
 import { CancellationModal } from '@/app/components/CancellationModal'
 import { removeOrderItem } from '@/lib/services/orderService'
 import { getFloorMap } from '@/lib/services/backendApi'
+import { BillTemplate, type BillData } from '@/app/components/print/BillTemplate'
 
 const TABLE_WIDTH = 108
 const TABLE_HEIGHT = 92
@@ -23,6 +24,7 @@ const FLOOR_WIDTH = 2200
 const FLOOR_HEIGHT = 1400
 const ANCHOR_SNAP_DISTANCE = 14
 const MIN_WALL_LENGTH = 40
+const MANUAL_KOT_PRINT_EVENT = 'demitasse:manual-kot-print'
 
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   const numeric = Number(value)
@@ -790,6 +792,7 @@ export function FloorCanvas() {
     appliedOffers: Array<{ offerId: string; title: string; type: string; offerType?: string; amount: number }>
     appliedOfferLogs?: AppliedOfferLog[]
   } | null>(null)
+  const [printBillData, setPrintBillData] = useState<BillData | null>(null)
 
   // Walls
   const [walls, setWalls] = useState<IWall[]>([])
@@ -956,6 +959,31 @@ export function FloorCanvas() {
         notes: item.notes || '',
       }))
     })
+
+  const buildBillTemplateData = (table: Table, relatedOrders: Order[], pricing: { subtotal: number; discount: number; tax: number; total: number }) => {
+    const items = relatedOrders.flatMap((order: any) => {
+      return (order.items || []).map((item: any) => ({
+        id: String(item.id || `${order.id}-${item.name || 'item'}`),
+        name: String(item.name || ''),
+        quantity: getItemQty(item) || 1,
+        category: String(item.category || item.offerTitle || item.offerType || 'ITEM'),
+        price: getItemUnitPrice(item) || 0,
+        notes: Array.isArray(item.addOns)
+          ? item.addOns.map((addon: any) => `${addon.name}${addon.price ? ` (+₹${addon.price})` : ''}`)
+          : item.notes || undefined,
+      }))
+    })
+
+    return {
+      orderNumber: String(relatedOrders[0]?.id || table.activeSessionId || table.id),
+      tableNumber: String(table.name || table.id),
+      date: new Date(),
+      items,
+      subTotal: Number(pricing.subtotal || 0),
+      taxTotal: Number(pricing.tax || 0),
+      grandTotal: Number(pricing.total || 0),
+    }
+  }
 
   // ── Table drag ─────────────────────────────────────────────────────────────
   const handleTableMouseDown = (e: React.MouseEvent, tableId: string) => {
@@ -1366,17 +1394,56 @@ export function FloorCanvas() {
         appliedOffers: Array.isArray(result.appliedOffers) ? result.appliedOffers : [],
         appliedOfferLogs: Array.isArray(result.appliedOfferLogs) ? result.appliedOfferLogs : [],
       })
-      setActiveTableId(table.id)
-      setShowOrderView(true)
-      toast.success(`Bill generated for ${table.name}`)
+      setPrintBillData(
+        buildBillTemplateData(table, tableSessionOrders[table.id] || [], {
+          subtotal: Number.isFinite(result.pricing?.subtotal) ? Math.round(result.pricing.subtotal) : 0,
+          discount: Number.isFinite(result.pricing?.discount) ? Math.round(result.pricing.discount) : 0,
+          tax: Number.isFinite(result.pricing?.tax) ? Math.round(result.pricing.tax) : 0,
+          total: Number.isFinite(result.pricing?.total) ? Math.round(result.pricing.total) : 0,
+        })
+      )
+      toast.success(`Bill sent to print template for ${table.name}`)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate bill'
       toast.error(message)
     }
   }
 
+  useEffect(() => {
+    if (!printBillData) return undefined
+
+    const timeoutId = window.setTimeout(() => {
+      window.print()
+      setPrintBillData(null)
+    }, 120)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [printBillData])
+
   const printKOT = (table: Table) => {
-    toast.success(`KOT Printed for ${table.name}`)
+    const relatedOrders = tableSessionOrders[table.id] || []
+    if (relatedOrders.length === 0) {
+      toast.warning(`No KOT items found for ${table.name}`)
+      return
+    }
+
+    const mergedItems = relatedOrders.flatMap((order: any) => (Array.isArray(order.items) ? order.items : []))
+    if (mergedItems.length === 0) {
+      toast.warning(`No printable KOT items found for ${table.name}`)
+      return
+    }
+
+    const duplicateJob = {
+      id: `dup-kot-${table.id}-${Date.now()}`,
+      tableId: table.id,
+      tableName: table.name,
+      timeOfOrder: new Date(),
+      items: mergedItems,
+      isDuplicateKot: true,
+    }
+
+    window.dispatchEvent(new CustomEvent(MANUAL_KOT_PRINT_EVENT, { detail: { job: duplicateJob } }))
+    toast.success(`Duplicate KOT sent to printer queue for ${table.name}`)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1591,9 +1658,11 @@ export function FloorCanvas() {
           {tables.map((table: any) => {
             const relatedOrders = tableSessionOrders[table.id] || []
             const hasLiveOrders = relatedOrders.length > 0
-            const isTableActive = Boolean(table.occupied || hasLiveOrders)
+            // Table should be highlighted active only when explicitly occupied and status is ACTIVE
+            const isTableActive = Boolean(table.occupied && String(table.status || '').toUpperCase() === 'ACTIVE')
             const isBillRequested =
               String(table.status || '').toUpperCase() === 'BILL'
+            const isOrderingClosed = isBillRequested || Boolean(table.needsPaymentCollection)
             const isPaymentHighlighted =
               paymentHighlightIds.has(table.id) ||
               Boolean(table.needsPaymentCollection) ||
@@ -1713,7 +1782,7 @@ export function FloorCanvas() {
                     </button>
 
                     {/* Add order */}
-                    {!isEditMode && (
+                    {!isEditMode && !isOrderingClosed && (
                       <button
                         onClick={(e) => handleTableClick(e, table.id)}
                         className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-gray-900 hover:bg-black text-white transition-colors"
@@ -1724,7 +1793,7 @@ export function FloorCanvas() {
                     )}
 
                     {/* Close session */}
-                    {!isEditMode && isTableActive && (
+                    {!isEditMode && (isTableActive || isOrderingClosed) && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -1852,6 +1921,22 @@ export function FloorCanvas() {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {printBillData && (
+        <div className="hidden print:fixed print:inset-0 print:z-[9999] print:flex print:items-start print:justify-center print:bg-white">
+          <BillTemplate
+            data={printBillData}
+            restaurantHeader="Demitasse Coffee"
+            restaurantFooter="Thank You"
+            showRestaurantHeader={true}
+            showFooter={true}
+            width={250}
+            margins={{ top: 0, right: 0, bottom: 0, left: 10 }}
+            padding={{ top: 4, right: 4, bottom: 4, left: 4 }}
+            lineHeight={1.2}
+          />
         </div>
       )}
     </div>

@@ -1,9 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
-import { calculateSubtotal } from "../../shared/utilities/billing/pricing";
 import { applyTax } from "../../shared/utilities/billing/tax";
-import { applyOffer } from "../../shared/utilities/offers/applyOffer";
 import { normalizeBillItemsForDisplay } from "../../shared/utilities/offers/orderPricing";
 import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
 
@@ -46,8 +44,80 @@ export const generateBill = functions.https.onRequest(async (req: Request, res: 
 			});
 			if (candidates.length === 0) throw new Error("ORDER_NOT_FOUND");
 
-			const allItems: any[] = []; let outletId = ""; let primaryOrderDoc = candidates[0];
-			for (const doc of candidates) { const data = doc.data(); if (!outletId) outletId = String(data.outletId || ""); allItems.push(...normalizeBillItemsForDisplay(Array.isArray(data.items) ? data.items : [])); const curTime = readNumber((data.updatedAt as { toMillis?: () => number })?.toMillis?.(), 0) || readNumber((data.createdAt as { toMillis?: () => number })?.toMillis?.(), 0); const priTime = readNumber((primaryOrderDoc.data().updatedAt as { toMillis?: () => number })?.toMillis?.(), 0) || readNumber((primaryOrderDoc.data().createdAt as { toMillis?: () => number })?.toMillis?.(), 0); if (curTime > priTime) primaryOrderDoc = doc; }
+			type OrderSummary = {
+				orderId: string;
+				subTotal: number;
+				discount: number;
+				discountedPrice: number;
+				items: any[];
+			};
+
+			const allItems: any[] = [];
+			const orderSummaries: OrderSummary[] = [];
+			let outletId = "";
+			let primaryOrderDoc = candidates[0];
+
+			for (const doc of candidates) {
+				const data = doc.data();
+				if (!outletId) outletId = String(data.outletId || "");
+
+				const normalizedItems = normalizeBillItemsForDisplay(Array.isArray(data.items) ? data.items : []);
+				const itemFallbackSubtotal = Math.round(
+					normalizedItems.reduce((sum, item) => sum + readNumber(item.totalPrice, 0), 0)
+				);
+
+				const rawSubTotal = readNumber(
+					data.subTotal ?? data.pricing?.subtotal ?? data.itemTotal,
+					Number.NaN
+				);
+				const rawDiscount = readNumber(
+					data.discount ?? data.pricing?.discount,
+					Number.NaN
+				);
+				const rawDiscounted = readNumber(
+					data.discountedPrice ?? data.pricing?.discountedPrice ?? data.totalAmount ?? data.subTotal ?? data.itemTotal,
+					Number.NaN
+				);
+
+				const resolvedSubTotal = Number.isFinite(rawSubTotal) ? Math.round(rawSubTotal) : itemFallbackSubtotal;
+				const resolvedDiscounted = Number.isFinite(rawDiscounted)
+					? Math.round(rawDiscounted)
+					: Math.max(
+						resolvedSubTotal - (Number.isFinite(rawDiscount) ? Math.round(rawDiscount) : 0),
+						0
+					);
+				const resolvedDiscount = Number.isFinite(rawDiscount)
+					? Math.round(rawDiscount)
+					: Math.max(resolvedSubTotal - resolvedDiscounted, 0);
+
+				const annotateItemsTree = (itemsList: any[]): any[] => {
+					return itemsList.map((item) => {
+						const nested = Array.isArray(item.items) ? annotateItemsTree(item.items) : item.items;
+						return {
+							...item,
+							orderId: doc.id,
+							orderSubTotal: resolvedDiscounted,
+							orderDiscount: resolvedDiscount,
+							orderDiscountedPrice: resolvedDiscounted,
+							items: nested,
+						};
+					});
+				};
+
+				const enrichedOrderItems = annotateItemsTree(normalizedItems);
+				allItems.push(...enrichedOrderItems);
+				orderSummaries.push({
+					orderId: doc.id,
+					subTotal: resolvedSubTotal,
+					discount: resolvedDiscount,
+					discountedPrice: resolvedDiscounted,
+					items: enrichedOrderItems,
+				});
+
+				const curTime = readNumber((data.updatedAt as { toMillis?: () => number })?.toMillis?.(), 0) || readNumber((data.createdAt as { toMillis?: () => number })?.toMillis?.(), 0);
+				const priTime = readNumber((primaryOrderDoc.data().updatedAt as { toMillis?: () => number })?.toMillis?.(), 0) || readNumber((primaryOrderDoc.data().createdAt as { toMillis?: () => number })?.toMillis?.(), 0);
+				if (curTime > priTime) primaryOrderDoc = doc;
+			}
 
 			// ── Enrich item categories from Firestore products collection (safeguard inside transaction) ────────
 			const getUniqueProductIds = (itemsList: any[]): Set<string> => {
@@ -107,34 +177,24 @@ export const generateBill = functions.https.onRequest(async (req: Request, res: 
 
 			if (allItems.length === 0) throw new Error("EMPTY_CART");
 
-			let rawTotalPrice = 0;
-			for (const doc of candidates) {
-				const data = doc.data() || {};
-				rawTotalPrice += readNumber(data.subTotal, 0);
-			}
-			rawTotalPrice = Math.round(rawTotalPrice);
-
 			const primaryData = primaryOrderDoc.data();
-			let offerDoc: FirebaseFirestore.DocumentData | null = null;
-			const offerId = String(primaryData.offerId || primaryData.autoAppliedOfferId || "");
-			if (offerId) {
-				const offerSnap = await tx.get(db.collection("offers").doc(offerId));
-				offerDoc = offerSnap.exists ? { id: offerSnap.id, ...(offerSnap.data() || {}) } : null;
-			}
-			const orderType = offerDoc?.offerType || offerDoc?.type ? String(offerDoc.offerType || offerDoc.type).toUpperCase() : "BASIC";
-			let subtotal = calculateSubtotal(allItems);
-			subtotal = Math.round(subtotal);
-			const offerResult = applyOffer({ outletId, items: allItems, subTotal: subtotal }, offerDoc as any);
-			const discount = offerResult.discount;
+
+			const subtotal = Math.round(orderSummaries.reduce((sum, order) => sum + readNumber(order.subTotal, 0), 0));
+			const discount = Math.round(orderSummaries.reduce((sum, order) => sum + readNumber(order.discount, 0), 0));
+			const discountedPrice = Math.round(orderSummaries.reduce((sum, order) => sum + readNumber(order.discountedPrice, 0), 0));
+			const tax = applyTax(Math.max(discountedPrice, 0));
+			const grandTotal = Math.max(discountedPrice, 0) + tax;
 			const pricing = {
 				subTotal: subtotal,
 				discount,
-				discountedPrice: Math.max(subtotal - discount, 0),
-				tax: applyTax(Math.max(subtotal - discount, 0)),
-				grandTotal: Math.max(subtotal - discount, 0) + applyTax(Math.max(subtotal - discount, 0)),
+				discountedPrice: Math.max(discountedPrice, 0),
+				tax,
+				grandTotal,
 			};
 
-			const overallDiscount = Math.max(rawTotalPrice - pricing.grandTotal, 0);
+			const rawTotalPrice = subtotal;
+
+			const overallDiscount = Math.max(pricing.discount, 0);
 
 			const pricingResponse = {
 				subtotal: pricing.subTotal,
@@ -146,8 +206,8 @@ export const generateBill = functions.https.onRequest(async (req: Request, res: 
 				overallDiscount,
 			};
 
-			// ── Descriptive Offer Grouping & Logging ─────────────────────────
-			interface FlatOfferItem {
+			// ── Offer grouping: mirror OrderViewModal computation per order ─────────────────────────
+			type FlatOfferItem = {
 				productId: string;
 				name: string;
 				qty: number;
@@ -158,202 +218,40 @@ export const generateBill = functions.https.onRequest(async (req: Request, res: 
 				isManualB1G1: boolean;
 				isDiscount: boolean;
 				isBirthday: boolean;
-				offerId: string | null;
+				offerId: string;
+				offerType: string;
 				offerTitle: string;
-				category: string | null;
-				subcategory: string | null;
-				comboPrice: number | null;
-			}
+			};
 
-			const getFlatOfferItems = (
-				itemsList: any[],
-				inheritedOfferId: string | null = null,
-				inheritedOfferTitle: string = '',
-				inheritedComboPrice: number | null = null
-			): FlatOfferItem[] => {
-				const flatList: FlatOfferItem[] = [];
+			const flattenOfferItemsForOrder = (itemsList: any[], inheritedOfferMeta?: { offerId?: string; offerType?: string; offerTitle?: string }): FlatOfferItem[] => {
+				const flat: FlatOfferItem[] = [];
 				for (const item of itemsList) {
 					if (!item) continue;
 					const nested = Array.isArray(item.items) ? item.items : [];
-					const currentOfferId = item.offerId || inheritedOfferId || null;
-					const currentOfferTitle = item.offerTitle || inheritedOfferTitle || '';
-					const currentComboPrice = item.comboPrice ?? inheritedComboPrice ?? null;
+					const offerId = String(item.offerId || inheritedOfferMeta?.offerId || '').trim();
+					const offerType = String(item.offerType || inheritedOfferMeta?.offerType || '').trim();
+					const offerTitle = String(item.offerTitle || inheritedOfferMeta?.offerTitle || '').trim();
 					if (nested.length > 0) {
-						flatList.push(...getFlatOfferItems(nested, currentOfferId, currentOfferTitle, currentComboPrice));
-					} else {
-						flatList.push({
-							productId: String(item.productId || item.id || '').trim(),
-							name: String(item.name || '').trim(),
-							qty: Number(item.qty ?? item.quantity ?? 1),
-							unitPrice: Number(item.unitPrice ?? item.price ?? 0),
-							totalPrice: Number(item.totalPrice ?? 0),
-							isFree: Boolean(item.isFree),
-							isCombo: Boolean(item.isCombo),
-							isManualB1G1: Boolean(item.isManualB1G1),
-							isDiscount: Boolean(item.isDiscount),
-							isBirthday: Boolean(item.isBirthday),
-							offerId: currentOfferId,
-							offerTitle: currentOfferTitle,
-							category: item.category ? String(item.category).trim() : null,
-							subcategory: item.subcategory ? String(item.subcategory).trim() : null,
-							comboPrice: currentComboPrice,
-						});
+						flat.push(...flattenOfferItemsForOrder(nested, { offerId, offerType, offerTitle }));
+						continue;
 					}
-				}
-				return flatList;
-			};
-
-			const flatOfferItems = getFlatOfferItems(allItems);
-			const offerGroups = new Map<string, {
-				offerId: string;
-				offerTitle: string;
-				offerType: string;
-				items: FlatOfferItem[];
-				description: string;
-			}>();
-
-			let checkoutDiscountDesc = '';
-			const checkoutDiscountItems: FlatOfferItem[] = [];
-
-			if (offerDoc && orderType === 'DISCOUNT') {
-				const discountConfig = offerDoc.config?.discount || {};
-				const discountMode = String(discountConfig.mode || discountConfig.type || '').toUpperCase();
-				const percent = readNumber(discountConfig.discountValue ?? offerDoc.config?.discountValue ?? offerDoc.discountPercent ?? offerDoc.discountValue, 0);
-
-				const allowedIds: string[] = [];
-				if (Array.isArray(discountConfig.productIds)) {
-					allowedIds.push(...discountConfig.productIds.map((id: any) => String(id || '').trim()));
-				} else if (Array.isArray(offerDoc.applicableProductIds)) {
-					allowedIds.push(...offerDoc.applicableProductIds.map((id: any) => String(id || '').trim()));
-				}
-				if (Array.isArray(offerDoc.products)) {
-					offerDoc.products.forEach((p: any) => {
-						if (p && p.productId) {
-							allowedIds.push(String(p.productId).trim());
-						}
+					flat.push({
+						productId: String(item.productId || item.id || '').trim(),
+						name: String(item.name || '').trim(),
+						qty: Number(item.qty ?? item.quantity ?? 1),
+						unitPrice: Number(item.unitPrice ?? item.price ?? 0),
+						totalPrice: Number(item.totalPrice ?? 0),
+						isFree: Boolean(item.isFree),
+						isCombo: Boolean(item.isCombo),
+						isManualB1G1: Boolean(item.isManualB1G1),
+						isDiscount: Boolean(item.isDiscount),
+						isBirthday: Boolean(item.isBirthday),
+						offerId,
+						offerType,
+						offerTitle,
 					});
 				}
-				const allowedNames = Array.isArray(offerDoc.products)
-					? offerDoc.products.map((p: any) => String(p?.name || '').trim().toLowerCase()).filter(Boolean)
-					: [];
-
-				const categoryName = String(discountConfig.categoryName || discountConfig.category || offerDoc.applicableCategory || offerDoc.category || '').trim().toLowerCase();
-
-				for (const item of flatOfferItems) {
-					if (item.isFree || item.isCombo || item.isManualB1G1 || item.isBirthday) {
-						continue;
-					}
-					if (item.offerId && item.offerId !== offerDoc.id) {
-						continue;
-					}
-
-					let matches = false;
-					if (discountMode === 'CATEGORY' && categoryName) {
-						const itemCat = String(item.category || '').trim().toLowerCase();
-						const itemSubCat = String(item.subcategory || '').trim().toLowerCase();
-						matches = itemCat === categoryName || itemSubCat === categoryName;
-					} else if (discountMode === 'PRODUCT' && (allowedIds.length > 0 || allowedNames.length > 0)) {
-						const itemId = String(item.productId).trim();
-						const itemName = String(item.name).trim().toLowerCase();
-						matches = allowedIds.includes(itemId) || allowedNames.includes(itemName);
-					} else if (allowedIds.length > 0 || allowedNames.length > 0) {
-						const itemId = String(item.productId).trim();
-						const itemName = String(item.name).trim().toLowerCase();
-						matches = allowedIds.includes(itemId) || allowedNames.includes(itemName);
-					} else if (categoryName && categoryName !== 'all') {
-						const itemCat = String(item.category || '').trim().toLowerCase();
-						const itemSubCat = String(item.subcategory || '').trim().toLowerCase();
-						matches = itemCat === categoryName || itemSubCat === categoryName;
-					} else {
-						matches = true;
-					}
-
-					if (matches) {
-						checkoutDiscountItems.push(item);
-					}
-				}
-
-				if (checkoutDiscountItems.length > 0) {
-					checkoutDiscountDesc = `Applied ${percent}% discount on eligible items: ${checkoutDiscountItems.map(i => `${i.name} (Qty: ${i.qty})`).join(', ')}. Total discount saved: ₹${discount}.`;
-				}
-			}
-
-			for (const item of flatOfferItems) {
-				const oid = item.offerId;
-				if (oid) {
-					if (!offerGroups.has(oid)) {
-						let offerType = 'SPECIAL';
-						if (item.isCombo) offerType = 'COMBO';
-						else if (item.isManualB1G1) offerType = 'B1G1';
-						else if (item.isDiscount) offerType = 'DISCOUNT';
-						else if (item.isBirthday) offerType = 'BIRTHDAY';
-
-						offerGroups.set(oid, {
-							offerId: oid,
-							offerTitle: item.offerTitle || `Offer #${oid}`,
-							offerType,
-							items: [],
-							description: '',
-						});
-					}
-					offerGroups.get(oid)!.items.push(item);
-				}
-			}
-
-			for (const group of offerGroups.values()) {
-				if (group.offerType === 'B1G1') {
-					const freeItem = group.items.find(i => i.isFree);
-					const paidItem = group.items.find(i => !i.isFree);
-					if (freeItem && paidItem) {
-						group.description = `Buy 1 Get 1 Free applied: cheapest item '${freeItem.name}' (base price ₹${freeItem.unitPrice}) is FREE! Paid item is '${paidItem.name}' (price ₹${paidItem.unitPrice}).`;
-					} else {
-						group.description = `B1G1 Pair Offer applied to items: ${group.items.map(i => i.name).join(', ')}.`;
-					}
-				} else if (group.offerType === 'COMBO') {
-					const cPrice = group.items[0]?.comboPrice ?? 0;
-					group.description = `Combo Deal applied: Bundled items [${group.items.map(i => `${i.name} (Qty: ${i.qty})`).join(', ')}] for a fixed price of ₹${cPrice}.`;
-				} else if (group.offerType === 'BIRTHDAY') {
-					const freeItem = group.items[0];
-					if (freeItem) {
-						group.description = `Birthday Special Treat claimed: '${freeItem.name}' (base price ₹${freeItem.unitPrice}) is 100% FREE! 🎂`;
-					}
-				} else if (group.offerType === 'DISCOUNT') {
-					group.description = `Interactive discount offer applied to items: ${group.items.map(i => i.name).join(', ')}.`;
-				}
-			}
-
-			const summarizeGroupPricing = (
-				offerTypeValue: string,
-				groupItems: FlatOfferItem[],
-				groupOfferId: string
-			): { groupSubtotal: number; groupDiscount: number; groupDiscountedPrice: number } => {
-				const groupSubtotal = Math.round(groupItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0));
-				let groupDiscount = 0;
-
-				if (orderType === 'DISCOUNT' && offerDoc?.id && groupOfferId === offerDoc.id) {
-					groupDiscount = Math.round(discount);
-				} else if (offerTypeValue === 'COMBO') {
-					const baseTotal = groupItems.reduce((sum, item) => sum + (Number(item.unitPrice || 0) * Number(item.qty || 0)), 0);
-					const comboPrice = Number(groupItems.find((item) => Number.isFinite(Number(item.comboPrice)))?.comboPrice ?? 0);
-					groupDiscount = Math.round(Math.max(baseTotal - comboPrice, 0));
-				} else if (offerTypeValue === 'B1G1') {
-					const freeItem = groupItems.find((item) => item.isFree);
-					if (freeItem) {
-						groupDiscount = Math.round(Number(freeItem.unitPrice || 0) * Number(freeItem.qty || 1));
-					} else {
-						const sorted = [...groupItems].sort((a, b) => Number(a.unitPrice || 0) - Number(b.unitPrice || 0));
-						if (sorted.length > 0) groupDiscount = Math.round(Number(sorted[0].unitPrice || 0) * Number(sorted[0].qty || 1));
-					}
-				} else if (offerTypeValue === 'BIRTHDAY' && groupItems.every((item) => item.isFree)) {
-					groupDiscount = groupSubtotal;
-				}
-
-				groupDiscount = Math.max(0, Math.min(groupDiscount, groupSubtotal));
-				return {
-					groupSubtotal,
-					groupDiscount,
-					groupDiscountedPrice: Math.max(groupSubtotal - groupDiscount, 0),
-				};
+				return flat;
 			};
 
 			const appliedOfferLogs: Array<{
@@ -374,52 +272,97 @@ export const generateBill = functions.https.onRequest(async (req: Request, res: 
 				}>;
 			}> = [];
 
-			const seenOfferIds = new Set<string>();
+			for (const order of orderSummaries) {
+				const flatItems = flattenOfferItemsForOrder(order.items);
+				const offerBuckets = new Map<string, { offerId: string; offerType: string; offerTitle: string; items: FlatOfferItem[] }>();
+				const regularItems: FlatOfferItem[] = [];
 
-			if (offerDoc && orderType === 'DISCOUNT' && checkoutDiscountItems.length > 0) {
-				const pricingSummary = summarizeGroupPricing('DISCOUNT', checkoutDiscountItems, offerDoc.id);
-				appliedOfferLogs.push({
-					offerId: offerDoc.id,
-					offerTitle: offerDoc.title || offerDoc.id,
-					offerType: 'DISCOUNT',
-					description: checkoutDiscountDesc,
-					groupSubtotal: pricingSummary.groupSubtotal,
-					groupDiscount: pricingSummary.groupDiscount,
-					groupDiscountedPrice: pricingSummary.groupDiscountedPrice,
-					items: checkoutDiscountItems.map(i => ({
-						name: i.name,
-						productId: i.productId,
-						qty: i.qty,
-						unitPrice: i.unitPrice,
-						totalPrice: i.totalPrice,
-						isFree: i.isFree,
-					})),
-				});
-				seenOfferIds.add(offerDoc.id);
+				for (const item of flatItems) {
+					const rawOfferId = String(item.offerId || '').trim();
+					const rawOfferTitle = String(item.offerTitle || '').trim();
+					const rawOfferType = String(item.offerType || '').trim();
+					const isOffer = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.isFree;
+					const fallbackOfferId = `${rawOfferType || 'offer'}::${rawOfferTitle || 'group'}`;
+					const bucketId = rawOfferId || (isOffer ? fallbackOfferId : '');
+
+					if (!bucketId) {
+						regularItems.push(item);
+						continue;
+					}
+
+					if (!offerBuckets.has(bucketId)) {
+						offerBuckets.set(bucketId, {
+							offerId: bucketId,
+							offerType: rawOfferType || (item.isCombo ? 'COMBO' : item.isManualB1G1 ? 'B1G1' : item.isDiscount ? 'DISCOUNT' : item.isBirthday ? 'BIRTHDAY' : 'OFFER'),
+							offerTitle: rawOfferTitle || 'Offer Group',
+							items: [],
+						});
+					}
+					offerBuckets.get(bucketId)!.items.push(item);
+				}
+
+				const offerBucketList = Array.from(offerBuckets.values());
+				const basicSubtotal = regularItems.reduce((sum, item) => sum + readNumber(item.totalPrice, 0), 0);
+				const totalOfferSubtotal = offerBucketList.reduce(
+					(sum, bucket) => sum + bucket.items.reduce((bucketSum, bucketItem) => bucketSum + readNumber(bucketItem.totalPrice, 0), 0),
+					0
+				);
+
+				for (const bucket of offerBucketList) {
+					const bucketSubtotal = Math.round(bucket.items.reduce((sum, bucketItem) => sum + readNumber(bucketItem.totalPrice, 0), 0));
+					let orderBasedPrice = Number.NaN;
+					if (Number.isFinite(order.discountedPrice)) {
+						if (offerBucketList.length === 1) {
+							orderBasedPrice = Math.max(Math.round(order.discountedPrice - basicSubtotal), 0);
+						} else if (totalOfferSubtotal > 0) {
+							const bucketDiscountShare = (order.discount * bucketSubtotal) / totalOfferSubtotal;
+							orderBasedPrice = Math.max(Math.round(bucketSubtotal - bucketDiscountShare), 0);
+						}
+					}
+
+					const groupDiscountedPrice = Number.isFinite(orderBasedPrice) ? Math.round(orderBasedPrice) : bucketSubtotal;
+					const groupDiscount = Math.max(bucketSubtotal - groupDiscountedPrice, 0);
+
+					appliedOfferLogs.push({
+						offerId: bucket.offerId,
+						offerTitle: bucket.offerTitle,
+						offerType: bucket.offerType,
+						description: `${bucket.offerType} offer applied in order ${order.orderId.slice(0, 8)}.`,
+						groupSubtotal: bucketSubtotal,
+						groupDiscount,
+						groupDiscountedPrice,
+						items: bucket.items.map((i) => ({
+							name: i.name,
+							productId: i.productId,
+							qty: i.qty,
+							unitPrice: i.unitPrice,
+							totalPrice: i.totalPrice,
+							isFree: i.isFree,
+						})),
+					});
+				}
 			}
 
-			for (const group of offerGroups.values()) {
-				if (seenOfferIds.has(group.offerId)) continue;
-				const pricingSummary = summarizeGroupPricing(group.offerType, group.items, group.offerId);
-				appliedOfferLogs.push({
-					offerId: group.offerId,
-					offerTitle: group.offerTitle,
-					offerType: group.offerType,
-					description: group.description,
-					groupSubtotal: pricingSummary.groupSubtotal,
-					groupDiscount: pricingSummary.groupDiscount,
-					groupDiscountedPrice: pricingSummary.groupDiscountedPrice,
-					items: group.items.map(i => ({
-						name: i.name,
-						productId: i.productId,
-						qty: i.qty,
-						unitPrice: i.unitPrice,
-						totalPrice: i.totalPrice,
-						isFree: i.isFree,
-					})),
-				});
-				seenOfferIds.add(group.offerId);
-			}
+			const appliedOffers = appliedOfferLogs.map((log) => ({
+				offerId: log.offerId,
+				title: log.offerTitle,
+				type: log.offerType,
+				offerType: log.offerType,
+				amount: log.groupDiscount,
+			}));
+
+			const uniqueOfferTypes = Array.from(new Set(appliedOfferLogs.map((log) => String(log.offerType || '').toUpperCase()).filter(Boolean)));
+			const orderType = uniqueOfferTypes.length === 0 ? 'BASIC' : uniqueOfferTypes.length === 1 ? uniqueOfferTypes[0] : 'MIXED';
+
+			const displayBillGroups = appliedOfferLogs.map((log) => ({
+				offerId: log.offerId,
+				offerTitle: log.offerTitle,
+				offerType: log.offerType,
+				groupSubtotal: log.groupSubtotal,
+				groupDiscount: log.groupDiscount,
+				groupDiscountedPrice: log.groupDiscountedPrice,
+				items: log.items,
+			}));
 
 			// ── Build a beautiful server-side log box ────────────────────────
 			const logBorder = '┌────────────────────────────────────────────────────────┐';
@@ -476,8 +419,9 @@ export const generateBill = functions.https.onRequest(async (req: Request, res: 
 				rawTotalPrice,
 				overallDiscount,
 				pricing: pricingResponse,
-				appliedOffers: offerResult.appliedOffers,
+				appliedOffers,
 				appliedOfferLogs,
+				displayBillGroups,
 				noteToCustomer: "Your calculated bill is ready."
 			};
 		});

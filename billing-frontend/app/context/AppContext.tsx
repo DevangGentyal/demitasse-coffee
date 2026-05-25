@@ -176,9 +176,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: doc.id,
           x: toFiniteNumber(data.x, 100),
           y: toFiniteNumber(data.y, 100),
-          // Map backend isOccupied to occupied for frontend compatibility
-          occupied: data.isOccupied || false,
-          needsPaymentCollection: data.needsPaymentCollection || false,
+          // Preserve `occupied` if provided; fall back to legacy `isOccupied`.
+          occupied: Boolean(data.occupied ?? data.isOccupied ?? false),
+          needsPaymentCollection: Boolean(data.needsPaymentCollection ?? false),
         } as Table
       })
       setTables(tablesList)

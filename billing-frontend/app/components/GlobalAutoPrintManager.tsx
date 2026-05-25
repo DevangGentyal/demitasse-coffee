@@ -6,6 +6,8 @@ import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
 import { KotTemplate, KotData } from './print/KotTemplate'
 import { useApp } from '@/app/context/AppContext'
 
+const MANUAL_KOT_PRINT_EVENT = 'demitasse:manual-kot-print'
+
 const parseItemAddons = (item: any): string[] => {
   const notes: string[] = []
 
@@ -171,6 +173,33 @@ export function GlobalAutoPrintManager() {
       }
     })
   }, [inProgressOrders, printConfigs])
+
+  // Manual trigger hook: reuse this same queue for floor-map duplicate KOT prints.
+  useEffect(() => {
+    const handleManualKotPrint = (event: Event) => {
+      const customEvent = event as CustomEvent<{ job?: any }>
+      const manualJob = customEvent?.detail?.job
+      if (!manualJob || !Array.isArray(manualJob.items) || manualJob.items.length === 0) {
+        console.warn('[GlobalAutoPrint] Ignoring manual KOT print with empty payload')
+        return
+      }
+
+      const jobId = String(manualJob.id || `manual-kot-${Date.now()}`)
+      const queuedJob = {
+        ...manualJob,
+        id: jobId,
+        isDuplicateKot: Boolean(manualJob.isDuplicateKot),
+        timeOfOrder: manualJob.timeOfOrder || new Date(),
+      }
+      console.log(`[GlobalAutoPrint] 📣 Manual KOT print queued: ${queuedJob.id}`)
+      setPrintQueue((prev) => [...prev, queuedJob])
+    }
+
+    window.addEventListener(MANUAL_KOT_PRINT_EVENT, handleManualKotPrint as EventListener)
+    return () => {
+      window.removeEventListener(MANUAL_KOT_PRINT_EVENT, handleManualKotPrint as EventListener)
+    }
+  }, [])
 
   const isProcessingQueueRef = useRef(false)
 
@@ -483,6 +512,7 @@ export function GlobalAutoPrintManager() {
     tableNumber: resolvedTableName,
     date: mockDate,
     items: safeFoodItems,
+    highlightTitle: activePrintJob.isDuplicateKot ? 'Duplicate KOT' : undefined,
   }
 
   const bevKotData: KotData = {
@@ -491,6 +521,7 @@ export function GlobalAutoPrintManager() {
     tableNumber: resolvedTableName,
     date: mockDate,
     items: safeBevItems,
+    highlightTitle: activePrintJob.isDuplicateKot ? 'Duplicate KOT' : undefined,
   }
 
   console.log('ACTIVE PRINT JOB', activePrintJob)
