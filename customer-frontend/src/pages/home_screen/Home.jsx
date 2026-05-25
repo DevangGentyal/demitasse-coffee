@@ -1,5 +1,4 @@
 import Header from "@/components/home_screen/Header";
-import SearchBar from "@/components/home_screen/SearchBar";
 import OfferCard from "@/components/home_screen/OfferCard";
 import MenuOfferTabs from "@/components/home_screen/MenuOfferTabs";
 import ProductGrid from "@/components/home_screen/ProductGrid";
@@ -29,7 +28,6 @@ export default function Home() {
           This table session has ended. Please select your outlet and table again to continue.
         </div>
       )}
-      <SearchBar />
       <OfferCard />
       <MenuOfferTabs />
 

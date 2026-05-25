@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { getOutletIdForCurrentUser, getOutlets } from '@/lib/services/backendApi'
 import {
-  getItemInvoiceDetailsReport,
-  InvoiceDetailsReportResponse,
+  getCancelOrderReport,
+  CancelOrderReportResponse,
 } from '@/services/reports.service'
 import { exportToExcel } from '@/utils/exporters/excelExporter'
 import { exportToPDF } from '@/utils/exporters/pdfExporter'
@@ -15,6 +15,7 @@ import { exportToPDF } from '@/utils/exporters/pdfExporter'
 import { ReportLayout } from '@/components/reports/ReportLayout'
 import { ReportFilters, OutletOption } from '@/components/reports/ReportFilters'
 import { ReportTable } from '@/components/reports/ReportTable'
+import { DynamicColumnsTable } from '@/components/reports/DynamicColumnsTable'
 import { SummaryCards } from '@/components/reports/SummaryCards'
 import { ExportButtons } from '@/components/reports/ExportButtons'
 import { LoadingSkeleton } from '@/components/reports/LoadingSkeleton'
@@ -27,14 +28,14 @@ const startOfCurrentMonthIso = () => {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
 }
 
-export default function ItemInvoiceDetailsReportPage() {
+export default function CancelOrdersReportPage() {
   const router = useRouter()
   const { isLoggedIn, isLoading } = useAuth()
   const [outlets, setOutlets] = useState<OutletOption[]>([])
   const [selectedOutletId, setSelectedOutletId] = useState<string>('')
   const [startDate, setStartDate] = useState<string>(startOfCurrentMonthIso())
   const [endDate, setEndDate] = useState<string>(todayIso())
-  const [report, setReport] = useState<InvoiceDetailsReportResponse | null>(null)
+  const [report, setReport] = useState<CancelOrderReportResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -54,6 +55,7 @@ export default function ItemInvoiceDetailsReportPage() {
           .slice()
           .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
           .map((outlet) => ({ id: outlet.id, name: String(outlet.name || outlet.id) }))
+        
         setOutlets(outletList)
 
         try {
@@ -78,7 +80,7 @@ export default function ItemInvoiceDetailsReportPage() {
       try {
         setLoading(true)
         setError(null)
-        const data = await getItemInvoiceDetailsReport({
+        const data = await getCancelOrderReport({
           outletId: selectedOutletId,
           startDate,
           endDate,
@@ -97,23 +99,10 @@ export default function ItemInvoiceDetailsReportPage() {
   }, [isLoading, isLoggedIn, selectedOutletId, startDate, endDate])
 
   const tableColumns = [
-    { header: 'Invoice No.', key: 'invoiceNo' },
-    { header: 'Timestamp', key: 'timestamp' },
-    { header: 'Item Name', key: 'itemName' },
-    { header: 'Group Name', key: 'groupName' },
-    { header: 'Category', key: 'category' },
-    { header: 'Variation', key: 'variation' },
-    { header: 'Price', key: 'price', align: 'right' as const },
-    { header: 'Qty', key: 'qty', align: 'center' as const },
-    { header: 'Sub Total', key: 'subTotal', align: 'right' as const },
-    { header: 'Discount', key: 'discount', align: 'right' as const },
-    { header: 'Tax', key: 'tax', align: 'right' as const },
-    { header: 'Final Total', key: 'finalTotal', align: 'right' as const },
-    { header: 'Status', key: 'status' },
-    { header: 'Table No.', key: 'tableNo', align: 'center' as const },
-    { header: 'Area', key: 'area' },
-    { header: 'Server Name', key: 'serverName' },
-    { header: 'Payment Type', key: 'paymentType' },
+    { header: 'Date', key: 'date' },
+    { header: 'Outlet', key: 'outlet' },
+    { header: 'Cancelled Amount', key: 'amount', align: 'right' as const },
+    { header: 'Cancellation Reason', key: 'reason' },
   ]
 
   const handleExportExcel = () => {
@@ -121,36 +110,29 @@ export default function ItemInvoiceDetailsReportPage() {
     setExporting('excel')
     try {
       exportToExcel({
-        filename: 'Item_Invoice_Details_Report',
-        sheetName: 'Invoices Details',
+        filename: 'Cancellation_Report',
+        sheetName: 'Cancellation Details',
         columns: tableColumns,
         rows: report.rows,
         summary: {
-          totalInvoices: report.summary.totalInvoices,
-          totalItems: report.summary.totalItems,
-          grossSales: report.summary.grossSales,
-          discount: report.summary.discount,
-          tax: report.summary.tax,
-          finalTotal: report.summary.finalTotal,
+          totalCancellationsCount: report.summary.totalCanceledCount,
+          totalCanceledRevenueLost: report.summary.totalCanceledValue,
         },
         filters: {
-          outlet: report.outlet?.name || 'All',
+          outletId: selectedOutletId,
           startDate,
           endDate,
         },
         extraSheets: [
           {
-            sheetName: 'Group Summary',
-            columns: [
-              { header: 'Group Name', key: 'groupName' },
-              { header: 'Items Sold', key: 'totalItems' },
-              { header: 'Invoices Count', key: 'totalInvoices' },
-              { header: 'Gross Sales', key: 'grossSales' },
-              { header: 'Discount', key: 'discount' },
-              { header: 'Tax', key: 'tax' },
-              { header: 'Final Total', key: 'finalTotal' },
-            ],
-            rows: report.groupSummaries,
+            sheetName: 'Quantity Matrix',
+            columns: report.columns,
+            rows: report.charts.qtyMatrix,
+          },
+          {
+            sheetName: 'Amount Matrix',
+            columns: report.columns,
+            rows: report.charts.amtMatrix,
           },
         ],
       })
@@ -164,18 +146,14 @@ export default function ItemInvoiceDetailsReportPage() {
     setExporting('pdf')
     try {
       exportToPDF({
-        title: 'Item Report: Invoice Details',
-        subtitle: `Outlet: ${report.outlet?.name || 'All Outlets'}`,
-        filename: 'Item_Invoice_Details_Report',
-        columns: tableColumns.slice(0, 13), // PDF has space limits, slice to key columns
+        title: 'Cancel Order Report Matrix',
+        subtitle: `Dates: ${startDate} to ${endDate}`,
+        filename: 'Cancellation_Report',
+        columns: tableColumns,
         rows: report.rows,
         summary: {
-          totalInvoices: report.summary.totalInvoices,
-          totalItems: report.summary.totalItems,
-          grossSales: report.summary.grossSales,
-          discount: report.summary.discount,
-          tax: report.summary.tax,
-          finalTotal: report.summary.finalTotal,
+          totalCanceledCount: report.summary.totalCanceledCount,
+          totalCanceledValue: report.summary.totalCanceledValue,
         },
         filters: {
           startDate,
@@ -191,17 +169,15 @@ export default function ItemInvoiceDetailsReportPage() {
 
   const summaryData = report
     ? [
-        { label: 'Invoices', value: report.summary.totalInvoices },
-        { label: 'Items Sold', value: report.summary.totalItems },
-        { label: 'Gross Sales', value: report.summary.grossSales, isCurrency: true },
-        { label: 'Net Total', value: report.summary.finalTotal, isCurrency: true },
+        { label: 'Canceled Orders', value: report.summary.totalCanceledCount, description: 'Number of cancellations' },
+        { label: 'Revenue Lost', value: report.summary.totalCanceledValue, isCurrency: true, description: 'Sum of cancelled bills' },
       ]
     : []
 
   return (
     <ReportLayout
-      title="Item Report: Invoice Details"
-      subtitle="Total items sold under each group in the restaurant"
+      title="Cancel Order Report"
+      subtitle="Analyze order cancellations by quantity count and total bill loss matrices"
       onBack={() => router.push('/reports')}
       actions={
         report && (
@@ -234,27 +210,31 @@ export default function ItemInvoiceDetailsReportPage() {
         <div className="space-y-6">
           <SummaryCards items={summaryData} />
 
-          <ReportTable
-            title="Invoice Line Items Details"
-            description="Detailed raw list of invoice items sold under selected filters"
-            columns={tableColumns}
-            rows={report.rows}
-            minWidth="1600px"
+          {/* Quantity Matrix */}
+          <DynamicColumnsTable
+            title="Cancellation Quantity Matrix"
+            description="Daily count of cancellations across outlets"
+            columns={report.columns}
+            rows={report.charts.qtyMatrix}
+            isCurrency={false}
           />
 
+          {/* Amount Matrix */}
+          <DynamicColumnsTable
+            title="Cancellation Amount Matrix"
+            description="Daily financial value sum of cancelled bills across outlets"
+            columns={report.columns}
+            rows={report.charts.amtMatrix}
+            isCurrency={true}
+          />
+
+          {/* Details Table */}
           <ReportTable
-            title="Category Group Summary"
-            description="Aggregated totals grouped by item category group name"
-            columns={[
-              { header: 'Group Name', key: 'groupName' },
-              { header: 'Items Sold', key: 'totalItems', align: 'center' as const },
-              { header: 'Invoices Count', key: 'totalInvoices', align: 'center' as const },
-              { header: 'Gross Sales', key: 'grossSales', align: 'right' as const },
-              { header: 'Discount', key: 'discount', align: 'right' as const },
-              { header: 'Tax', key: 'tax', align: 'right' as const },
-              { header: 'Final Total', key: 'finalTotal', align: 'right' as const },
-            ]}
-            rows={report.groupSummaries}
+            title="Cancellation Incident Logs"
+            description="Historical audit records of each cancellation event"
+            columns={tableColumns}
+            rows={report.rows}
+            minWidth="700px"
           />
         </div>
       )}

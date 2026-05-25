@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin'
 import * as functions from 'firebase-functions'
 import { Request, Response } from 'express'
+import { FieldValue } from 'firebase-admin/firestore'
 
 const db = admin.firestore()
 
@@ -46,7 +47,7 @@ export const upsertUserProfile = functions.https.onRequest(async (req: Request, 
 
 		await db.collection('users').doc(resolvedUserId).set({
 			...profile,
-			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedAt: FieldValue.serverTimestamp(),
 		}, { merge: true })
 
 		res.status(200).json({ success: true, userId: resolvedUserId })
@@ -82,15 +83,15 @@ export const registerOutletOwner = functions.https.onRequest(async (req: Request
 		await outletRef.set({
 			...outlet,
 			id: outletId,
-			createdAt: admin.firestore.FieldValue.serverTimestamp(),
-			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			createdAt: FieldValue.serverTimestamp(),
+			updatedAt: FieldValue.serverTimestamp(),
 		})
 
 		await db.collection('users').doc(decoded.uid).set({
 			...(typeof userProfile === 'object' && userProfile ? userProfile : {}),
 			outletID: outletId,
-			createdAt: admin.firestore.FieldValue.serverTimestamp(),
-			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			createdAt: FieldValue.serverTimestamp(),
+			updatedAt: FieldValue.serverTimestamp(),
 		}, { merge: true })
 
 		res.status(201).json({ success: true, outletId })
