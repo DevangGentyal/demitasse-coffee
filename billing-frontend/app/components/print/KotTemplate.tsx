@@ -138,6 +138,23 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
           >
             ({printerName})
           </div>
+
+          {data.highlightTitle && (
+            <div
+              style={{
+                display: 'inline-block',
+                marginTop: '6px',
+                padding: '2px 8px',
+                border: '1px solid black',
+                fontSize: '11px',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+              }}
+            >
+              {data.highlightTitle}
+            </div>
+          )}
         </div>
 
         <hr style={{ borderTop: '1px dashed black', margin: '6px 0' }} />
@@ -192,9 +209,9 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
         </div>
 
         {/* Items */}
-        {data.items.map((item) => (
+        {data.items.map((item, index) => (
           <div
-            key={item.id}
+            key={`${item.id}-${item.name}-${index}`}
             style={{
               marginBottom: '8px',
               pageBreakInside: 'avoid',
