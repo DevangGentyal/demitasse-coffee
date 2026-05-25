@@ -25,6 +25,8 @@ const FLOOR_HEIGHT = 1400
 const ANCHOR_SNAP_DISTANCE = 14
 const MIN_WALL_LENGTH = 40
 const MANUAL_KOT_PRINT_EVENT = 'demitasse:manual-kot-print'
+const PAYMENT_MODES = ['CASH', 'CARD', 'UPI', 'DINEOUT', 'MAGICPIN', 'ZOMATO', 'DISTRIC', 'OTHERS'] as const
+type PaymentMode = (typeof PAYMENT_MODES)[number]
 
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   const numeric = Number(value)
@@ -327,7 +329,7 @@ function OrderViewModal({
                   const isExpanded = !!expandedItems[rowKey]
 
                   return (
-                    <div key={rowKey} className="px-6 py-3 border-b border-gray-100 last:border-0">
+                    <div key={rowKey} className="mx-3 my-1 rounded-lg border border-gray-100 bg-white px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div
                           className={`flex-1 min-w-0 ${hasDetails ? 'cursor-pointer' : ''}`}
@@ -786,6 +788,7 @@ export function FloorCanvas() {
   const [printerMenuTableId, setPrinterMenuTableId] = useState<string | null>(null)
   const [closingSessionTable, setClosingSessionTable] = useState<Table | null>(null)
   const [closeStatus, setCloseStatus] = useState<'SUCCESS' | 'FAILED'>('SUCCESS')
+  const [closePaymentMode, setClosePaymentMode] = useState<PaymentMode>('UPI')
   const [isClosingSession, setIsClosingSession] = useState(false)
   const [billData, setBillData] = useState<{
     pricing: { subtotal: number; discount: number; tax: number; total: number }
@@ -960,8 +963,13 @@ export function FloorCanvas() {
       }))
     })
 
-  const buildBillTemplateData = (table: Table, relatedOrders: Order[], pricing: { subtotal: number; discount: number; tax: number; total: number }) => {
-    const items = relatedOrders.flatMap((order: any) => {
+  const buildBillTemplateData = (
+    table: Table,
+    relatedOrders: Order[],
+    pricing: { subtotal: number; discount: number; tax: number; total: number },
+    billItems?: any[]
+  ) => {
+    const fallbackItems = relatedOrders.flatMap((order: any) => {
       return (order.items || []).map((item: any) => ({
         id: String(item.id || `${order.id}-${item.name || 'item'}`),
         name: String(item.name || ''),
@@ -972,6 +980,31 @@ export function FloorCanvas() {
           ? item.addOns.map((addon: any) => `${addon.name}${addon.price ? ` (+₹${addon.price})` : ''}`)
           : item.notes || undefined,
       }))
+    })
+
+    const sourceItems = Array.isArray(billItems) && billItems.length > 0 ? billItems : fallbackItems
+    const items = sourceItems.map((item: any, index: number) => {
+      const quantity = Math.max(1, Math.floor(toSafeNumber(item.quantity ?? item.qty, 1)))
+      const unitPrice = toSafeNumber(
+        item.price ?? item.unitPrice,
+        quantity > 0 ? toSafeNumber(item.totalPrice, 0) / quantity : 0,
+      )
+      const notes = Array.isArray(item.notes)
+        ? item.notes
+        : Array.isArray(item.addOns)
+          ? item.addOns.map((addon: any) => `${addon.name}${addon.price ? ` (+₹${addon.price})` : ''}`)
+          : Array.isArray(item.addons)
+            ? item.addons.map((addon: any) => `${addon.name}${addon.price ? ` (+₹${addon.price})` : ''}`)
+            : item.notes || undefined
+
+      return {
+        id: String(item.id || item.productId || `${table.id}-bill-item-${index}`),
+        name: String(item.name || 'Item'),
+        quantity,
+        category: String(item.category || item.offerTitle || item.offerType || 'ITEM'),
+        price: unitPrice,
+        notes,
+      }
     })
 
     return {
@@ -1334,14 +1367,19 @@ export function FloorCanvas() {
   const closeSession = (table: Table) => {
     setClosingSessionTable(table)
     setCloseStatus('SUCCESS')
+    setClosePaymentMode('UPI')
   }
 
   const confirmCloseSession = async () => {
     if (!closingSessionTable) return
+    if (!closePaymentMode) {
+      toast.error('Please select payment mode before marking payment status.')
+      return
+    }
     const confirmMessage =
       closeStatus === 'SUCCESS'
-        ? `Mark payment as completed for ${closingSessionTable.name} and close the session?`
-        : `Mark payment as failed for ${closingSessionTable.name}? The table will be freed, but the customer payment wall will stay locked until they pay.`
+        ? `Mark payment as completed for ${closingSessionTable.name} via ${closePaymentMode} and close the session?`
+        : `Mark payment as failed for ${closingSessionTable.name} via ${closePaymentMode}? The table will be freed, but the customer payment wall will stay locked until they pay.`
     const confirmed = window.confirm(confirmMessage)
     if (!confirmed) return
     setIsClosingSession(true)
@@ -1350,6 +1388,7 @@ export function FloorCanvas() {
         sessionId: closingSessionTable.activeSessionId || undefined,
         tableId: closingSessionTable.id,
         status: closeStatus,
+        paymentMode: closePaymentMode,
       })
       toast.success(response?.message || 'Session update saved')
       setClosingSessionTable(null)
@@ -1400,7 +1439,7 @@ export function FloorCanvas() {
           discount: Number.isFinite(result.pricing?.discount) ? Math.round(result.pricing.discount) : 0,
           tax: Number.isFinite(result.pricing?.tax) ? Math.round(result.pricing.tax) : 0,
           total: Number.isFinite(result.pricing?.total) ? Math.round(result.pricing.total) : 0,
-        })
+        }, result.items)
       )
       toast.success(`Bill sent to print template for ${table.name}`)
     } catch (err) {
@@ -1700,7 +1739,7 @@ export function FloorCanvas() {
                   {/* Status row */}
                   <div className="flex items-center justify-between">
                     <span
-                      className={`text-[10px] font-medium ${
+                      className={`whitespace-nowrap text-[9px] font-medium leading-none ${
                         isBillRequested ? 'text-red-600' : 'text-gray-500'
                       }`}
                     >
@@ -1892,14 +1931,31 @@ export function FloorCanvas() {
             </p>
             <div className="mt-5 space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Payment mode
+              </label>
+              <select
+                value={closePaymentMode}
+                onChange={(e) => setClosePaymentMode(e.target.value as PaymentMode)}
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
+              >
+                {PAYMENT_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode === 'OTHERS' ? 'Others' : mode}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-4 space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                 Payment status
               </label>
               <select
                 value={closeStatus}
                 onChange={(e) => setCloseStatus(e.target.value as 'SUCCESS' | 'FAILED')}
                 className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
+                disabled={!closePaymentMode}
               >
-                <option value="SUCCESS">Payment Completed</option>
+                <option value="SUCCESS">Payment Settled</option>
                 <option value="FAILED">Payment Failed</option>
               </select>
             </div>
@@ -1915,7 +1971,7 @@ export function FloorCanvas() {
               <Button
                 onClick={confirmCloseSession}
                 className="flex-1 bg-gray-900 text-white hover:bg-black"
-                disabled={isClosingSession}
+                disabled={isClosingSession || !closePaymentMode}
               >
                 {isClosingSession ? 'Saving...' : 'Confirm'}
               </Button>

@@ -16,7 +16,14 @@ export const cancelEntireOrder = functions.https.onRequest(async (req: Request, 
 
 	const authHeader = req.headers.authorization;
 	if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ success: false, message: "Unauthorized: Missing token" }); return; }
-	try { await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]); } catch { res.status(401).json({ success: false, message: "Unauthorized: Invalid token" }); return; }
+	let billerId = "";
+	try {
+		const decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]);
+		billerId = String(decodedToken.uid || "");
+	} catch {
+		res.status(401).json({ success: false, message: "Unauthorized: Invalid token" });
+		return;
+	}
 
 	try {
 		const { orderId, password, reason } = req.body as { orderId?: string; password?: string; reason?: string };
@@ -47,7 +54,7 @@ export const cancelEntireOrder = functions.https.onRequest(async (req: Request, 
 		ordersToCancel.forEach((doc) => batch.delete(doc.ref));
 		await batch.commit();
 
-		await db.collection("OrderCancel").doc(sessionId || tableId || orderId).set({ userId: customerUserId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp() }, { merge: true });
+		await db.collection("OrderCancel").doc(sessionId || tableId || orderId).set({ custId: customerUserId, billerId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp() }, { merge: true });
 
 		res.status(200).json({ success: true, message: "Order cancelled successfully" });
 	} catch (error) {

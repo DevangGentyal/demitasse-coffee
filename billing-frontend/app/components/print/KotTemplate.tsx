@@ -221,12 +221,31 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: '8px',
                 fontSize: '12px',
                 fontWeight: 500,
               }}
             >
-              <span>{item.name}</span>
-              <span>{item.quantity}</span>
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                {item.name}
+              </span>
+              <span
+                style={{
+                  flexShrink: 0,
+                  minWidth: '20px',
+                  textAlign: 'right',
+                }}
+              >
+                {item.quantity}
+              </span>
             </div>
 
             {item.notes && (
@@ -236,6 +255,8 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
                   color: '#444',
                   paddingLeft: '8px',
                   marginTop: '2px',
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
                 }}
               >
                 {Array.isArray(item.notes)

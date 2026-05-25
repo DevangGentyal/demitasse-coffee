@@ -8,13 +8,13 @@ const getIdToken = async (): Promise<string> => {
 }
 
 export const tableSessionService = {
-  async closeSession(payload: { sessionId?: string; tableId?: string; status?: string }) {
+  async closeSession(payload: { sessionId?: string; tableId?: string; status?: string; paymentMode?: string }) {
     if (!payload?.sessionId && !payload?.tableId) {
       throw new Error('sessionId or tableId is required')
     }
 
     const idToken = await getIdToken()
-    const tryClose = async (requestPayload: { sessionId?: string; tableId?: string }) => {
+    const tryClose = async (requestPayload: { sessionId?: string; tableId?: string; status?: string; paymentMode?: string }) => {
       const responseResult = await fetch(`${CLOUD_FUNCTIONS_URL}/billingSessionsClose`, {
         method: 'POST',
         headers: {
@@ -30,7 +30,11 @@ export const tableSessionService = {
     let { response, responsePayload } = await tryClose(payload)
 
     if (response.status === 404 && payload.sessionId && payload.tableId) {
-      const retryWithTableId = await tryClose({ tableId: payload.tableId })
+      const retryWithTableId = await tryClose({
+        tableId: payload.tableId,
+        status: payload.status,
+        paymentMode: payload.paymentMode,
+      })
       response = retryWithTableId.response
       responsePayload = retryWithTableId.responsePayload
     }

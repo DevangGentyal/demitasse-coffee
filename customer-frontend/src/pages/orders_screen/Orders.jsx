@@ -647,8 +647,8 @@ const Orders = () => {
                 <span className="w-24 pr-6 text-right">Price</span>
               </div>
 
-              <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
-                <div className="space-y-4 px-0 py-0">
+              <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4">
+                <div className="space-y-4">
                   {(() => {
                     const allItems = Array.isArray(billDetails.items) ? billDetails.items : []
                     const serverGroups = Array.isArray(billDetails.displayBillGroups)
@@ -670,7 +670,7 @@ const Orders = () => {
                       const hasItemDetails = hasVariations || directSelected.length > 0 || hasAddons.length > 0 || hasSubItems || isOffer
 
                       return (
-                        <div key={rowKey} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
+                        <div key={rowKey} className="mb-2 rounded-lg border border-gray-200 bg-white px-3 py-3 last:mb-0">
                           <div
                             className={`flex items-start justify-between text-sm ${hasItemDetails ? 'cursor-pointer select-none' : ''}`}
                             onClick={() => hasItemDetails && toggleBillItem(rowKey)}
@@ -694,7 +694,7 @@ const Orders = () => {
                           </div>
 
                           {isExpanded && hasItemDetails && (
-                            <div className="mt-2.5 ml-1 space-y-1.5 border-l-2 border-gray-200 pl-3 pb-1 text-xs text-gray-600">
+                            <div className="mt-3 ml-1 space-y-1.5 border-l-2 border-gray-200 pl-3 pb-1 text-xs text-gray-600">
                               {hasVariations && item.variations.map((v, i) => (
                                 <p key={`var-${rowKey}-${i}`}>• {v.name || v.option || v.type} {v.price ? <span className="text-gray-400">(+₹{v.price})</span> : ''}</p>
                               ))}

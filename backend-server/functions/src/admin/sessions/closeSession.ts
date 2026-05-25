@@ -14,6 +14,13 @@ const normalizeStatus = (value: unknown): string => {
 	if (["PENDING", "PENDING_COUNTER", "REQUESTED"].includes(normalized)) return "PENDING_COUNTER";
 	return normalized || "PENDING_COUNTER";
 };
+const normalizePaymentMode = (value: unknown): string => {
+	const normalized = readString(value).toUpperCase();
+	if (!normalized) return "";
+	if (normalized === "OTHER") return "OTHERS";
+	const allowed = ["CASH", "CARD", "UPI", "DINEOUT", "MAGICPIN", "ZOMATO", "DISTRIC", "OTHERS"];
+	return allowed.includes(normalized) ? normalized : "";
+};
 const readNumber = (value: unknown, fallback = 0): number => {
 	const numeric = Number(value);
 	return Number.isFinite(numeric) ? numeric : fallback;
@@ -60,13 +67,19 @@ export const closeSession = functions.https.onRequest(
 		try {
 			if (req.method !== "POST") { res.status(405).json({ success: false, message: "Method not allowed" }); return; }
 
-			const { sessionId, tableId, status } = req.body as { sessionId?: string; tableId?: string; status?: string };
+			const { sessionId, tableId, status, paymentMode } = req.body as { sessionId?: string; tableId?: string; status?: string; paymentMode?: string };
 			if (!sessionId && !tableId) { res.status(400).json({ success: false, message: "sessionId or tableId is required" }); return; }
 
 			const resolvedSessionId = readString(sessionId);
 			const resolvedTableId = readString(tableId);
 			const resolvedStatus = normalizeStatus(status);
+			const resolvedPaymentMode = normalizePaymentMode(paymentMode);
 			const isPaymentSuccessful = resolvedStatus === "SUCCESS";
+			const isPaymentStatus = resolvedStatus === "SUCCESS" || resolvedStatus === "FAILED";
+			if (isPaymentStatus && !resolvedPaymentMode) {
+				res.status(400).json({ success: false, message: "paymentMode is required when marking payment status" });
+				return;
+			}
 			const sessionRef = resolvedSessionId ? db.collection("sessions").doc(resolvedSessionId) : null;
 			const sessionSnap = sessionRef ? await sessionRef.get() : null;
 
@@ -127,6 +140,7 @@ export const closeSession = functions.https.onRequest(
 						items: allItems,
 						status: "FAILED",
 						settlementStatus: "FAILED",
+						paymentMode: resolvedPaymentMode,
 						payAt: "COUNTER",
 						generatedAt: FieldValue.serverTimestamp(),
 						updatedAt: FieldValue.serverTimestamp(),
@@ -172,6 +186,7 @@ export const closeSession = functions.https.onRequest(
 					items: allItems,
 					status: "SUCCESS",
 					settlementStatus: "PAID",
+					paymentMode: resolvedPaymentMode,
 					payAt: "COUNTER",
 					generatedAt: FieldValue.serverTimestamp(),
 					updatedAt: FieldValue.serverTimestamp(),
