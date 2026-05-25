@@ -32,7 +32,7 @@ interface KotBillingSettings {
 }
 
 const DEFAULTS: KotBillingSettings = {
-  defaultPaperWidth: 250,
+  defaultPaperWidth: 280,
   decimalQuantityDigits: 0,
   showRestaurantHeader: true,
   showFooter: true,

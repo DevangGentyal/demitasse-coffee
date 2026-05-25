@@ -10,6 +10,7 @@ import { db } from '@/lib/firebase/app'
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
 import { KotTemplate, KotData, PrintItem } from '@/app/components/print/KotTemplate'
 import { BillTemplate, BillData } from '@/app/components/print/BillTemplate'
+import { clearPrintPageSize, fitPrintPageToContent } from '@/app/components/print/printPageSize'
 
 const MOCK_ITEMS: PrintItem[] = [
   { id: '1', name: 'Margherita Pizza', quantity: 1, category: 'MAINS', price: 350 },
@@ -34,7 +35,7 @@ export default function PrintPreviewPage() {
     restaurantFooterText: 'Thank You',
     showRestaurantHeader: true,
     showFooter: true,
-    defaultPaperWidth: 250,
+    defaultPaperWidth: 280,
   })
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export default function PrintPreviewPage() {
           fConfig = {
             printerName: 'Chef Printer',
             assignedCategories: ['BAKERY & DESSERTS', 'BREAKFAST & SUPER FOOD', 'APPETIZERS & SMALL PLATES', 'SANDWICHES & BURGERS', 'MAINS', 'MEALS & GLOBAL PLATES'],
-            width: 250,
+            width: 280,
             lineHeight: 1.2,
             margins: { top: 0, right: 0, bottom: 0, left: 10 }
           }
@@ -65,7 +66,7 @@ export default function PrintPreviewPage() {
           cConfig = {
             printerName: 'Counter Printer',
             assignedCategories: ['BEVERAGES', 'COFFEE SPECIALTIES'],
-            width: 250,
+            width: 280,
             lineHeight: 1.2,
             margins: { top: 0, right: 0, bottom: 0, left: 10 }
           }
@@ -87,6 +88,12 @@ export default function PrintPreviewPage() {
 
     fetchData()
   }, [isLoading, isLoggedIn])
+
+  useEffect(() => {
+    const handleAfterPrint = () => clearPrintPageSize()
+    window.addEventListener('afterprint', handleAfterPrint)
+    return () => window.removeEventListener('afterprint', handleAfterPrint)
+  }, [])
 
   if (isLoading || dataLoading || !foodConfig || !coffeeConfig) {
     return (
@@ -143,6 +150,7 @@ export default function PrintPreviewPage() {
   const handlePrint = () => {
     // A small delay to ensure React state is painted before print dialogue
     setTimeout(() => {
+      fitPrintPageToContent('.print-container')
       window.print()
     }, 100)
   }
@@ -232,7 +240,7 @@ export default function PrintPreviewPage() {
       </div>
 
       {/* Actual Print Container - Hidden from screen, visible to printer */}
-      <div className="hidden print:block print-container">
+      <div className="fixed top-[-9999px] left-[-9999px] -z-50 print-container print:static print:top-0 print:left-0 print:z-auto">
         {activeTab === 'food' && (
           <KotTemplate 
             data={foodKotData} 

@@ -70,7 +70,7 @@ const EMPTY_FORM: Omit<PrinterConfig, 'id' | 'createdAt' | 'updatedAt'> = {
   systemPrinterName: '',
   printerType: 'thermal',
   role: '',
-  width: 250,
+  width: 280,
   lineHeight: 0,
   headerText: 'Demitasse Coffee',
   footerText: 'Thank You',

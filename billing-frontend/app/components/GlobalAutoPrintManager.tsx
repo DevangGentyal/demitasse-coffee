@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react'
 import { db } from '@/lib/firebase/app'
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
 import { KotTemplate, KotData } from './print/KotTemplate'
+import { clearPrintPageSize, fitPrintPageToContent } from './print/printPageSize'
 import { useApp } from '@/app/context/AppContext'
 
 const MANUAL_KOT_PRINT_EVENT = 'demitasse:manual-kot-print'
@@ -107,7 +108,7 @@ export function GlobalAutoPrintManager() {
           foodConfig = {
             printerName: 'Chef Printer',
             assignedCategories: ['BAKERY & DESSERTS', 'BREAKFAST & SUPER FOOD', 'APPETIZERS & SMALL PLATES', 'SANDWICHES & BURGERS', 'MAINS', 'MEALS & GLOBAL PLATES'],
-            width: 250,
+            width: 280,
             lineHeight: 1.2,
             margins: { top: 0, right: 0, bottom: 0, left: 10 }
           }
@@ -116,7 +117,7 @@ export function GlobalAutoPrintManager() {
           coffeeConfig = {
             printerName: 'Counter Printer',
             assignedCategories: ['BEVERAGES', 'COFFEE SPECIALTIES'],
-            width: 250,
+            width: 280,
             lineHeight: 1.2,
             margins: { top: 0, right: 0, bottom: 0, left: 10 }
           }
@@ -125,7 +126,7 @@ export function GlobalAutoPrintManager() {
         let settings = {
           restaurantHeaderText: 'Demitasse Coffee',
           showRestaurantHeader: true,
-          defaultPaperWidth: 250,
+          defaultPaperWidth: 280,
         }
         const settingsSnap = await getDoc(doc(db, 'kotBillingSettings', 'defaultSettings'))
         if (settingsSnap.exists()) {
@@ -322,25 +323,54 @@ export function GlobalAutoPrintManager() {
         setTimeout(() => {
           console.log(`[GlobalAutoPrint] 🔔 Triggering window.print() for order: ${readyJob.id}`)
 
-          const handleAfterPrint = () => {
-            console.log(`[GlobalAutoPrint] ✨ window.afterprint fired. Cleared active job: ${readyJob.id}`)
-            window.removeEventListener('afterprint', handleAfterPrint)
+          const printTargets = Array.from(document.querySelectorAll<HTMLElement>('.print-receipt'))
+          let printIndex = 0
+          let failsafeTimer: ReturnType<typeof setTimeout> | undefined
+
+          const finishPrintJob = () => {
+            if (failsafeTimer) clearTimeout(failsafeTimer)
+            clearPrintPageSize()
             setActivePrintJob(null)
             isProcessingQueueRef.current = false // Allow next queue item
           }
-          window.addEventListener('afterprint', handleAfterPrint)
 
-          window.print()
-
-          setTimeout(() => {
-            if (isProcessingQueueRef.current) {
-              console.log(`[GlobalAutoPrint] ⚠️ Failsafe clearing active print job: ${readyJob.id}`)
-              window.removeEventListener('afterprint', handleAfterPrint)
-              setActivePrintJob(null)
-              isProcessingQueueRef.current = false
+          const printNextReceipt = () => {
+            const target = printTargets[printIndex]
+            if (!target) {
+              console.log(`[GlobalAutoPrint] Finished print receipts for order: ${readyJob.id}`)
+              finishPrintJob()
+              return
             }
-          }, 15000)
 
+            const handleAfterPrint = () => {
+              console.log(`[GlobalAutoPrint] window.afterprint fired for receipt ${printIndex + 1}/${printTargets.length}: ${readyJob.id}`)
+              window.removeEventListener('afterprint', handleAfterPrint)
+              if (failsafeTimer) clearTimeout(failsafeTimer)
+              clearPrintPageSize()
+              printIndex += 1
+              setTimeout(printNextReceipt, 300)
+            }
+
+            window.addEventListener('afterprint', handleAfterPrint)
+            fitPrintPageToContent(target)
+            window.print()
+
+            failsafeTimer = setTimeout(() => {
+              console.log(`[GlobalAutoPrint] Failsafe advancing print receipt ${printIndex + 1}/${printTargets.length}: ${readyJob.id}`)
+              window.removeEventListener('afterprint', handleAfterPrint)
+              clearPrintPageSize()
+              printIndex += 1
+              printNextReceipt()
+            }, 15000)
+          }
+
+          if (printTargets.length === 0) {
+            console.warn(`[GlobalAutoPrint] No printable KOT receipts rendered for order: ${readyJob.id}`)
+            finishPrintJob()
+            return
+          }
+
+          printNextReceipt()
         }, 1000)
       }
     }
@@ -533,13 +563,11 @@ export function GlobalAutoPrintManager() {
 
   // Removed extra duplicate debug logs for manager
 
-  // Issue 2 Fix: flex-col breaks print pagination in webkit. Switched to block layout.
-  // Conditional break-after-page to avoid trailing blank pages.
   return (
     <div className="fixed top-[-9999px] left-[-9999px] -z-50 print-container print:static print:top-0 print:left-0 print:z-auto">
-      <div className="block space-y-8">
+      <div className="block space-y-3">
         {foodItems.length > 0 && (
-          <div className={bevItems.length > 0 ? "break-after-page" : ""}>
+          <div className="print-receipt">
             <KotTemplate
               data={foodKotData}
               printerName={printConfigs.foodConfig.printerName}
@@ -553,7 +581,7 @@ export function GlobalAutoPrintManager() {
           </div>
         )}
         {bevItems.length > 0 && (
-          <div>
+          <div className="print-receipt">
             <KotTemplate
               data={bevKotData}
               printerName={printConfigs.coffeeConfig.printerName}

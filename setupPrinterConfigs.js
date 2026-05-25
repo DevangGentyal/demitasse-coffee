@@ -23,7 +23,7 @@ async function run() {
         printerType: 'thermal',
         role: 'food',
         outletId: 'outlet_001',
-        width: 250,
+        width: 280,
         lineHeight: 0,
         headerText: 'Demitasse Coffee',
         footerText: 'Thank You',
@@ -50,7 +50,7 @@ async function run() {
         printerType: 'thermal',
         role: 'coffee',
         outletId: 'outlet_001',
-        width: 250,
+        width: 280,
         lineHeight: 0,
         headerText: 'Demitasse Coffee',
         footerText: 'Thank You',
@@ -93,7 +93,7 @@ async function run() {
   } else {
     await settingsRef.set({
       outletId: 'outlet_001',
-      defaultPaperWidth: 250,
+      defaultPaperWidth: 280,
       showRestaurantHeader: true,
       showFooter: true,
       autoPrintEnabled: false,

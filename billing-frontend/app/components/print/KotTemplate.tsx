@@ -48,99 +48,202 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   printerName,
   restaurantHeader = 'Demitasse Coffee',
   showRestaurantHeader = true,
-  width = 250,
-  margins = { top: 0, right: 0, bottom: 0, left: 10 },
-  padding = { top: 4, right: 4, bottom: 4, left: 4 },
+  width = 280,
+  margins = { top: 0, right: 0, bottom: 0, left: 0 },
+  padding = { top: 8, right: 8, bottom: 8, left: 8 },
   lineHeight = 1.2,
 }) => {
-  const items = data.items
-  console.log('KotTemplate FINAL ITEMS:', items)
-  console.log('KotTemplate manager items:', items)
-  
+  const paperWidth = Number(width) || 280
+
   return (
-    <div
-      className="bg-white text-black font-sans mx-auto"
-      style={{ 
-        width: `${width}px`, 
-        marginTop: `${margins.top}px`,
-        marginRight: `${margins.right}px`,
-        marginBottom: `${margins.bottom}px`,
-        marginLeft: `${margins.left}px`,
-        paddingTop: `${padding.top}px`,
-        paddingRight: `${padding.right}px`,
-        paddingBottom: `${padding.bottom}px`,
-        paddingLeft: `${padding.left}px`,
-        lineHeight: lineHeight 
-      }}
-    >
-      {/* Header */}
-      <div className="text-center mb-2" style={{ lineHeight: lineHeight }}>
-        {showRestaurantHeader && (
-          <h2 className="font-bold text-sm mb-1">{restaurantHeader}</h2>
-        )}
-        {data.highlightTitle && (
-          <p className="mx-auto mb-1 inline-block rounded border border-red-600 bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
-            {data.highlightTitle}
-          </p>
-        )}
-        <h3 className="font-bold text-xs uppercase">{data.kotType} KOT</h3>
-        <p className="text-[10px] uppercase">({printerName})</p>
-      </div>
+    <>
+      <style>{`
+        @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
 
-      <div className="border-b border-dashed border-black mb-2"></div>
+          html, body {
+            width: 80mm;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white;
+          }
 
-      {/* Meta Info */}
-      <div className="mb-2 text-[10px] space-y-0.5" style={{ lineHeight: lineHeight }}>
-        <div className="flex justify-between">
-          <span className="font-bold">Order #:</span>
-          <span>{data.orderNumber}</span>
+          body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .kot-print-wrapper {
+            width: 80mm !important;
+            height: auto !important;
+            overflow: visible !important;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+        }
+      `}</style>
+
+      <div
+        className="kot-print-wrapper bg-white text-black font-sans"
+        style={{
+          width: `${paperWidth}px`,
+          minHeight: 'fit-content',
+          height: 'auto',
+          marginTop: `${margins.top}px`,
+          marginRight: `${margins.right}px`,
+          marginBottom: `${margins.bottom}px`,
+          marginLeft: `${margins.left}px`,
+          paddingTop: `${padding.top}px`,
+          paddingRight: `${padding.right}px`,
+          paddingBottom: `${padding.bottom}px`,
+          paddingLeft: `${padding.left}px`,
+          lineHeight,
+          boxSizing: 'border-box',
+          overflow: 'visible',
+        }}
+      >
+        {/* Header */}
+        <div className="text-center mb-2">
+          {showRestaurantHeader && (
+            <h2
+              style={{
+                fontSize: '16px',
+                fontWeight: 700,
+                marginBottom: '4px',
+              }}
+            >
+              {restaurantHeader}
+            </h2>
+          )}
+
+          <h3
+            style={{
+              fontSize: '13px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+            }}
+          >
+            {data.kotType} KOT
+          </h3>
+
+          <div
+            style={{
+              fontSize: '11px',
+              textTransform: 'uppercase',
+            }}
+          >
+            ({printerName})
+          </div>
         </div>
-        <div className="flex justify-between">
-          <span className="font-bold">Table:</span>
-          <span>{data.tableNumber}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="font-bold">Date:</span>
-          <span>{data.date.toLocaleString()}</span>
-        </div>
-      </div>
 
-      <div className="border-b border-dashed border-black mb-2"></div>
+        <hr style={{ borderTop: '1px dashed black', margin: '6px 0' }} />
 
-      {/* Items List */}
-      <div className="mb-2">
-        <div className="flex justify-between font-bold text-[10px] mb-1" style={{ lineHeight: lineHeight }}>
+        {/* Meta */}
+        <div style={{ fontSize: '11px', marginBottom: '8px' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span><b>Order #:</b></span>
+            <span>{data.orderNumber}</span>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span><b>Table:</b></span>
+            <span>{data.tableNumber}</span>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span><b>Date:</b></span>
+            <span>{data.date.toLocaleString()}</span>
+          </div>
+        </div>
+
+        <hr style={{ borderTop: '1px dashed black', margin: '6px 0' }} />
+
+        {/* Item Header */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontWeight: 700,
+            fontSize: '12px',
+            marginBottom: '6px',
+          }}
+        >
           <span>ITEM</span>
           <span>QTY</span>
         </div>
-        <div className="border-b border-dashed border-black mb-1"></div>
-        
+
+        {/* Items */}
         {data.items.map((item) => (
-          <div key={item.id} className="mb-1.5" style={{ lineHeight: lineHeight }}>
-            <div className="flex justify-between text-[11px]">
-              <span className="font-medium pr-2">{item.name}</span>
-              <span className="font-bold">{item.quantity}</span>
+          <div
+            key={item.id}
+            style={{
+              marginBottom: '8px',
+              pageBreakInside: 'avoid',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '12px',
+                fontWeight: 500,
+              }}
+            >
+              <span>{item.name}</span>
+              <span>{item.quantity}</span>
             </div>
+
             {item.notes && (
-              <div className="text-[10px] text-gray-700 ml-2 mt-0.5 space-y-0.5">
-                {Array.isArray(item.notes) 
-                  ? item.notes.map((note, idx) => (
-                      <div key={idx}>+ {note}</div>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: '#444',
+                  paddingLeft: '8px',
+                  marginTop: '2px',
+                }}
+              >
+                {Array.isArray(item.notes)
+                  ? item.notes.map((note, i) => (
+                      <div key={i}>+ {note}</div>
                     ))
-                  : <div>+ {item.notes}</div>
-                }
+                  : <div>+ {item.notes}</div>}
               </div>
             )}
           </div>
         ))}
-      </div>
 
-      <div className="border-b border-dashed border-black mb-2"></div>
+        <hr style={{ borderTop: '1px dashed black', margin: '6px 0' }} />
 
-      {/* Footer */}
-      <div className="text-center mt-2" style={{ lineHeight: lineHeight }}>
-        <p className="text-[10px] font-bold uppercase">*** END OF KOT ***</p>
+        <div
+          style={{
+            textAlign: 'center',
+            fontSize: '11px',
+            fontWeight: 700,
+            marginTop: '8px',
+          }}
+        >
+          *** END OF KOT ***
+        </div>
       </div>
-    </div>
+    </>
   )
 }
