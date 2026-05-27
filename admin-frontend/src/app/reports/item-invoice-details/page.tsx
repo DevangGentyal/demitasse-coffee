@@ -100,15 +100,14 @@ export default function ItemInvoiceDetailsReportPage() {
     { header: 'Invoice No.', key: 'invoiceNo' },
     { header: 'Timestamp', key: 'timestamp' },
     { header: 'Item Name', key: 'itemName' },
-    { header: 'Group Name', key: 'groupName' },
     { header: 'Category', key: 'category' },
-    { header: 'Variation', key: 'variation' },
     { header: 'Price', key: 'price', align: 'right' as const },
     { header: 'Qty', key: 'qty', align: 'center' as const },
-    { header: 'Sub Total', key: 'subTotal', align: 'right' as const },
-    { header: 'Discount', key: 'discount', align: 'right' as const },
-    { header: 'Tax', key: 'tax', align: 'right' as const },
-    { header: 'Final Total', key: 'finalTotal', align: 'right' as const },
+    { header: 'Gross Sales', key: 'grossSales', align: 'right' as const },
+    { header: 'Discount Amount', key: 'discountAmount', align: 'right' as const },
+    { header: 'Net Sales', key: 'netSales', align: 'right' as const },
+    { header: 'Tax Amount', key: 'taxAmount', align: 'right' as const },
+    { header: 'Final Paid Amount', key: 'finalPaidAmount', align: 'right' as const },
     { header: 'Status', key: 'status' },
     { header: 'Table No.', key: 'tableNo', align: 'center' as const },
     { header: 'Area', key: 'area' },
@@ -129,9 +128,10 @@ export default function ItemInvoiceDetailsReportPage() {
           totalInvoices: report.summary.totalInvoices,
           totalItems: report.summary.totalItems,
           grossSales: report.summary.grossSales,
-          discount: report.summary.discount,
-          tax: report.summary.tax,
-          finalTotal: report.summary.finalTotal,
+          discountAmount: report.summary.discount,
+          netSales: report.summary.netSales || report.summary.finalTotal,
+          taxAmount: report.summary.tax,
+          finalPaidAmount: report.summary.finalPaidAmount,
         },
         filters: {
           outlet: report.outlet?.name || 'All',
@@ -140,15 +140,16 @@ export default function ItemInvoiceDetailsReportPage() {
         },
         extraSheets: [
           {
-            sheetName: 'Group Summary',
+            sheetName: 'Category Summary',
             columns: [
-              { header: 'Group Name', key: 'groupName' },
+              { header: 'Category', key: 'category' },
               { header: 'Items Sold', key: 'totalItems' },
-              { header: 'Invoices Count', key: 'totalInvoices' },
+              { header: 'Invoices Count', key: 'invoiceCount' },
               { header: 'Gross Sales', key: 'grossSales' },
-              { header: 'Discount', key: 'discount' },
-              { header: 'Tax', key: 'tax' },
-              { header: 'Final Total', key: 'finalTotal' },
+              { header: 'Discount Amount', key: 'discount' },
+              { header: 'Net Sales', key: 'netSales' },
+              { header: 'Tax Amount', key: 'tax' },
+              { header: 'Final Paid Amount', key: 'finalPaidAmount' },
             ],
             rows: report.groupSummaries,
           },
@@ -167,15 +168,16 @@ export default function ItemInvoiceDetailsReportPage() {
         title: 'Item Report: Invoice Details',
         subtitle: `Outlet: ${report.outlet?.name || 'All Outlets'}`,
         filename: 'Item_Invoice_Details_Report',
-        columns: tableColumns.slice(0, 13), // PDF has space limits, slice to key columns
+        columns: tableColumns.slice(0, 11), // PDF has space limits, slice to key columns (Invoice No. to Final Paid Amount)
         rows: report.rows,
         summary: {
           totalInvoices: report.summary.totalInvoices,
           totalItems: report.summary.totalItems,
           grossSales: report.summary.grossSales,
-          discount: report.summary.discount,
-          tax: report.summary.tax,
-          finalTotal: report.summary.finalTotal,
+          discountAmount: report.summary.discount,
+          netSales: report.summary.netSales || report.summary.finalTotal,
+          taxAmount: report.summary.tax,
+          finalPaidAmount: report.summary.finalPaidAmount,
         },
         filters: {
           startDate,
@@ -194,7 +196,10 @@ export default function ItemInvoiceDetailsReportPage() {
         { label: 'Invoices', value: report.summary.totalInvoices },
         { label: 'Items Sold', value: report.summary.totalItems },
         { label: 'Gross Sales', value: report.summary.grossSales, isCurrency: true },
-        { label: 'Net Total', value: report.summary.finalTotal, isCurrency: true },
+        { label: 'Discount Amount', value: report.summary.discount, isCurrency: true },
+        { label: 'Net Sales', value: report.summary.netSales || report.summary.finalTotal, isCurrency: true },
+        { label: 'Tax Amount', value: report.summary.tax, isCurrency: true },
+        { label: 'Final Paid Amount', value: report.summary.finalPaidAmount, isCurrency: true },
       ]
     : []
 
@@ -239,20 +244,22 @@ export default function ItemInvoiceDetailsReportPage() {
             description="Detailed raw list of invoice items sold under selected filters"
             columns={tableColumns}
             rows={report.rows}
-            minWidth="1600px"
+            minWidth="1800px"
+            maxHeight="600px"
           />
 
           <ReportTable
             title="Category Group Summary"
-            description="Aggregated totals grouped by item category group name"
+            description="Aggregated totals grouped by item category"
             columns={[
-              { header: 'Group Name', key: 'groupName' },
+              { header: 'Category', key: 'category' },
               { header: 'Items Sold', key: 'totalItems', align: 'center' as const },
-              { header: 'Invoices Count', key: 'totalInvoices', align: 'center' as const },
+              { header: 'Invoices Count', key: 'invoiceCount', align: 'center' as const },
               { header: 'Gross Sales', key: 'grossSales', align: 'right' as const },
-              { header: 'Discount', key: 'discount', align: 'right' as const },
-              { header: 'Tax', key: 'tax', align: 'right' as const },
-              { header: 'Final Total', key: 'finalTotal', align: 'right' as const },
+              { header: 'Discount Amount', key: 'discount', align: 'right' as const },
+              { header: 'Net Sales', key: 'netSales', align: 'right' as const },
+              { header: 'Tax Amount', key: 'tax', align: 'right' as const },
+              { header: 'Final Paid Amount', key: 'finalPaidAmount', align: 'right' as const },
             ]}
             rows={report.groupSummaries}
           />

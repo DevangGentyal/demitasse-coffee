@@ -18,6 +18,12 @@ export interface ReportRow {
   discount: number
   tax: number
   finalTotal: number
+  grossSales: number
+  discountAmount: number
+  taxAmount: number
+  netSales: number
+  finalPaidAmount: number
+  offerItems: string
   status: string
   tableNo: string
   area: string
@@ -37,12 +43,14 @@ export interface ReportRow {
 }
 
 export interface ReportGroupSummary {
-  groupName: string
+  category: string
   totalItems: number
-  totalInvoices: number
+  invoiceCount: number
   grossSales: number
   discount: number
+  netSales: number
   tax: number
+  finalPaidAmount: number
   finalTotal: number
 }
 
@@ -62,7 +70,9 @@ export interface InvoiceDetailsReportResponse {
     totalItems: number
     grossSales: number
     discount: number
+    netSales: number
     tax: number
+    finalPaidAmount: number
     finalTotal: number
   }
   groupSummaries: ReportGroupSummary[]
@@ -75,7 +85,7 @@ const getIdToken = async (): Promise<string> => {
   }
 
   try {
-    return await auth.currentUser.getIdToken(false)
+    return await auth.currentUser.getIdToken(true)
   } catch (error) {
     console.warn('Network request failed for token refresh. Attempting to use cached token...', error)
     const rawToken =
