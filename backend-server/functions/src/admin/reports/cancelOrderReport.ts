@@ -1,15 +1,54 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
+import { Timestamp } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import {
 	setCors,
 	verifyAdminToken,
-	parseDateInput,
 	readString,
 	readNumber,
 } from "./helpers";
 
 const db = admin.firestore();
+const REPORT_TIME_ZONE = "Asia/Kolkata";
+
+type Cancellation = {
+	id: string;
+	outletId: string;
+	custId: string;
+	billerId: string;
+	totalOrdersCost: number;
+	cancelledAtMillis: number;
+	dateKey: string;
+	displayDate: string;
+	reason: string;
+};
+
+const dateKeyInIST = (date: Date): string => {
+	const parts = new Intl.DateTimeFormat("en-CA", {
+		timeZone: REPORT_TIME_ZONE,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).formatToParts(date);
+	const part = (type: string): string => parts.find((entry) => entry.type === type)?.value || "";
+	return `${part("year")}-${part("month")}-${part("day")}`;
+};
+
+const displayDateInIST = (date: Date): string => date.toLocaleDateString("en-GB", {
+	timeZone: REPORT_TIME_ZONE,
+	day: "2-digit",
+	month: "short",
+	year: "numeric",
+});
+
+const parseISTDateInput = (value: string, edge: "start" | "end"): Timestamp | null => {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+	const time = edge === "start" ? "00:00:00.000" : "23:59:59.999";
+	const parsed = new Date(`${value}T${time}+05:30`);
+	if (Number.isNaN(parsed.getTime()) || dateKeyInIST(parsed) !== value) return null;
+	return Timestamp.fromDate(parsed);
+};
 
 export const getCancelOrderReport = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {
 	setCors(res);
@@ -24,8 +63,8 @@ export const getCancelOrderReport = functions.https.onRequest(async (req: Reques
 		const startDate = readString(req.query.startDate);
 		const endDate = readString(req.query.endDate);
 
-		const startTimestamp = parseDateInput(startDate, "start");
-		const endTimestamp = parseDateInput(endDate, "end");
+		const startTimestamp = parseISTDateInput(startDate, "start");
+		const endTimestamp = parseISTDateInput(endDate, "end");
 
 		// Fetch all outlets for friendly name lookup
 		const outletsSnap = await db.collection("outlets").get();
@@ -44,30 +83,42 @@ export const getCancelOrderReport = functions.https.onRequest(async (req: Reques
 		}
 
 		const snap = await query.get();
-		const cancellations = snap.docs.map((doc) => {
+		const timestampedCancellations: Cancellation[] = [];
+		snap.docs.forEach((doc) => {
 			const data = doc.data();
-			let dateObj = new Date();
-			if (data.cancelledAt) {
-				const t = data.cancelledAt as admin.firestore.Timestamp;
-				dateObj = t.toDate();
-			}
-			return {
+			const cancelledAt = data.cancelledAt as Timestamp | undefined;
+			if (!cancelledAt || typeof cancelledAt.toDate !== "function") return;
+
+			const dateObj = cancelledAt.toDate();
+			timestampedCancellations.push({
 				id: doc.id,
 				outletId: readString(data.outletId || "unknown"),
+				custId: readString(data.custId),
+				billerId: readString(data.billerId),
 				totalOrdersCost: readNumber(data.totalOrdersCost || data.totalCost, 0),
-				dateKey: dateObj.toISOString().slice(0, 10), // YYYY-MM-DD
-				displayDate: dateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+				cancelledAtMillis: dateObj.getTime(),
+				dateKey: dateKeyInIST(dateObj),
+				displayDate: displayDateInIST(dateObj),
 				reason: readString(data.closeReason || data.reason || "No reason given"),
-			};
-		}).filter((c) => !outletId || c.outletId === outletId);
+			});
+		});
+		const cancellations = timestampedCancellations
+			.filter((c) => !outletId || c.outletId === outletId)
+			.sort((a, b) => b.cancelledAtMillis - a.cancelledAtMillis);
 
 		// Unique dates in the cancellation dataset, sorted descending
 		const uniqueDates = Array.from(new Set(cancellations.map((c) => c.dateKey))).sort((a, b) => b.localeCompare(a));
 
 		// Identify which outlets are represented in the filters or dataset
-		const filteredOutlets = outletId 
-			? outlets.filter((o) => o.id === outletId)
-			: outlets;
+		const representedMissingOutlets = cancellations
+			.filter((c) => !outlets.some((o) => o.id === c.outletId))
+			.reduce<Array<{ id: string; name: string }>>((missing, c) => {
+				if (!missing.some((o) => o.id === c.outletId)) missing.push({ id: c.outletId, name: c.outletId });
+				return missing;
+			}, []);
+		const filteredOutlets = outletId
+			? [outlets.find((o) => o.id === outletId) || { id: outletId, name: outletId }]
+			: [...outlets, ...representedMissingOutlets];
 
 		// 1. Columns structure
 		const columns = [
@@ -77,7 +128,7 @@ export const getCancelOrderReport = functions.https.onRequest(async (req: Reques
 
 		// 2. Cancellation Quantity Matrix Rows
 		const qtyRows: Record<string, any>[] = uniqueDates.map((dKey) => {
-			const displayDate = new Date(`${dKey}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+			const displayDate = displayDateInIST(new Date(`${dKey}T00:00:00+05:30`));
 			const row: Record<string, any> = { date: displayDate, _dateKey: dKey };
 			filteredOutlets.forEach((o) => {
 				row[o.id] = 0;
@@ -87,7 +138,7 @@ export const getCancelOrderReport = functions.https.onRequest(async (req: Reques
 
 		// 3. Cancellation Amount Matrix Rows
 		const amtRows: Record<string, any>[] = uniqueDates.map((dKey) => {
-			const displayDate = new Date(`${dKey}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+			const displayDate = displayDateInIST(new Date(`${dKey}T00:00:00+05:30`));
 			const row: Record<string, any> = { date: displayDate, _dateKey: dKey };
 			filteredOutlets.forEach((o) => {
 				row[o.id] = 0;
@@ -137,6 +188,8 @@ export const getCancelOrderReport = functions.https.onRequest(async (req: Reques
 					id: c.id,
 					date: c.displayDate,
 					outlet: outlet ? outlet.name : c.outletId,
+					custId: c.custId,
+					billerId: c.billerId,
 					amount: c.totalOrdersCost,
 					reason: c.reason,
 				};

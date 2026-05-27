@@ -21,11 +21,24 @@ import { ExportButtons } from '@/components/reports/ExportButtons'
 import { LoadingSkeleton } from '@/components/reports/LoadingSkeleton'
 import { EmptyState } from '@/components/reports/EmptyState'
 
-const todayIso = () => new Date().toISOString().slice(0, 10)
+const dateInISTIso = (date: Date) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
 
-const startOfCurrentMonthIso = () => {
-  const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+const todayIso = () => dateInISTIso(new Date())
+
+const startOfCurrentMonthIso = () => `${todayIso().slice(0, 7)}-01`
+
+const dateRangeLabel = (startDate: string, endDate: string) => {
+  if (!startDate && !endDate) return 'All Time'
+  return `${startDate || 'Beginning'} to ${endDate || 'Present'}`
 }
 
 export default function CancelOrdersReportPage() {
@@ -101,14 +114,22 @@ export default function CancelOrdersReportPage() {
   const tableColumns = [
     { header: 'Date', key: 'date' },
     { header: 'Outlet', key: 'outlet' },
+    { header: 'Customer ID', key: 'custId' },
+    { header: 'Biller ID', key: 'billerId' },
     { header: 'Cancelled Amount', key: 'amount', align: 'right' as const },
     { header: 'Cancellation Reason', key: 'reason' },
   ]
+
+  const handleAllTime = () => {
+    setStartDate('')
+    setEndDate('')
+  }
 
   const handleExportExcel = () => {
     if (!report) return
     setExporting('excel')
     try {
+      const exportedDateRange = dateRangeLabel(report.filters.startDate, report.filters.endDate)
       exportToExcel({
         filename: 'Cancellation_Report',
         sheetName: 'Cancellation Details',
@@ -119,9 +140,8 @@ export default function CancelOrdersReportPage() {
           totalCanceledRevenueLost: report.summary.totalCanceledValue,
         },
         filters: {
-          outletId: selectedOutletId,
-          startDate,
-          endDate,
+          outletId: report.filters.outletId,
+          dateRange: exportedDateRange,
         },
         extraSheets: [
           {
@@ -145,19 +165,20 @@ export default function CancelOrdersReportPage() {
     if (!report) return
     setExporting('pdf')
     try {
+      const exportedDateRange = dateRangeLabel(report.filters.startDate, report.filters.endDate)
       exportToPDF({
-        title: 'Cancel Order Report Matrix',
-        subtitle: `Dates: ${startDate} to ${endDate}`,
+        title: 'Cancellation Incident Report',
+        subtitle: `Dates: ${exportedDateRange}`,
         filename: 'Cancellation_Report',
         columns: tableColumns,
         rows: report.rows,
         summary: {
-          totalCanceledCount: report.summary.totalCanceledCount,
+          canceledOrders: report.summary.totalCanceledCount,
           totalCanceledValue: report.summary.totalCanceledValue,
         },
         filters: {
-          startDate,
-          endDate,
+          outletId: report.filters.outletId,
+          dateRange: exportedDateRange,
         },
       })
     } finally {
@@ -173,6 +194,10 @@ export default function CancelOrdersReportPage() {
         { label: 'Revenue Lost', value: report.summary.totalCanceledValue, isCurrency: true, description: 'Sum of cancelled bills' },
       ]
     : []
+  const reportMatchesFilters = report
+    && report.filters.outletId === selectedOutletId
+    && report.filters.startDate === startDate
+    && report.filters.endDate === endDate
 
   return (
     <ReportLayout
@@ -180,7 +205,7 @@ export default function CancelOrdersReportPage() {
       subtitle="Analyze order cancellations by quantity count and total bill loss matrices"
       onBack={() => router.push('/reports')}
       actions={
-        report && (
+        reportMatchesFilters && !loading && (
           <ExportButtons
             onExportExcel={handleExportExcel}
             onExportPDF={handleExportPDF}
@@ -197,6 +222,7 @@ export default function CancelOrdersReportPage() {
           onStartDateChange={setStartDate}
           onEndDateChange={setEndDate}
           onOutletChange={setSelectedOutletId}
+          onAllTime={handleAllTime}
         />
       }
     >
@@ -234,7 +260,7 @@ export default function CancelOrdersReportPage() {
             description="Historical audit records of each cancellation event"
             columns={tableColumns}
             rows={report.rows}
-            minWidth="700px"
+            minWidth="1000px"
           />
         </div>
       )}
