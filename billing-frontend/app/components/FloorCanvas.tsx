@@ -15,6 +15,7 @@ import { CancellationModal } from '@/app/components/CancellationModal'
 import { removeOrderItem } from '@/lib/services/orderService'
 import { getFloorMap } from '@/lib/services/backendApi'
 import { BillTemplate, type BillData } from '@/app/components/print/BillTemplate'
+import { clearPrintPageSize, fitPrintPageToContent } from '@/app/components/print/printPageSize'
 
 const TABLE_WIDTH = 108
 const TABLE_HEIGHT = 92
@@ -1137,11 +1138,20 @@ export function FloorCanvas() {
     })
 
     const sourceItems = Array.isArray(billItems) && billItems.length > 0 ? billItems : fallbackItems
+
     const items = sourceItems.map((item: any, index: number) => {
       const quantity = Math.max(1, Math.floor(toSafeNumber(item.quantity ?? item.qty, 1)))
       const unitPrice = toSafeNumber(
         item.price ?? item.unitPrice,
         quantity > 0 ? toSafeNumber(item.totalPrice, 0) / quantity : 0,
+      )
+      const originalUnitPrice = toSafeNumber(
+        item.originalPrice ?? item.unitPrice ?? item.price,
+        unitPrice,
+      )
+      const finalUnitPrice = toSafeNumber(
+        item.finalPrice ?? item.price ?? item.unitPrice,
+        unitPrice,
       )
       const notes = Array.isArray(item.notes)
         ? item.notes
@@ -1156,17 +1166,31 @@ export function FloorCanvas() {
         name: String(item.name || 'Item'),
         quantity,
         category: String(item.category || item.offerTitle || item.offerType || 'ITEM'),
-        price: unitPrice,
+        price: finalUnitPrice,
+        originalPrice: originalUnitPrice,
+        finalPrice: finalUnitPrice,
         notes,
       }
     })
+
+    const subtotalFromItems = items.reduce((sum, item) => {
+      const quantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 0
+      const subtotalUnit = Number.isFinite(Number(item.originalPrice))
+        ? Number(item.originalPrice)
+        : Number.isFinite(Number(item.price))
+          ? Number(item.price)
+          : 0
+      return sum + subtotalUnit * quantity
+    }, 0)
 
     return {
       orderNumber: String(relatedOrders[0]?.id || table.activeSessionId || table.id),
       tableNumber: String(table.name || table.id),
       date: new Date(),
       items,
-      subTotal: Number(pricing.subtotal || 0),
+      subTotal: Number.isFinite(subtotalFromItems) && subtotalFromItems > 0 ? subtotalFromItems : Number(pricing.subtotal || 0),
+      discount: Number(pricing.discount || 0),
+      discountedPrice: Number(pricing.discountedPrice ?? Math.max(Number(pricing.subtotal || 0) - Number(pricing.discount || 0), 0)),
       taxTotal: Number(pricing.tax || 0),
       grandTotal: Number(pricing.total || 0),
     }
@@ -1561,6 +1585,13 @@ export function FloorCanvas() {
       return
     }
     try {
+      console.debug('[FloorCanvas] openGenerateBill start', {
+        tableId: table.id,
+        tableName: table.name,
+        activeSessionId: table.activeSessionId,
+        orderCount: (tableSessionOrders[table.id] || []).length,
+      })
+
       const API_BASE = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
       // Use the canonical customer billing endpoint so server-side rules (tax rounding)
       // are applied consistently for both customer and billing apps.
@@ -1573,6 +1604,14 @@ export function FloorCanvas() {
         }),
       })
       const result = await response.json().catch(() => ({}))
+      console.debug('[FloorCanvas] generateBill response', {
+        ok: response.ok,
+        success: result?.success,
+        pricing: result?.pricing,
+        itemCount: Array.isArray(result?.items) ? result.items.length : 0,
+        appliedOffers: Array.isArray(result?.appliedOffers) ? result.appliedOffers.length : 0,
+      })
+
       if (!response.ok || !result?.success) {
         throw new Error(result?.message || 'Failed to generate bill')
       }
@@ -1591,6 +1630,11 @@ export function FloorCanvas() {
       updateTable(table.id, {
         billAmount: Number.isFinite(result.pricing?.total) ? Number(result.pricing.total) : 0,
       }, true)
+      console.debug('[FloorCanvas] setting printBillData', {
+        tableId: table.id,
+        tableName: table.name,
+        itemCount: Array.isArray(result.items) ? result.items.length : 0,
+      })
       setPrintBillData(
         buildBillTemplateData(table, tableSessionOrders[table.id] || [], {
           subtotal: Number.isFinite(result.pricing?.subtotal) ? Math.round(result.pricing.subtotal) : 0,
@@ -1610,12 +1654,27 @@ export function FloorCanvas() {
   useEffect(() => {
     if (!printBillData) return undefined
 
-    const timeoutId = window.setTimeout(() => {
-      window.print()
+    const handleAfterPrint = () => {
+      clearPrintPageSize()
       setPrintBillData(null)
-    }, 120)
+    }
 
-    return () => window.clearTimeout(timeoutId)
+    let firstFrame = 0
+    let secondFrame = 0
+
+    window.addEventListener('afterprint', handleAfterPrint)
+    fitPrintPageToContent('.print-container')
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        window.print()
+      })
+    })
+
+    return () => {
+      window.removeEventListener('afterprint', handleAfterPrint)
+      window.cancelAnimationFrame(firstFrame)
+      window.cancelAnimationFrame(secondFrame)
+    }
   }, [printBillData])
 
   const printKOT = (table: Table) => {
@@ -1958,7 +2017,7 @@ export function FloorCanvas() {
                               setPrinterMenuTableId(null)
                             }}
                           >
-                            Generate Bill
+                            Print Bill
                           </button>
                           <button
                             className="w-full px-3 py-2 text-left text-xs font-medium text-gray-700 hover:bg-gray-50"
@@ -2143,7 +2202,7 @@ export function FloorCanvas() {
       )}
 
       {printBillData && (
-        <div className="hidden print:fixed print:inset-0 print:z-[9999] print:flex print:items-start print:justify-center print:bg-white">
+        <div className="fixed top-[-9999px] left-[-9999px] -z-50 print-container print:static print:top-0 print:left-0 print:z-auto">
           <BillTemplate
             data={printBillData}
             restaurantHeader="Demitasse Coffee"
