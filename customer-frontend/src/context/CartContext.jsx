@@ -149,6 +149,8 @@ export function CartProvider({ children }) {
       isCombo: true,
       name: comboData.offerTitle || "Combo Deal",
       price: safeComboPrice + addOnsCost,
+      totalPrice: safeComboPrice + addOnsCost,
+      discountedPrice: safeComboPrice + addOnsCost,
       qty: 1,
       isFree: false,
       variation: {},
@@ -217,6 +219,8 @@ export function CartProvider({ children }) {
       isManualB1G1: true,
       variation: {},
       addOns: [],
+      totalPrice: dealPrice,
+      discountedPrice: dealPrice,
       items: finalItems.map(item => ({
         productId: item.productId,
         name: item.name,
@@ -259,6 +263,8 @@ export function CartProvider({ children }) {
       isDiscount: true,
       variation: {},
       addOns: [],
+      totalPrice: discountData.finalPrice,
+      discountedPrice: discountData.finalPrice,
       items: discountData.items.map(item => ({
         productId: item.productId,
         name: item.name,
@@ -341,8 +347,8 @@ export function CartProvider({ children }) {
   // 💰 TOTAL PRICE (handles combos, B1G1, discount — price already correct for special items)
   const totalPrice = cart.reduce((total, item) => {
     if (item.isFree && !item.isManualB1G1) return total;
-    if (item.isCombo || item.isManualB1G1 || item.isDiscount) return total + (item.price || 0);
-    return total + item.price * item.qty;
+    if (item.isCombo || item.isManualB1G1 || item.isDiscount) return total + Number(item.totalPrice ?? item.price ?? 0);
+    return total + Number(item.totalPrice ?? (item.price * item.qty) ?? 0);
   }, 0);
 
   const totalItems = cart.reduce((t, i) => t + (i.isFree ? 0 : i.qty), 0);

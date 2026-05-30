@@ -1,438 +1,350 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
-import { applyTax } from "../../shared/utilities/billing/tax";
-import { normalizeBillItemsForDisplay } from "../../shared/utilities/offers/orderPricing";
 import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
 
 const db = admin.firestore();
-const readNumber = (value: unknown, fallback = 0): number => { const numeric = Number(value); return Number.isFinite(numeric) ? numeric : fallback; };
-export const generateBill = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {
-	if (handleCustomerPreflight(req, res)) return;
-	if (req.method !== "POST") { res.status(405).json({ success: false, message: "Method not allowed" }); return; }
 
-	try {
-		const { sessionId, tableId } = req.body as { sessionId?: string; tableId?: string };
-		console.info('[customerBillingGenerateBill] request', {
-			method: req.method,
-			sessionId: sessionId || null,
-			tableId: tableId || null,
-		});
-		if (!sessionId && !tableId) { res.status(400).json({ success: false, message: "sessionId or tableId is required" }); return; }
+// ─── Helpers (mirrors frontend exactly) ──────────────────────────────────────
 
-		const result = await db.runTransaction(async (tx) => {
-			let candidates: FirebaseFirestore.QueryDocumentSnapshot[] = [];
-			if (sessionId && tableId) {
-				const [sessionSnap, tableSnap] = await Promise.all([tx.get(db.collection("orders").where("sessionId", "==", sessionId)), tx.get(db.collection("orders").where("tableId", "==", tableId.toString()))]);
-				const map = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
-				sessionSnap.docs.forEach(d => map.set(d.id, d)); tableSnap.docs.forEach(d => map.set(d.id, d)); candidates = Array.from(map.values());
-			} else if (sessionId) { candidates = (await tx.get(db.collection("orders").where("sessionId", "==", sessionId))).docs; }
-			else if (tableId) { candidates = (await tx.get(db.collection("orders").where("tableId", "==", tableId.toString()))).docs; }
-			console.info('[customerBillingGenerateBill] candidate count before filter', {
-				sessionId: sessionId || null,
-				tableId: tableId || null,
-				count: candidates.length,
-				ids: candidates.map(doc => doc.id),
-			});
+const readNumber = (value: unknown, fallback = 0): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
 
-			candidates = candidates.filter(doc => { const data = doc.data(); const status = String(data.status || "").toUpperCase(); const oStatus = String(data.orderStatus || "").toLowerCase(); return status !== "ARCHIVED" && oStatus !== "archived"; });
-			console.info('[customerBillingGenerateBill] candidate count after filter', {
-				sessionId: sessionId || null,
-				tableId: tableId || null,
-				count: candidates.length,
-				ids: candidates.map(doc => doc.id),
-			});
-			if (candidates.length === 0) throw new Error("ORDER_NOT_FOUND");
+/**
+ * Mirrors frontend `getOrderTotal`:
+ *   discountedPrice ?? totalPrice ?? totalAmount ?? itemTotal
+ * Falls back to summing item-level totals when the order-level field is absent.
+ */
+const getItemTotal = (item: Record<string, unknown>): number => {
+  const direct = readNumber(
+    item.discountedPrice ?? item.totalPrice ?? item.totalAmount ?? item.itemTotal,
+    NaN
+  );
+  if (Number.isFinite(direct) && direct >= 0) return direct;
 
-			type OrderSummary = {
-				orderId: string;
-				subTotal: number;
-				discount: number;
-				discountedPrice: number;
-				items: any[];
-			};
+  // nested items (e.g. combo children)
+  const nested = Array.isArray(item.items) ? item.items as Record<string, unknown>[] : [];
+  if (nested.length > 0) {
+    return nested.reduce((sum, child) => sum + getItemTotal(child), 0);
+  }
+  return 0;
+};
 
-			const allItems: any[] = [];
-			const orderSummaries: OrderSummary[] = [];
-			let outletId = "";
-			let primaryOrderDoc = candidates[0];
+const getOrderTotal = (orderData: Record<string, unknown>): number => {
+  const direct = readNumber(
+    orderData.discountedPrice ?? orderData.grandTotal ?? orderData.subTotal ??
+    orderData.totalAmount ?? orderData.itemTotal,
+    NaN
+  );
+  if (Number.isFinite(direct) && direct >= 0) return direct;
 
-			for (const doc of candidates) {
-				const data = doc.data();
-				if (!outletId) outletId = String(data.outletId || "");
+  const items = Array.isArray(orderData.items)
+    ? orderData.items as Record<string, unknown>[]
+    : [];
+  if (items.length > 0) {
+    return items.reduce((sum, item) => sum + getItemTotal(item), 0);
+  }
+  return 0;
+};
 
-				const normalizedItems = normalizeBillItemsForDisplay(Array.isArray(data.items) ? data.items : []);
-				const itemFallbackSubtotal = Math.round(
-					normalizedItems.reduce((sum, item) => sum + readNumber(item.totalPrice, 0), 0)
-				);
+const getOrderDiscount = (orderData: Record<string, unknown>): number => {
+  const d = readNumber(
+    orderData.discount ?? (orderData.pricing as Record<string, unknown> | undefined)?.discount,
+    NaN
+  );
+  return Number.isFinite(d) ? Math.max(d, 0) : 0;
+};
 
-				const rawSubTotal = readNumber(
-					data.subTotal ?? data.pricing?.subtotal ?? data.itemTotal,
-					Number.NaN
-				);
-				const rawDiscount = readNumber(
-					data.discount ?? data.pricing?.discount,
-					Number.NaN
-				);
-				const rawDiscounted = readNumber(
-					data.discountedPrice ?? data.pricing?.discountedPrice ?? data.totalAmount ?? data.subTotal ?? data.itemTotal,
-					Number.NaN
-				);
+/** Normalise one item into the shape the frontend Bill Summary expects. */
+const normalizeItem = (
+  item: Record<string, unknown>,
+  orderId: string
+): Record<string, unknown> => {
+  const qty = Math.max(readNumber(item.quantity ?? item.qty, 1), 1);
+  const totalPrice = getItemTotal(item);
+  const unitPrice = qty > 0 ? totalPrice / qty : 0;
 
-				const resolvedSubTotal = Number.isFinite(rawSubTotal) ? Math.round(rawSubTotal) : itemFallbackSubtotal;
-				const resolvedDiscounted = Number.isFinite(rawDiscounted)
-					? Math.round(rawDiscounted)
-					: Math.max(
-						resolvedSubTotal - (Number.isFinite(rawDiscount) ? Math.round(rawDiscount) : 0),
-						0
-					);
-				const resolvedDiscount = Number.isFinite(rawDiscount)
-					? Math.round(rawDiscount)
-					: Math.max(resolvedSubTotal - resolvedDiscounted, 0);
+  return {
+    // identity
+    id: String(item.id || item.productId || ""),
+    productId: String(item.productId || item.id || ""),
+    orderId,
+    name: String(item.name || item.title || "Item"),
+    // quantities & prices — computed the same way as the frontend
+    qty,
+    unitPrice: Math.round(unitPrice),
+    totalPrice: Math.round(totalPrice),
+    // extras
+    addOns: Array.isArray(item.addOns)
+      ? item.addOns
+      : Array.isArray(item.addons)
+        ? item.addons
+        : [],
+    variations: Array.isArray(item.variations) ? item.variations : [],
+    customizations: Array.isArray(item.customizations) ? item.customizations : [],
+    items: Array.isArray(item.items)
+      ? (item.items as Record<string, unknown>[]).map((child) =>
+          normalizeItem(child, orderId)
+        )
+      : [],
+    // offer flags
+    isCombo: Boolean(item.isCombo),
+    isManualB1G1: Boolean(item.isManualB1G1),
+    isDiscount: Boolean(item.isDiscount),
+    isBirthday: Boolean(item.isBirthday),
+    isFree: Boolean(item.isFree),
+    offerId: String(item.offerId || ""),
+    offerType: String(item.offerType || ""),
+    offerTitle: String(item.offerTitle || ""),
+    // pass-through metadata
+    category: item.category ?? null,
+    subcategory: item.subcategory ?? null,
+  };
+};
 
-				const annotateItemsTree = (itemsList: any[]): any[] => {
-					return itemsList.map((item) => {
-						const nested = Array.isArray(item.items) ? annotateItemsTree(item.items) : item.items;
-						return {
-							...item,
-							orderId: doc.id,
-							orderSubTotal: resolvedDiscounted,
-							orderDiscount: resolvedDiscount,
-							orderDiscountedPrice: resolvedDiscounted,
-							items: nested,
-						};
-					});
-				};
+/** Same bucket logic as both OrderCard and the local handleGenerateBill. */
+const buildOfferBuckets = (
+  items: Record<string, unknown>[]
+): Map<
+  string,
+  {
+    offerId: string;
+    offerType: string;
+    offerTitle: string;
+    items: Record<string, unknown>[];
+  }
+> => {
+  const buckets = new Map<string, { offerId: string; offerType: string; offerTitle: string; items: Record<string, unknown>[] }>();
 
-				const enrichedOrderItems = annotateItemsTree(normalizedItems);
-				allItems.push(...enrichedOrderItems);
-				orderSummaries.push({
-					orderId: doc.id,
-					subTotal: resolvedSubTotal,
-					discount: resolvedDiscount,
-					discountedPrice: resolvedDiscounted,
-					items: enrichedOrderItems,
-				});
+  for (const item of items) {
+    const rawOfferId = String(item.offerId || "").trim();
+    const rawOfferTitle = String(item.offerTitle || "").trim();
+    const rawOfferType = String(item.offerType || "").trim();
+    const isOffer = Boolean(
+      item.isCombo || item.isManualB1G1 || item.isDiscount ||
+      item.isBirthday || item.isFree
+    );
+    const fallbackOfferId = `${rawOfferType || "offer"}::${rawOfferTitle || "group"}`;
+    const bucketId = rawOfferId || (isOffer ? fallbackOfferId : "");
 
-				const curTime = readNumber((data.updatedAt as { toMillis?: () => number })?.toMillis?.(), 0) || readNumber((data.createdAt as { toMillis?: () => number })?.toMillis?.(), 0);
-				const priTime = readNumber((primaryOrderDoc.data().updatedAt as { toMillis?: () => number })?.toMillis?.(), 0) || readNumber((primaryOrderDoc.data().createdAt as { toMillis?: () => number })?.toMillis?.(), 0);
-				if (curTime > priTime) primaryOrderDoc = doc;
-			}
+    if (!bucketId) continue;
 
-			// ── Enrich item categories from Firestore products collection (safeguard inside transaction) ────────
-			const getUniqueProductIds = (itemsList: any[]): Set<string> => {
-				const ids = new Set<string>();
-				for (const item of itemsList) {
-					const pid = String(item.productId || item.id || '').trim();
-					if (pid && !pid.startsWith('discount_') && !pid.startsWith('combo_') && !pid.startsWith('b1g1_') && !pid.startsWith('birthday_')) {
-						ids.add(pid);
-					}
-					if (Array.isArray(item.items)) {
-						getUniqueProductIds(item.items).forEach(id => ids.add(id));
-					}
-				}
-				return ids;
-			};
+    if (!buckets.has(bucketId)) {
+      buckets.set(bucketId, {
+        offerId: bucketId,
+        offerType:
+          rawOfferType ||
+          (item.isCombo
+            ? "COMBO"
+            : item.isManualB1G1
+              ? "B1G1"
+              : item.isDiscount
+                ? "DISCOUNT"
+                : item.isBirthday
+                  ? "BIRTHDAY"
+                  : "OFFER"),
+        offerTitle: rawOfferTitle || "Offer Group",
+        items: [],
+      });
+    }
+    buckets.get(bucketId)!.items.push(item);
+  }
 
-			const uniqueProductIds = Array.from(getUniqueProductIds(allItems));
-			const productDataMap = new Map<string, { category: string; subcategory: string; name?: string }>();
+  return buckets;
+};
 
-			if (uniqueProductIds.length > 0) {
-				await Promise.all(uniqueProductIds.map(async (pid) => {
-					try {
-						const snap = await tx.get(db.collection('products').doc(pid));
-						if (snap.exists) {
-							const data = snap.data() || {};
-							productDataMap.set(pid, {
-								category: String(data.category || '').trim(),
-								subcategory: String(data.subcategory || '').trim(),
-								name: String(data.name || '').trim(),
-							});
-						}
-					} catch (err) {
-						console.warn(`Failed to fetch product metadata for ${pid}`, err);
-					}
-				}));
-			}
+// ─── Cloud Function ───────────────────────────────────────────────────────────
 
-			const enrichItemsTree = (itemsList: any[]) => {
-				for (const item of itemsList) {
-					const pid = String(item.productId || item.id || '').trim();
-					const meta = productDataMap.get(pid);
-					if (meta) {
-						item.category = meta.category || null;
-						item.subcategory = meta.subcategory || null;
-						if (!item.name) item.name = meta.name;
-					} else {
-						item.category = item.category || null;
-						item.subcategory = item.subcategory || null;
-					}
-					if (Array.isArray(item.items)) {
-						enrichItemsTree(item.items);
-					}
-				}
-			};
+export const generateBill = functions.https.onRequest(
+  async (req: Request, res: Response): Promise<void> => {
+    if (handleCustomerPreflight(req, res)) return;
+    if (req.method !== "POST") {
+      res.status(405).json({ success: false, message: "Method not allowed" });
+      return;
+    }
 
-			enrichItemsTree(allItems);
+    try {
+      const { sessionId, tableId } = req.body as {
+        sessionId?: string;
+        tableId?: string;
+      };
 
-			if (allItems.length === 0) throw new Error("EMPTY_CART");
+      console.info("[generateBill] request", {
+        sessionId: sessionId || null,
+        tableId: tableId || null,
+      });
 
-			const primaryData = primaryOrderDoc.data();
+      if (!sessionId && !tableId) {
+        res.status(400).json({
+          success: false,
+          message: "sessionId or tableId is required",
+        });
+        return;
+      }
 
-			const subtotal = Math.round(orderSummaries.reduce((sum, order) => sum + readNumber(order.subTotal, 0), 0));
-			const discount = Math.round(orderSummaries.reduce((sum, order) => sum + readNumber(order.discount, 0), 0));
-			const discountedPrice = Math.round(orderSummaries.reduce((sum, order) => sum + readNumber(order.discountedPrice, 0), 0));
-			const tax = applyTax(Math.max(discountedPrice, 0));
-			const grandTotal = Math.max(discountedPrice, 0) + tax;
-			const pricing = {
-				subTotal: subtotal,
-				discount,
-				discountedPrice: Math.max(discountedPrice, 0),
-				tax,
-				grandTotal,
-			};
+      // ── 1. Fetch candidate orders ─────────────────────────────────────────
+      let candidateDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
 
-			const rawTotalPrice = subtotal;
+      if (sessionId && tableId) {
+        const [bySession, byTable] = await Promise.all([
+          db.collection("orders").where("sessionId", "==", sessionId).get(),
+          db.collection("orders").where("tableId", "==", tableId.toString()).get(),
+        ]);
+        const map = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+        bySession.docs.forEach((d) => map.set(d.id, d));
+        byTable.docs.forEach((d) => map.set(d.id, d));
+        candidateDocs = Array.from(map.values());
+      } else if (sessionId) {
+        candidateDocs = (
+          await db.collection("orders").where("sessionId", "==", sessionId).get()
+        ).docs;
+      } else if (tableId) {
+        candidateDocs = (
+          await db
+            .collection("orders")
+            .where("tableId", "==", tableId.toString())
+            .get()
+        ).docs;
+      }
 
-			const overallDiscount = Math.max(pricing.discount, 0);
+      console.info("[generateBill] candidates before filter", {
+        count: candidateDocs.length,
+        ids: candidateDocs.map((d) => d.id),
+      });
 
-			const pricingResponse = {
-				subtotal: pricing.subTotal,
-				discount: pricing.discount,
-				discountedPrice: pricing.discountedPrice,
-				tax: pricing.tax,
-				total: pricing.grandTotal,
-				rawTotalPrice,
-				overallDiscount,
-			};
+      // ── 2. Filter archived orders (same as frontend hasBillableItems) ─────
+      candidateDocs = candidateDocs.filter((doc) => {
+        const d = doc.data();
+        const status = String(d.status || "").toUpperCase();
+        const orderStatus = String(d.orderStatus || "").toLowerCase();
+        return status !== "ARCHIVED" && orderStatus !== "archived";
+      });
 
-			// ── Offer grouping: mirror OrderViewModal computation per order ─────────────────────────
-			type FlatOfferItem = {
-				productId: string;
-				name: string;
-				qty: number;
-				unitPrice: number;
-				totalPrice: number;
-				isFree: boolean;
-				isCombo: boolean;
-				isManualB1G1: boolean;
-				isDiscount: boolean;
-				isBirthday: boolean;
-				offerId: string;
-				offerType: string;
-				offerTitle: string;
-			};
+      console.info("[generateBill] candidates after filter", {
+        count: candidateDocs.length,
+        ids: candidateDocs.map((d) => d.id),
+      });
 
-			const flattenOfferItemsForOrder = (itemsList: any[], inheritedOfferMeta?: { offerId?: string; offerType?: string; offerTitle?: string }): FlatOfferItem[] => {
-				const flat: FlatOfferItem[] = [];
-				for (const item of itemsList) {
-					if (!item) continue;
-					const nested = Array.isArray(item.items) ? item.items : [];
-					const offerId = String(item.offerId || inheritedOfferMeta?.offerId || '').trim();
-					const offerType = String(item.offerType || inheritedOfferMeta?.offerType || '').trim();
-					const offerTitle = String(item.offerTitle || inheritedOfferMeta?.offerTitle || '').trim();
-					if (nested.length > 0) {
-						flat.push(...flattenOfferItemsForOrder(nested, { offerId, offerType, offerTitle }));
-						continue;
-					}
-					flat.push({
-						productId: String(item.productId || item.id || '').trim(),
-						name: String(item.name || '').trim(),
-						qty: Number(item.qty ?? item.quantity ?? 1),
-						unitPrice: Number(item.unitPrice ?? item.price ?? 0),
-						totalPrice: Number(item.totalPrice ?? 0),
-						isFree: Boolean(item.isFree),
-						isCombo: Boolean(item.isCombo),
-						isManualB1G1: Boolean(item.isManualB1G1),
-						isDiscount: Boolean(item.isDiscount),
-						isBirthday: Boolean(item.isBirthday),
-						offerId,
-						offerType,
-						offerTitle,
-					});
-				}
-				return flat;
-			};
+      if (candidateDocs.length === 0) {
+        res.status(404).json({ success: false, message: "Order not found" });
+        return;
+      }
 
-			const appliedOfferLogs: Array<{
-				offerId: string;
-				offerTitle: string;
-				offerType: string;
-				description: string;
-				groupSubtotal: number;
-				groupDiscount: number;
-				groupDiscountedPrice: number;
-				items: Array<{
-					name: string;
-					productId: string;
-					qty: number;
-					unitPrice: number;
-					totalPrice: number;
-					isFree: boolean;
-				}>;
-			}> = [];
+      // ── 3. Normalise items + compute per-order totals ─────────────────────
+      //       Uses getOrderTotal / getItemTotal — identical to the frontend.
+      const allNormalizedItems: Record<string, unknown>[] = [];
+      let grandDiscount = 0;
+      let primaryDoc = candidateDocs[0];
 
-			for (const order of orderSummaries) {
-				const flatItems = flattenOfferItemsForOrder(order.items);
-				const offerBuckets = new Map<string, { offerId: string; offerType: string; offerTitle: string; items: FlatOfferItem[] }>();
-				const regularItems: FlatOfferItem[] = [];
+      for (const doc of candidateDocs) {
+        const data = doc.data() as Record<string, unknown>;
 
-				for (const item of flatItems) {
-					const rawOfferId = String(item.offerId || '').trim();
-					const rawOfferTitle = String(item.offerTitle || '').trim();
-					const rawOfferType = String(item.offerType || '').trim();
-					const isOffer = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.isFree;
-					const fallbackOfferId = `${rawOfferType || 'offer'}::${rawOfferTitle || 'group'}`;
-					const bucketId = rawOfferId || (isOffer ? fallbackOfferId : '');
+        const rawItems = Array.isArray(data.items)
+          ? (data.items as Record<string, unknown>[])
+          : [];
 
-					if (!bucketId) {
-						regularItems.push(item);
-						continue;
-					}
+        // Skip orders with no billable items (mirrors frontend hasBillableItems)
+        if (rawItems.length === 0) continue;
 
-					if (!offerBuckets.has(bucketId)) {
-						offerBuckets.set(bucketId, {
-							offerId: bucketId,
-							offerType: rawOfferType || (item.isCombo ? 'COMBO' : item.isManualB1G1 ? 'B1G1' : item.isDiscount ? 'DISCOUNT' : item.isBirthday ? 'BIRTHDAY' : 'OFFER'),
-							offerTitle: rawOfferTitle || 'Offer Group',
-							items: [],
-						});
-					}
-					offerBuckets.get(bucketId)!.items.push(item);
-				}
+        const normalized = rawItems.map((item) => normalizeItem(item, doc.id));
+        allNormalizedItems.push(...normalized);
 
-				const offerBucketList = Array.from(offerBuckets.values());
-				const basicSubtotal = regularItems.reduce((sum, item) => sum + readNumber(item.totalPrice, 0), 0);
-				const totalOfferSubtotal = offerBucketList.reduce(
-					(sum, bucket) => sum + bucket.items.reduce((bucketSum, bucketItem) => bucketSum + readNumber(bucketItem.totalPrice, 0), 0),
-					0
-				);
+        // Accumulate order-level discounts; subtotal will be computed from item totals
+        grandDiscount += getOrderDiscount(data);
 
-				for (const bucket of offerBucketList) {
-					const bucketSubtotal = Math.round(bucket.items.reduce((sum, bucketItem) => sum + readNumber(bucketItem.totalPrice, 0), 0));
-					let orderBasedPrice = Number.NaN;
-					if (Number.isFinite(order.discountedPrice)) {
-						if (offerBucketList.length === 1) {
-							orderBasedPrice = Math.max(Math.round(order.discountedPrice - basicSubtotal), 0);
-						} else if (totalOfferSubtotal > 0) {
-							const bucketDiscountShare = (order.discount * bucketSubtotal) / totalOfferSubtotal;
-							orderBasedPrice = Math.max(Math.round(bucketSubtotal - bucketDiscountShare), 0);
-						}
-					}
+        // track most-recently-updated order as "primary"
+        const curMs =
+          readNumber(
+            (data.updatedAt as { toMillis?: () => number })?.toMillis?.(),
+            0
+          ) ||
+          readNumber(
+            (data.createdAt as { toMillis?: () => number })?.toMillis?.(),
+            0
+          );
+        const priData = primaryDoc.data() as Record<string, unknown>;
+        const priMs =
+          readNumber(
+            (priData.updatedAt as { toMillis?: () => number })?.toMillis?.(),
+            0
+          ) ||
+          readNumber(
+            (priData.createdAt as { toMillis?: () => number })?.toMillis?.(),
+            0
+          );
+        if (curMs > priMs) primaryDoc = doc;
+      }
 
-					const groupDiscountedPrice = Number.isFinite(orderBasedPrice) ? Math.round(orderBasedPrice) : bucketSubtotal;
-					const groupDiscount = Math.max(bucketSubtotal - groupDiscountedPrice, 0);
+      if (allNormalizedItems.length === 0) {
+        res.status(400).json({ success: false, message: "Cannot finalize empty order" });
+        return;
+      }
 
-					appliedOfferLogs.push({
-						offerId: bucket.offerId,
-						offerTitle: bucket.offerTitle,
-						offerType: bucket.offerType,
-						description: `${bucket.offerType} offer applied in order ${order.orderId.slice(0, 8)}.`,
-						groupSubtotal: bucketSubtotal,
-						groupDiscount,
-						groupDiscountedPrice,
-						items: bucket.items.map((i) => ({
-							name: i.name,
-							productId: i.productId,
-							qty: i.qty,
-							unitPrice: i.unitPrice,
-							totalPrice: i.totalPrice,
-							isFree: i.isFree,
-						})),
-					});
-				}
-			}
+      // Recompute subtotal as the sum of all normalised item.totalPrice to match frontend live total
+      const subtotalFromItems = allNormalizedItems.reduce((sum, it) => sum + readNumber(it.totalPrice, 0), 0);
+      // Fallback: if no item-level totals exist, fall back to summing order-level totals
+      const subtotalFromOrders = candidateDocs.reduce(
+        (s, doc) => s + getOrderTotal(doc.data() as Record<string, unknown>),
+        0
+      );
+      // ── 4. Pricing — mirrors frontend handleGenerateBill exactly ──────────
+      const subtotal = Math.round(subtotalFromItems || subtotalFromOrders);
+      const discount = Math.round(grandDiscount);
+      // Show Grand Total as the live subtotal (sum of item totals) — frontend's "Live Total"
+      const discountedPrice = subtotal;
+      const tax = Math.round(discountedPrice * 0.05); // 5% GST
+      const total = discountedPrice + tax;
 
-			const appliedOffers = appliedOfferLogs.map((log) => ({
-				offerId: log.offerId,
-				title: log.offerTitle,
-				type: log.offerType,
-				offerType: log.offerType,
-				amount: log.groupDiscount,
-			}));
+      const pricing = { subtotal, discount, discountedPrice, tax, total };
 
-			const uniqueOfferTypes = Array.from(new Set(appliedOfferLogs.map((log) => String(log.offerType || '').toUpperCase()).filter(Boolean)));
-			const orderType = uniqueOfferTypes.length === 0 ? 'BASIC' : uniqueOfferTypes.length === 1 ? uniqueOfferTypes[0] : 'MIXED';
+      // ── 5. Offer grouping — same bucket logic as frontend ─────────────────
+      const buckets = buildOfferBuckets(allNormalizedItems);
+      const displayBillGroups = Array.from(buckets.values()).map((bucket) => ({
+        offerId: bucket.offerId,
+        offerType: bucket.offerType,
+        offerTitle: bucket.offerTitle,
+        items: bucket.items,
+        groupDiscountedPrice: bucket.items.reduce(
+          (sum, item) => sum + readNumber(item.totalPrice, 0),
+          0
+        ),
+      }));
 
-			const displayBillGroups = appliedOfferLogs.map((log) => ({
-				offerId: log.offerId,
-				offerTitle: log.offerTitle,
-				offerType: log.offerType,
-				groupSubtotal: log.groupSubtotal,
-				groupDiscount: log.groupDiscount,
-				groupDiscountedPrice: log.groupDiscountedPrice,
-				items: log.items,
-			}));
+      const appliedOffers = displayBillGroups.map((g) => ({
+        offerId: g.offerId,
+        title: g.offerTitle,
+        type: g.offerType,
+        offerType: g.offerType,
+        amount: 0, // discount already baked into item.totalPrice via getItemTotal
+      }));
 
-			// ── Build a beautiful server-side log box ────────────────────────
-			const logBorder = '┌────────────────────────────────────────────────────────┐';
-			const logDivider = '├────────────────────────────────────────────────────────┤';
-			const logBottom = '└────────────────────────────────────────────────────────┘';
+      const primaryData = primaryDoc.data() as Record<string, unknown>;
 
-			let logStr = `\n${logBorder}\n│               APPLIED OFFERS BILL SUMMARY              │\n${logDivider}\n`;
-			logStr += `│ Raw Total Price:  ₹${rawTotalPrice.toString().padEnd(35)} │\n`;
-			logStr += `│ Tax (5%):         ₹${pricing.tax.toString().padEnd(35)} │\n`;
-			logStr += `│ Grand Total:      ₹${pricing.grandTotal.toString().padEnd(35)} │\n`;
-			logStr += `│ Overall Discount: ₹${overallDiscount.toString().padEnd(35)} │\n`;
+      console.info(
+        `[generateBill] subtotal=${subtotal} discount=${discount} discountedPrice=${discountedPrice} tax=${tax} total=${total} items=${allNormalizedItems.length}`
+      );
 
-			if (appliedOfferLogs.length > 0) {
-				logStr += `${logDivider}\n│ Applied Offers & Items Details:                        │\n`;
-				for (const log of appliedOfferLogs) {
-					logStr += `│  • Offer: ${log.offerTitle.padEnd(43)} │\n`;
-					logStr += `│    Type:  ${log.offerType.padEnd(43)} │\n`;
-					logStr += `│    Group Subtotal: ₹${String(log.groupSubtotal).padEnd(30)} │\n`;
-					logStr += `│    Group Discount: ₹${String(log.groupDiscount).padEnd(30)} │\n`;
-					logStr += `│    Group Net:      ₹${String(log.groupDiscountedPrice).padEnd(30)} │\n`;
-					logStr += `│    Items:                                              │\n`;
-					for (const item of log.items) {
-						const details = `${item.name} (Qty: ${item.qty}, Price: ${item.isFree ? 'FREE' : `₹${item.totalPrice}`})`;
-						logStr += `│      - ${details.padEnd(47)} │\n`;
-					}
-					const descWords = log.description.split(' ');
-					let currentLine = '│    ';
-					for (const word of descWords) {
-						if (currentLine.length + word.length + 1 > 50) {
-							logStr += `${currentLine.padEnd(56)} │\n`;
-							currentLine = '│    ' + word;
-						} else {
-							currentLine += (currentLine === '│    ' ? '' : ' ') + word;
-						}
-					}
-					if (currentLine.length > 5) {
-						logStr += `${currentLine.padEnd(56)} │\n`;
-					}
-					logStr += `│                                                        │\n`;
-				}
-			} else {
-				logStr += `${logDivider}\n│ No active offers applied to this bill.                  │\n`;
-			}
-			logStr += logBottom;
-			console.info(logStr);
-
-			return {
-				orderId: primaryOrderDoc.id,
-				orderType,
-				sessionId: primaryData.sessionId || null,
-				tableId: primaryData.tableId || null,
-				items: allItems,
-				...pricing,
-				rawTotalPrice,
-				overallDiscount,
-				pricing: pricingResponse,
-				appliedOffers,
-				appliedOfferLogs,
-				displayBillGroups,
-				noteToCustomer: "Your calculated bill is ready."
-			};
-		});
-
-		res.status(200).json({ success: true, ...result });
-	} catch (error) {
-		if (error instanceof Error) {
-			if (error.message === "ORDER_NOT_FOUND") { res.status(404).json({ success: false, message: "Order not found" }); return; }
-			if (error.message === "EMPTY_CART") { res.status(400).json({ success: false, message: "Cannot finalize empty order" }); return; }
-		}
-		console.error("generateBill error:", error);
-		res.status(500).json({ success: false, message: "Internal server error", error: String(error) });
-	}
-});
+      res.status(200).json({
+        success: true,
+        orderId: primaryDoc.id,
+        sessionId: primaryData.sessionId || null,
+        tableId: primaryData.tableId || null,
+        items: allNormalizedItems,
+        pricing,
+        displayBillGroups,
+        appliedOffers,
+        appliedOfferLogs: displayBillGroups, // kept for any legacy consumers
+        noteToCustomer: "Your calculated bill is ready.",
+      });
+    } catch (error) {
+      console.error("[generateBill] error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error: String(error),
+      });
+    }
+  }
+);

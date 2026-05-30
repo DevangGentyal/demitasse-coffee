@@ -11,7 +11,7 @@ import {
 	getAppliedOfferUsageCounts,
 	mergeAppliedOfferUsages,
 } from '../../shared/utilities/offers/offerUsage';
-import { normalizeOrderItemsForPricing, buildPricingSummary } from '../../shared/utilities/offers/orderPricing';
+import { normalizeOrderItemsForPricing, applyOfferPricingByGroup, buildPricingSummaryFromItems } from '../../shared/utilities/offers/orderPricing';
 import { calculateSubtotal } from '../../shared/utilities/billing/pricing';
 import { applyTax } from '../../shared/utilities/billing/tax';
 import { applyOffer, OfferDocument } from '../../shared/utilities/offers/applyOffer';
@@ -141,24 +141,33 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 
 		// ── Offer / discount ─────────────────────────────────────────────────
 		const requestedOfferId = readString(autoAppliedOfferId) || readString(offerId) || null;
-		let offerDoc: OfferDocument | null = null;
-		if (requestedOfferId) {
-			const offerSnap = await db.collection('offers').doc(requestedOfferId).get();
-			if (offerSnap.exists) {
-				offerDoc = { id: offerSnap.id, ...(offerSnap.data() || {}) } as OfferDocument;
-			}
+		const uniqueOfferIds = new Set<string>();
+		if (requestedOfferId) uniqueOfferIds.add(requestedOfferId);
+		for (const item of normalisedItems) {
+			const itemOfferId = readString(item.offerId);
+			if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 		}
+		const offerDocsById = new Map<string, OfferDocument>();
+		await Promise.all(Array.from(uniqueOfferIds).map(async (offerDocId) => {
+			const offerSnap = await db.collection('offers').doc(offerDocId).get();
+			if (offerSnap.exists) {
+				offerDocsById.set(offerDocId, { id: offerSnap.id, ...(offerSnap.data() || {}) } as OfferDocument);
+			}
+		}));
 
-		const { orderType: appliedOrderType, discount } = applyOffer({ subTotal, items: normalisedItems }, offerDoc);
+		// ── Apply offer to each item individually ──────────────────────────
+		const itemsWithPricing = applyOfferPricingByGroup(normalisedItems, offerDocsById as any, applyTax);
+		const primaryOfferDoc = requestedOfferId ? (offerDocsById.get(requestedOfferId) || null) : null;
+		const { orderType: appliedOrderType } = applyOffer({ subTotal, items: itemsWithPricing }, primaryOfferDoc);
 		const resolvedOrderType = readString(requestedOrderType).toUpperCase() || appliedOrderType;
-		// ── Grand total ───────────────────────────────────────────────────────
-		// discountedPrice = max(subTotal - discount, 0)
-		// tax             = floor(discountedPrice * 5%)
+		// ── Grand total ───────────────────────────────────────────────────
+		// discountedPrice = sum of all items' discountedPrice
+		// tax             = sum of all items' tax
 		// grandTotal      = discountedPrice + tax
-		const pricing = buildPricingSummary(subTotal, discount, applyTax);
+		const pricing = buildPricingSummaryFromItems(itemsWithPricing);
 
 		// ── Offer usage tracking ─────────────────────────────────────────────
-		const consumedOfferUsages = collectRequestedOfferUsages(normalisedItems, requestedOfferId);
+		const consumedOfferUsages = collectRequestedOfferUsages(itemsWithPricing, requestedOfferId);
 
 		// ── Deduplication (prevent accidental double-submit within 10 s) ─────
 		const normalizeForCompare = (its: any[]) =>
@@ -196,7 +205,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 					.orderBy('timeOfOrder', 'desc')
 					.limit(5)
 					.get();
-				const normNew = normalizeForCompare(normalisedItems);
+				const normNew = normalizeForCompare(itemsWithPricing);
 				for (const doc of recentSnap.docs) {
 					const od = doc.data() || {};
 					const t = od.timeOfOrder as admin.firestore.Timestamp | undefined;
@@ -251,10 +260,10 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				tableId: tableId || null,
 				sessionId: activeSessionId || null,
 
-				// ── Items (canonical shape) ───────────────────────────────────
-				items: normalisedItems,
+				// ── Items (canonical shape with item-level pricing) ──────────
+				items: itemsWithPricing,
 
-				// ── Pricing (single source of truth, no aliases) ──────────────
+				// ── Pricing (calculated from item-level values) ────────────────
 				subTotal: pricing.subTotal,
 				discount: pricing.discount,
 				discountedPrice: pricing.discountedPrice,

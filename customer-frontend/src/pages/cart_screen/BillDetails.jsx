@@ -67,11 +67,19 @@ const BillDetails = () => {
     itemTotal = 0,
     tax = 0,
     discount = 0,
+    discountedPrice = 0,
     grandTotal = 0,
     appliedOffers = [],
     autoAppliedOffer = null,
     autoDiscount = 0,
+    serverPricing = null,
   } = state;
+
+  const resolvedItemTotal = Number(serverPricing?.subtotal ?? itemTotal) || 0;
+  const resolvedDiscount = Number(serverPricing?.discount ?? discount) || 0;
+  const resolvedDiscountedPrice = Number(serverPricing?.discountedPrice ?? discountedPrice ?? Math.max(resolvedItemTotal - resolvedDiscount, 0)) || 0;
+  const resolvedTax = Number(serverPricing?.tax ?? tax) || 0;
+  const resolvedGrandTotal = Number(serverPricing?.total ?? grandTotal) || 0;
 
 
   return (
@@ -309,7 +317,7 @@ const BillDetails = () => {
                   <span className={item.isFree ? "text-green-600 font-medium" : ""}>
                     {item.name} × {item.qty} {item.isFree && " (FREE 🎉)"}
                   </span>
-                  <span>{item.isFree ? "₹0" : `₹${item.price * item.qty}`}</span>
+                  <span>{item.isFree ? "₹0" : `₹${Number(item.totalPrice ?? ((item.price || 0) * (item.qty || 0)))}`}</span>
                 </div>
                 {Object.values(item.variation || {}).map((v, i) => (
                   <div key={i} className="text-xs text-gray-500 ml-2">• {v}</div>
@@ -326,7 +334,7 @@ const BillDetails = () => {
           <div className="space-y-1">
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Item Total</span>
-              <span>₹{itemTotal}</span>
+              <span>₹{resolvedItemTotal}</span>
             </div>
 
 
@@ -348,7 +356,7 @@ const BillDetails = () => {
               if (offerType === "COMBO") return null; // Already in item price
 
               const discValue = Number(matchedOffer.config?.discount?.discountValue ?? matchedOffer.discountValue ?? 0) || 0;
-              const discAmt = Math.round((itemTotal * discValue) / 100);
+              const discAmt = Math.round((resolvedItemTotal * discValue) / 100);
 
               return (
                 <div key={i} className="flex justify-between text-sm text-green-600 font-medium">
@@ -375,24 +383,31 @@ const BillDetails = () => {
             ))}
 
             {/* Fallback if no per-offer data but discount > 0 */}
-            {appliedOffers.length === 0 && !autoAppliedOffer && discount > 0 && (
+            {appliedOffers.length === 0 && !autoAppliedOffer && resolvedDiscount > 0 && (
               <div className="flex justify-between text-sm text-green-600 font-medium">
                 <span>Offer Discount</span>
-                <span>-₹{discount}</span>
+                <span>-₹{resolvedDiscount}</span>
+              </div>
+            )}
+
+            {resolvedDiscountedPrice > 0 && (
+              <div className="flex justify-between text-sm text-gray-600 font-medium mt-1">
+                <span>Net Before Tax</span>
+                <span>₹{resolvedDiscountedPrice}</span>
               </div>
             )}
 
             {/* ✅ Tax Row */}
-            {tax > 0 && (
+            {resolvedTax > 0 && (
               <div className="flex justify-between text-sm text-gray-600 font-medium mt-1">
                 <span>Tax (5% GST)</span>
-                <span>₹{tax}</span>
+                <span>₹{resolvedTax}</span>
               </div>
             )}
 
             <div className="flex justify-between font-bold text-lg pt-2 border-t mt-2">
               <span>Grand Total</span>
-              <span>₹{grandTotal}</span>
+              <span>₹{resolvedGrandTotal}</span>
             </div>
           </div>
         </div>

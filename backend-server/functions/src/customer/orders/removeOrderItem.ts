@@ -4,7 +4,7 @@ import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { applyOffer } from "../../shared/utilities/offers/applyOffer";
 import { applyTax } from "../../shared/utilities/billing/tax";
-import { buildPricingSummary } from "../../shared/utilities/offers/orderPricing";
+import { applyOfferPricingByGroup, buildPricingSummaryFromItems } from "../../shared/utilities/offers/orderPricing";
 import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
 
 const isActiveOrder = (orderData: FirebaseFirestore.DocumentData): boolean => !["CANCELLED", "CLOSED", "DELETED"].includes(String(orderData.status || orderData.orderStatus || orderData.orderLifecycleStatus || "").trim().toUpperCase());
@@ -53,18 +53,27 @@ export const removeOrderItem = functions.https.onRequest(async (req: Request, re
 			const remainingItems = items.filter((i: any) => getItemKey(i) !== itemId);
 			const subtotal = remainingItems.reduce((sum: number, item: any) => sum + getItemTotal(item), 0);
 			const nextOfferId = orderData.offerId ? String(orderData.offerId) : null;
-			let offerDoc: any = null;
-			if (nextOfferId) {
-				const offerSnap = await tx.get(db.collection("offers").doc(nextOfferId));
+			const offerDocsById = new Map<string, any>();
+			const offerIds = new Set<string>();
+			if (nextOfferId) offerIds.add(nextOfferId);
+			for (const item of remainingItems) {
+				const offerId = String(item.offerId || '').trim();
+				if (offerId) offerIds.add(offerId);
+			}
+			for (const offerId of offerIds) {
+				const offerSnap = await tx.get(db.collection("offers").doc(offerId));
 				if (offerSnap.exists) {
-					offerDoc = { id: offerSnap.id, ...(offerSnap.data() || {}) };
+					offerDocsById.set(offerId, { id: offerSnap.id, ...(offerSnap.data() || {}) });
 				}
 			}
-			const { orderType, discount } = applyOffer({ subTotal: subtotal, items: remainingItems }, offerDoc);
-			const pricing = buildPricingSummary(subtotal, discount, applyTax);
+			
+			// ── Apply offer to remaining items individually ──────────────────
+			const itemsWithPricing = applyOfferPricingByGroup(remainingItems, offerDocsById as any, applyTax);
+			const { orderType } = applyOffer({ subTotal: subtotal, items: itemsWithPricing }, nextOfferId ? (offerDocsById.get(nextOfferId) || null) : null);
+			const pricing = buildPricingSummaryFromItems(itemsWithPricing);
 
 			const updatePayload = {
-				items: remainingItems,
+				items: itemsWithPricing,
 				orderType,
 				offerId: nextOfferId,
 				subTotal: pricing.subTotal,

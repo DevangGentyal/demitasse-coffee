@@ -21,9 +21,28 @@ const computePricingFromItems = (items: unknown[]): { subtotal: number; discount
     return sum + (Number.isFinite(explicitTotal) ? explicitTotal : qty * unitPrice);
   }, 0);
 
-  const discount = 0;
-  const tax = subtotal * 0.05;
-  const total = subtotal - discount + tax;
+  const discount = normalizedItems.reduce<number>((sum, rawItem) => {
+    const item = (rawItem || {}) as Record<string, unknown>;
+    return sum + readNumber(item.discount ?? item.discountAmount, 0);
+  }, 0);
+
+  const taxFromItems = normalizedItems.reduce<number>((sum, rawItem) => {
+    const item = (rawItem || {}) as Record<string, unknown>;
+    return sum + readNumber(item.tax, 0);
+  }, 0);
+
+  const discountedFromItems = normalizedItems.reduce<number>((sum, rawItem) => {
+    const item = (rawItem || {}) as Record<string, unknown>;
+    const explicitDiscounted = readNumber(item.discountedPrice, Number.NaN);
+    if (Number.isFinite(explicitDiscounted)) return sum + explicitDiscounted;
+    const itemTotal = readNumber(item.totalPrice, 0);
+    const itemDiscount = readNumber(item.discount ?? item.discountAmount, 0);
+    return sum + Math.max(itemTotal - itemDiscount, 0);
+  }, 0);
+
+  const discountedPrice = Math.max(discountedFromItems, 0);
+  const tax = Math.max(taxFromItems, 0);
+  const total = discountedPrice + tax;
 
   return { subtotal, discount, tax, total };
 };
@@ -58,7 +77,8 @@ export const closeSession = functions.https.onRequest(
         return;
       }
 
-      const { sessionId, tableId } = req.body as { sessionId?: string; tableId?: string };
+      const { sessionId, tableId, status } = req.body as { sessionId?: string; tableId?: string; status?: string };
+      const closeStatus = readString(status).toUpperCase();
 
       // Validate input
       if (!sessionId && !tableId) {
@@ -288,9 +308,12 @@ export const closeSession = functions.https.onRequest(
           updatedAt: FieldValue.serverTimestamp(),
         };
 
-        if (totalBillAmount > 0) {
+        if (totalBillAmount > 0 && closeStatus !== "SUCCESS") {
           tableResetPayload.needsPaymentCollection = true;
           tableResetPayload.needsPaymentCollectionAt = FieldValue.serverTimestamp();
+        } else {
+          tableResetPayload.needsPaymentCollection = false;
+          tableResetPayload.needsPaymentCollectionAt = FieldValue.delete();
         }
 
         tx.update(tableRef, tableResetPayload);

@@ -29,6 +29,11 @@ interface KotBillingSettings {
   defaultRightMargin: number
   defaultBottomMargin: number
   defaultLeftMargin: number
+  // Layout Padding
+  defaultTopPadding: number
+  defaultRightPadding: number
+  defaultBottomPadding: number
+  defaultLeftPadding: number
 }
 
 const DEFAULTS: KotBillingSettings = {
@@ -44,6 +49,10 @@ const DEFAULTS: KotBillingSettings = {
   defaultRightMargin: 0,
   defaultBottomMargin: 0,
   defaultLeftMargin: 10,
+  defaultTopPadding: 4,
+  defaultRightPadding: 4,
+  defaultBottomPadding: 4,
+  defaultLeftPadding: 4,
 }
 
 const DOC_PATH = 'kotBillingSettings'
@@ -85,6 +94,10 @@ export default function PreferredConfigurationPage() {
               defaultRightMargin: data.defaultRightMargin ?? prev.defaultRightMargin,
               defaultBottomMargin: data.defaultBottomMargin ?? prev.defaultBottomMargin,
               defaultLeftMargin: data.defaultLeftMargin ?? prev.defaultLeftMargin,
+              defaultTopPadding: data.defaultTopPadding ?? prev.defaultTopPadding,
+              defaultRightPadding: data.defaultRightPadding ?? prev.defaultRightPadding,
+              defaultBottomPadding: data.defaultBottomPadding ?? prev.defaultBottomPadding,
+              defaultLeftPadding: data.defaultLeftPadding ?? prev.defaultLeftPadding,
             },
           }))
         }
@@ -174,8 +187,8 @@ export default function PreferredConfigurationPage() {
 
           {/* Page Header */}
           <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-foreground">Bill/KOT Preferred Configuration</h1>
-            <p className="text-muted-foreground underline italic">KOT &amp; Bill Settings</p>
+            <h1 className="text-2xl font-bold text-foreground">Universal Bill/KOT Configuration</h1>
+            <p className="text-muted-foreground underline italic">Applies to Food KOT, Beverage KOT, and Bill</p>
           </div>
 
           {/* Main Content Card */}
@@ -366,7 +379,7 @@ export default function PreferredConfigurationPage() {
             {/* ── KOT Layout / Margins ─────────────────────────────── */}
             <div className="mb-8">
               <h2 className="text-sm font-bold uppercase tracking-wider text-foreground/70 mb-4 border-b border-border pb-2">
-                KOT Layout Settings
+                Universal Layout Settings
               </h2>
               <div className="p-4 bg-muted/30 rounded-lg border border-border/50 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -430,6 +443,56 @@ export default function PreferredConfigurationPage() {
                     </div>
                   </div>
                 </div>
+
+                <div>
+                  <Label className="mb-2 block">Default Padding (px)</Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase text-muted-foreground">Top</Label>
+                      <Input
+                        type="number"
+                        value={settings.defaultTopPadding}
+                        onChange={e => handleChange('defaultTopPadding', parseInt(e.target.value) || 0)}
+                        min="0"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase text-muted-foreground">Right</Label>
+                      <Input
+                        type="number"
+                        value={settings.defaultRightPadding}
+                        onChange={e => handleChange('defaultRightPadding', parseInt(e.target.value) || 0)}
+                        min="0"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase text-muted-foreground">Bottom</Label>
+                      <Input
+                        type="number"
+                        value={settings.defaultBottomPadding}
+                        onChange={e => handleChange('defaultBottomPadding', parseInt(e.target.value) || 0)}
+                        min="0"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase text-muted-foreground">Left</Label>
+                      <Input
+                        type="number"
+                        value={settings.defaultLeftPadding}
+                        onChange={e => handleChange('defaultLeftPadding', parseInt(e.target.value) || 0)}
+                        min="0"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-muted-foreground italic">
+                  These values are reused by Food KOT, Beverage KOT, and the final Bill.
+                </p>
               </div>
             </div>
 

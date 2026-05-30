@@ -40,6 +40,8 @@ const serializeOrderItem = (item) => {
     unitPrice,
     price: unitPrice,
     totalPrice,
+    discountedPrice: Number.isFinite(Number(item?.discountedPrice)) ? Number(item.discountedPrice) : totalPrice,
+    discount: Number(item?.discount ?? item?.discountAmount ?? 0) || 0,
     status: item.status || 'in-progress',
     addOns: Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [],
     notes: item.notes || '',
@@ -156,8 +158,9 @@ const Cart = () => {
       autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
   }
 
-  const totalDiscount = calculatedDiscount + autoDiscount;
-  // Tax is NOT shown in cart — only applied at bill generation
+  const totalDiscount = autoDiscount;
+  // Special offer rows already store the final item/group price in `totalPrice`.
+  // Only the auto-registration offer is subtracted here.
   const grandTotal = Math.max(0, totalPrice - totalDiscount);
 
   // Helper config string to detect remaining valid normal items for banner UI
@@ -482,15 +485,19 @@ const Cart = () => {
 
       navigate("/bill", {
         state: {
+          // Keep original cart items for rich UI rendering (combo/b1g1 grouping)
+          // but always use server pricing as source of truth.
           items: cart,
-          itemTotal: totalPrice,
-          tax: result.pricing?.tax || 0,
-          discount: totalDiscount,
-          grandTotal: result.pricing?.total || grandTotal,
+          itemTotal: Number(result.pricing?.subtotal ?? totalPrice) || 0,
+          tax: Number(result.pricing?.tax ?? 0) || 0,
+          discount: Number(result.pricing?.discount ?? totalDiscount) || 0,
+          discountedPrice: Number(result.pricing?.discountedPrice ?? grandTotal) || 0,
+          grandTotal: Number(result.pricing?.total ?? grandTotal) || 0,
           appliedOffers,
           autoAppliedOffer: autoAppliedOffer && hasEligibleItems ? autoAppliedOffer : null,
           autoDiscount,
           serverPricing: result.pricing,
+          serverItems: Array.isArray(result.items) ? result.items : [],
           serverDiscountSources: result.discountSources,
         },
       });
@@ -614,7 +621,7 @@ const Cart = () => {
                 );
               }
 
-              if (offerType === "COMBO") return null; // Combo price already in item
+              if (offerType === "COMBO") return null; // Combo price already stored in the combo row
 
               const discValue = Number(offer.config?.discount?.discountValue ?? offer.discountValue ?? 0) || 0;
               const discAmt = Math.round((totalPrice * discValue) / 100);

@@ -62,9 +62,20 @@ export interface NormalisedOrderItem {
 	isManualB1G1?: boolean;
 	isDiscount?: boolean;
 	isBirthday?: boolean;
+	isFree?: boolean;        // item is free (e.g., one of a B1G1 pair)
 	status: string;
 	createdBy: string | null;
 	addedAt: Date | null;
+	// If this item is a wrapper (combo) it may contain nested items
+	items?: NormalisedOrderItem[];
+	// For combos: the sum of base prices (unitPrice * qty) of nested items
+	comboBaseTotal?: number;
+	// For combos: declared combo price (admin-set)
+	comboPrice?: number | null;
+	// ── Item-level pricing (per-item discount model) ──────────────────────
+	discount: number;        // discount amount for THIS item only
+	discountedPrice: number; // totalPrice - discount for THIS item
+	tax: number;             // floor(discountedPrice * 5%) for THIS item
 }
 
 export interface BillDisplayItem {
@@ -159,6 +170,55 @@ export const normalizeOrderItemsForPricing = async (
 		if (nestedItems.length > 0 && (hasOfferWrapperShape || !productId)) {
 			const nestedResults = await normalizeOrderItemsForPricing(nestedItems, resolveProductPrice);
 			const inheritedOfferId = readString(raw.offerId) || null;
+
+			// If this wrapper is explicitly a combo, preserve it as a single combo wrapper
+			if (offerMeta.isCombo) {
+				const comboPrice = readNumber((raw as any).comboPrice ?? (raw as any).config?.combo?.comboPrice ?? 0);
+				const wrapperTotalPrice = readNumber((raw as any).discountedPrice ?? raw.totalPrice ?? raw.price, NaN);
+				const fallbackTotalPrice = nestedResults.reduce((s, it) => s + (it.totalPrice || 0), 0);
+				const normalizedTotalPrice = Number.isFinite(wrapperTotalPrice) ? wrapperTotalPrice : fallbackTotalPrice;
+				const comboBaseTotal = readNumber((raw as any).comboBaseTotal, NaN);
+				const resolvedComboBaseTotal = Number.isFinite(comboBaseTotal) ? comboBaseTotal : Math.max(0, normalizedTotalPrice - comboPrice);
+
+				results.push({
+					productId: readString(raw.productId) || readString(raw.id) || `combo_${inheritedOfferId || 'anon'}`,
+					name: readString(raw.name) || readString(raw.offerTitle) || 'Combo Offer',
+					category: null,
+					subcategory: null,
+					qty: Math.max(Math.floor(readNumber(raw.qty ?? raw.quantity, 1)), 1),
+					unitPrice: comboPrice,
+					addOns: [],
+					totalPrice: normalizedTotalPrice,
+					originalPrice: readNumber(raw.originalPrice ?? raw.price, NaN),
+					finalPrice: readNumber(raw.finalPrice ?? raw.dealPrice ?? normalizedTotalPrice, NaN),
+					discountAmount: readNumber(raw.discountAmount ?? (Number.isFinite(resolvedComboBaseTotal) ? resolvedComboBaseTotal : 0), NaN),
+					dealPrice: readNumber(raw.dealPrice ?? raw.finalPrice, NaN),
+					price: readNumber(raw.price, NaN),
+					variation: raw.variation ?? null,
+					offerId: inheritedOfferId,
+					offerType: offerMeta.offerType,
+					offerTitle: offerMeta.offerTitle,
+					isOfferItem: true,
+					isCombo: true,
+					isManualB1G1: false,
+					isDiscount: false,
+					isBirthday: false,
+					status: readString(raw.status) || 'in-progress',
+					createdBy: readString(raw.createdBy) || null,
+					addedAt: null,
+					// Combo metadata
+					items: nestedResults,
+					comboBaseTotal: resolvedComboBaseTotal,
+					comboPrice: comboPrice || null,
+					// Initialize pricing fields — applyOfferToItems will populate real values
+					discount: readNumber(raw.discount ?? raw.discountAmount ?? Math.max(0, resolvedComboBaseTotal - comboPrice), 0),
+					discountedPrice: normalizedTotalPrice,
+					tax: 0,
+				});
+				continue;
+			}
+
+			// Default: flatten nested items but inherit wrapper metadata
 			for (const nested of nestedResults) {
 				results.push({
 					...nested,
@@ -170,6 +230,10 @@ export const normalizeOrderItemsForPricing = async (
 					isManualB1G1: nested.isManualB1G1 || offerMeta.isManualB1G1,
 					isDiscount: nested.isDiscount || offerMeta.isDiscount,
 					isBirthday: nested.isBirthday || offerMeta.isBirthday,
+					// ── Preserve item-level pricing from nested ───────────────
+					discount: nested.discount ?? 0,
+					discountedPrice: nested.discountedPrice ?? nested.totalPrice,
+					tax: nested.tax ?? 0,
 				});
 			}
 			continue;
@@ -222,6 +286,10 @@ export const normalizeOrderItemsForPricing = async (
 			status: readString(raw.status) || 'in-progress',
 			createdBy: readString(raw.createdBy) || null,
 			addedAt: null,
+			// ── Initialize item-level pricing to zero ───────────────────────
+			discount: 0,
+			discountedPrice: totalPrice,  // will be updated when offer is applied
+			tax: 0,
 		});
 	}
 
@@ -333,6 +401,403 @@ export const buildPricingSummary = (
 	const discountedPrice = Math.max(subTotal - discount, 0);
 	const tax = applyTaxFn(discountedPrice);
 	const grandTotal = discountedPrice + tax;
+	return { subTotal, discount, discountedPrice, tax, grandTotal };
+};
+
+// ---------------------------------------------------------------------------
+// Per-item discount calculation (item-level pricing model)
+// ---------------------------------------------------------------------------
+
+export interface OfferDocForPricing {
+	id?: string;
+	offerType?: string;
+	type?: string;
+	title?: string;
+	config?: {
+		combo?: { comboPrice?: number };
+		discount?: {
+			discountValue?: number;
+			mode?: string;
+			type?: string;
+			productIds?: string[];
+			categoryName?: string | null;
+			category?: string | null;
+		};
+		discountValue?: number;
+	};
+	comboPrice?: number;
+	discountPercent?: number;
+	discountValue?: number;
+	applicableProductIds?: string[];
+	products?: Array<{ productId?: string; name?: string }>;
+	applicableCategory?: string;
+	category?: string;
+}
+
+/**
+ * Calculates per-item discount, discountedPrice, and tax based on offer type.
+ * Each item gets its own discount amount depending on:
+ * - The offer type (BASIC, B1G1, COMBO, DISCOUNT, BIRTHDAY)
+ * - Whether the item is eligible for that offer
+ * - The item's price and quantity
+ *
+ * Returns a new array of items with discount, discountedPrice, and tax populated.
+ *
+ * Pricing formula for each item:
+ *   discount = calculated based on offer type and eligibility
+ *   discountedPrice = totalPrice - discount
+ *   tax = floor(discountedPrice * 5%)
+ *
+ * Order-level totals are then calculated by summing item-level values:
+ *   subTotal = sum of all items' totalPrice
+ *   discount = sum of all items' discount
+ *   discountedPrice = sum of all items' discountedPrice
+ *   tax = sum of all items' tax
+ *   grandTotal = discountedPrice + tax
+ */
+export const applyOfferToItems = (
+	items: NormalisedOrderItem[],
+	offerDoc: OfferDocForPricing | null,
+	applyTaxFn: (amount: number) => number,
+): NormalisedOrderItem[] => {
+	if (!offerDoc) {
+		// No offer — all items get zero discount
+		return items.map((item) => ({
+			...item,
+			discount: 0,
+			discountedPrice: item.totalPrice,
+			tax: applyTaxFn(item.totalPrice),
+		}));
+	}
+
+	const offerType = (offerDoc.offerType ?? offerDoc.type ?? 'BASIC').toUpperCase();
+	const results: NormalisedOrderItem[] = [];
+
+	switch (offerType) {
+		case 'B1G1': {
+			// Find exactly 2 items with the same offerId matching this offer
+			const offerItems = items.filter((it) => it.offerId === offerDoc.id);
+			if (offerItems.length === 2) {
+				// Sort by unitPrice; cheapest gets discounted
+				const sorted = [...offerItems].sort((a, b) => a.unitPrice - b.unitPrice);
+
+				// Mark the cheapest of the two B1G1 items as discounted (free base price)
+				const cheapest = sorted[0];
+				for (const item of items) {
+					let discount = 0;
+					if (item === cheapest) {
+						// Discount equals the item's unitPrice (do NOT discount add-ons)
+						discount = item.unitPrice;
+					}
+					const discountedPrice = Math.max(item.totalPrice - discount, 0);
+					const tax = applyTaxFn(discountedPrice);
+
+					results.push({ ...item, discount, discountedPrice, tax });
+				}
+			} else {
+				// Not enough items for B1G1 — treat as BASIC (no discount)
+				return items.map((item) => ({
+					...item,
+					discount: 0,
+					discountedPrice: item.totalPrice,
+					tax: applyTaxFn(item.totalPrice),
+				}));
+			}
+			break;
+		}
+
+		case 'COMBO': {
+			// Combo: treat the offer items as a single group object (do NOT assign
+			// specific discount amounts to individual items). We prefer preserving
+			// an explicit combo wrapper if present; otherwise synthesize one.
+			const offerItems = items.filter((it) => {
+				if (it.offerId === offerDoc.id) return true;
+				if (Array.isArray(offerDoc.products) && offerDoc.products.length > 0) {
+					return offerDoc.products.some((p: any) => String(p?.productId || '').trim() === String(it.productId).trim());
+				}
+				return false;
+			});
+
+			if (offerItems.length === 0) {
+				// No items match combo — treat as BASIC
+				return items.map((item) => ({
+					...item,
+					discount: 0,
+					discountedPrice: item.totalPrice,
+					tax: applyTaxFn(item.totalPrice),
+				}));
+			}
+
+			// Detect if a combo wrapper item exists (created during normalization)
+			const wrapper = offerItems.find((it) => it.isCombo && Array.isArray((it as any).items) && (it as any).items.length > 0) as NormalisedOrderItem | undefined;
+
+			const comboPriceFromOffer = readNumber(offerDoc.config?.combo?.comboPrice ?? offerDoc.comboPrice, 0);
+
+			if (wrapper) {
+				const nested = (wrapper as any).items as NormalisedOrderItem[];
+				const comboBaseTotal = wrapper.comboBaseTotal ?? nested.reduce((s, it) => s + (it.unitPrice * it.qty), 0);
+				// nestedAddOnsTotal is available on the wrapper already (totalPrice includes addons)
+				const comboPrice = wrapper.comboPrice ?? comboPriceFromOffer;
+				const totalComboDiscount = Math.max(comboBaseTotal - (comboPrice || 0), 0);
+
+				for (const item of items) {
+					if (item === wrapper) {
+						const discount = totalComboDiscount;
+						const discountedPrice = Math.max(item.totalPrice - discount, 0); // should equal comboPrice + addons
+						const tax = applyTaxFn(discountedPrice);
+						results.push({ ...item, discount, discountedPrice, tax });
+					} else if (item.offerId === offerDoc.id) {
+						// Other individual components (if any) are left without per-item discounts
+						results.push({ ...item, discount: 0, discountedPrice: item.totalPrice, tax: applyTaxFn(item.totalPrice) });
+					} else {
+						results.push({ ...item, discount: 0, discountedPrice: item.totalPrice, tax: applyTaxFn(item.totalPrice) });
+					}
+				}
+			} else {
+				// No wrapper exists — synthesize a single combo group and remove individual combo items
+				const comboBaseTotal = offerItems.reduce((s, it) => s + (it.unitPrice * it.qty), 0);
+				const nestedAddOnsTotal = offerItems.reduce((s, it) => s + (it.totalPrice - (it.unitPrice * it.qty)), 0);
+				const comboPrice = comboPriceFromOffer;
+				const totalComboDiscount = Math.max(comboBaseTotal - (comboPrice || 0), 0);
+
+				// Push non-offer items unchanged
+				for (const item of items) {
+					if (!offerItems.includes(item)) {
+						results.push({ ...item, discount: 0, discountedPrice: item.totalPrice, tax: applyTaxFn(item.totalPrice) });
+					}
+				}
+
+				// Create synthetic wrapper representing the combo group
+				const wrapperTotalPrice = comboBaseTotal + nestedAddOnsTotal;
+				const wrapperDiscountedPrice = Math.max(wrapperTotalPrice - totalComboDiscount, 0); // comboPrice + addons
+				results.push({
+					productId: `combo_${offerDoc.id}`,
+					name: readString(offerDoc.title ?? 'Combo Offer'),
+					category: null,
+					subcategory: null,
+					qty: 1,
+					unitPrice: comboPrice,
+					addOns: [],
+					totalPrice: wrapperTotalPrice,
+					originalPrice: null,
+					finalPrice: null,
+					discountAmount: null,
+					dealPrice: null,
+					price: null,
+					variation: null,
+					offerId: offerDoc.id || null,
+					offerType: 'COMBO',
+					offerTitle: readString(offerDoc.title ?? 'Combo Offer'),
+					isOfferItem: true,
+					isCombo: true,
+					isManualB1G1: false,
+					isDiscount: false,
+					isBirthday: false,
+					status: 'in-progress',
+					createdBy: null,
+					addedAt: null,
+					// combo metadata
+					comboBaseTotal,
+					comboPrice: comboPrice || null,
+					items: offerItems,
+					// pricing
+					discount: totalComboDiscount,
+					discountedPrice: wrapperDiscountedPrice,
+					tax: applyTaxFn(wrapperDiscountedPrice),
+				});
+			}
+			break;
+		}
+
+		case 'DISCOUNT': {
+			// Discount offer: eligible items get percentage discount
+			const discountConfig = offerDoc.config?.discount || {};
+			const discountMode = String(discountConfig.mode || discountConfig.type || '').toUpperCase();
+			const discountPercent = readNumber(
+				discountConfig.discountValue ?? offerDoc.config?.discountValue ?? offerDoc.discountPercent ?? offerDoc.discountValue,
+				0
+			);
+
+			// Collect allowed product IDs and category names
+			const allowedIds: string[] = [];
+			if (Array.isArray(discountConfig.productIds)) {
+				allowedIds.push(...discountConfig.productIds.map((id: any) => String(id || '').trim()));
+			} else if (Array.isArray(offerDoc.applicableProductIds)) {
+				allowedIds.push(...offerDoc.applicableProductIds.map((id: any) => String(id || '').trim()));
+			}
+			if (Array.isArray(offerDoc.products)) {
+				offerDoc.products.forEach((p: any) => {
+					if (p && p.productId) {
+						allowedIds.push(String(p.productId).trim());
+					}
+				});
+			}
+			const allowedNames = Array.isArray(offerDoc.products)
+				? offerDoc.products.map((p: any) => String(p?.name || '').trim().toLowerCase()).filter(Boolean)
+				: [];
+			const categoryName = String(discountConfig.categoryName || discountConfig.category || offerDoc.applicableCategory || offerDoc.category || '').trim().toLowerCase();
+
+			for (const item of items) {
+				let discount = 0;
+
+				// Check if item is eligible
+				const isSpecial = item.isFree || item.isCombo || item.isManualB1G1 || item.isBirthday;
+				const hasConflictingOffer = item.offerId && item.offerId !== offerDoc.id;
+
+				if (!isSpecial && !hasConflictingOffer) {
+					let isEligible = false;
+
+					if (discountMode === 'CATEGORY' && categoryName) {
+						const itemCat = String(item.category || '').trim().toLowerCase();
+						const itemSubCat = String(item.subcategory || '').trim().toLowerCase();
+						if (itemCat === categoryName || itemSubCat === categoryName) {
+							isEligible = true;
+						} else if (Array.isArray(offerDoc.products) && offerDoc.products.length > 0) {
+							isEligible = offerDoc.products.some((p: any) => String(p?.productId || '').trim() === String(item.productId).trim());
+						}
+					} else if (discountMode === 'PRODUCT' && (allowedIds.length > 0 || allowedNames.length > 0)) {
+						const itemId = String(item.productId).trim();
+						const itemName = String(item.name).trim().toLowerCase();
+						isEligible = allowedIds.includes(itemId) || allowedNames.includes(itemName);
+					} else if (allowedIds.length > 0 || allowedNames.length > 0) {
+						// Fallback: product-based discount
+						const itemId = String(item.productId).trim();
+						const itemName = String(item.name).trim().toLowerCase();
+						isEligible = allowedIds.includes(itemId) || allowedNames.includes(itemName);
+					} else if (categoryName && categoryName !== 'all') {
+						// Fallback: category-based discount
+						const itemCat = String(item.category || '').trim().toLowerCase();
+						const itemSubCat = String(item.subcategory || '').trim().toLowerCase();
+						isEligible = itemCat === categoryName || itemSubCat === categoryName;
+					} else {
+						// No restrictions — all items eligible
+						isEligible = true;
+					}
+
+					if (isEligible) {
+						const itemBaseTotal = item.unitPrice * item.qty;
+						discount = Math.floor((itemBaseTotal * discountPercent) / 100);
+					}
+				}
+
+				const discountedPrice = Math.max(item.totalPrice - discount, 0);
+				const tax = applyTaxFn(discountedPrice);
+
+				results.push({
+					...item,
+					discount,
+					discountedPrice,
+					tax,
+				});
+			}
+			break;
+		}
+
+		case 'BIRTHDAY': {
+			// Birthday: only the birthday item itself (marked isBirthday) gets to be free
+			// The discount equals its full totalPrice
+			for (const item of items) {
+				let discount = 0;
+				if (item.isBirthday && item.offerId === offerDoc.id) {
+					discount = item.totalPrice; // Make it free
+				}
+				const discountedPrice = Math.max(item.totalPrice - discount, 0);
+				const tax = applyTaxFn(discountedPrice);
+
+				results.push({
+					...item,
+					discount,
+					discountedPrice,
+					tax,
+				});
+			}
+			break;
+		}
+
+		default: {
+			// BASIC or unknown offer type — no discount
+			return items.map((item) => ({
+				...item,
+				discount: 0,
+				discountedPrice: item.totalPrice,
+				tax: applyTaxFn(item.totalPrice),
+			}));
+		}
+	}
+
+	return results;
+};
+
+/**
+ * Applies pricing to items by grouping them on their own offerId and
+ * resolving the matching offer document for each group.
+ *
+ * This is the canonical path for mixed carts/orders that contain more than
+ * one special offer type (for example a COMBO row plus a DISCOUNT row).
+ */
+export const applyOfferPricingByGroup = (
+	items: NormalisedOrderItem[],
+	offerDocsById: Map<string, OfferDocForPricing>,
+	applyTaxFn: (amount: number) => number,
+): NormalisedOrderItem[] => {
+	const groupedItems = new Map<string, NormalisedOrderItem[]>();
+
+	for (const item of items) {
+		const groupKey = readString(item.offerId) || '__basic__';
+		if (!groupedItems.has(groupKey)) groupedItems.set(groupKey, []);
+		groupedItems.get(groupKey)!.push(item);
+	}
+
+	const results: NormalisedOrderItem[] = [];
+	for (const [groupKey, groupItems] of groupedItems.entries()) {
+		const offerDoc = groupKey === '__basic__' ? null : (offerDocsById.get(groupKey) || null);
+		if (offerDoc) {
+			results.push(...applyOfferToItems(groupItems, offerDoc, applyTaxFn));
+			continue;
+		}
+		results.push(...groupItems.map((item) => ({
+			...item,
+			discount: 0,
+			discountedPrice: item.totalPrice,
+			tax: applyTaxFn(item.totalPrice),
+		})));
+	}
+
+	return results;
+};
+
+/**
+ * Calculates order-level totals by summing item-level pricing.
+ * This is the new canonical way to build PricingSummary when using item-level discounts.
+ *
+ * Formula:
+ *   subTotal = sum of all items' totalPrice
+ *   discount = sum of all items' discount
+ *   discountedPrice = sum of all items' discountedPrice (= subTotal - discount)
+ *   tax = sum of all items' tax
+ *   grandTotal = discountedPrice + tax
+ */
+export const buildPricingSummaryFromItems = (items: NormalisedOrderItem[]): PricingSummary => {
+	let subTotal = 0;
+	let discount = 0;
+	let discountedPrice = 0;
+	let tax = 0;
+
+	for (const item of items) {
+		subTotal += item.totalPrice;
+		discount += item.discount;
+		discountedPrice += item.discountedPrice;
+		tax += item.tax;
+	}
+
+	// Ensure no negative values
+	subTotal = Math.max(0, subTotal);
+	discount = Math.max(0, discount);
+	discountedPrice = Math.max(0, discountedPrice);
+	tax = Math.max(0, tax);
+
+	const grandTotal = discountedPrice + tax;
+
 	return { subTotal, discount, discountedPrice, tax, grandTotal };
 };
 

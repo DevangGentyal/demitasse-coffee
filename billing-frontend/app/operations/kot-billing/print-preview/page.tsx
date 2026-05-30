@@ -36,6 +36,15 @@ export default function PrintPreviewPage() {
     showRestaurantHeader: true,
     showFooter: true,
     defaultPaperWidth: 280,
+    defaultLineHeight: 0,
+    defaultTopMargin: 0,
+    defaultRightMargin: 0,
+    defaultBottomMargin: 0,
+    defaultLeftMargin: 10,
+    defaultTopPadding: 4,
+    defaultRightPadding: 4,
+    defaultBottomPadding: 4,
+    defaultLeftPadding: 4,
   })
 
   useEffect(() => {
@@ -117,6 +126,20 @@ export default function PrintPreviewPage() {
 
   const beverageItems = MOCK_ITEMS.filter(item => beverageCategories.includes(item.category))
   const foodItems = MOCK_ITEMS.filter(item => foodCategories.includes(item.category) && !beverageCategories.includes(item.category))
+  const universalWidth = settings.defaultPaperWidth || 280
+  const universalMargins = {
+    top: settings.defaultTopMargin ?? 0,
+    right: settings.defaultRightMargin ?? 0,
+    bottom: settings.defaultBottomMargin ?? 0,
+    left: settings.defaultLeftMargin ?? 10,
+  }
+  const universalPadding = {
+    top: settings.defaultTopPadding ?? 4,
+    right: settings.defaultRightPadding ?? 4,
+    bottom: settings.defaultBottomPadding ?? 4,
+    left: settings.defaultLeftPadding ?? 4,
+  }
+  const universalLineHeight = settings.defaultLineHeight || 1.2
 
   const mockDate = new Date()
   const foodKotData: KotData = {
@@ -202,10 +225,10 @@ export default function PrintPreviewPage() {
                     printerName={foodConfig.printerName} 
                     restaurantHeader={settings.restaurantHeaderText}
                     showRestaurantHeader={settings.showRestaurantHeader}
-                    width={foodConfig.width}
-                    margins={foodConfig.margins}
-                    padding={foodConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
-                    lineHeight={foodConfig.lineHeight || 1.2}
+                    width={universalWidth}
+                    margins={universalMargins}
+                    padding={universalPadding}
+                    lineHeight={universalLineHeight}
                   />
                 )}
                 {activeTab === 'beverage' && (
@@ -214,10 +237,10 @@ export default function PrintPreviewPage() {
                     printerName={coffeeConfig.printerName} 
                     restaurantHeader={settings.restaurantHeaderText}
                     showRestaurantHeader={settings.showRestaurantHeader}
-                    width={coffeeConfig.width}
-                    margins={coffeeConfig.margins}
-                    padding={coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
-                    lineHeight={coffeeConfig.lineHeight || 1.2}
+                    width={universalWidth}
+                    margins={universalMargins}
+                    padding={universalPadding}
+                    lineHeight={universalLineHeight}
                   />
                 )}
                 {activeTab === 'bill' && (
@@ -227,10 +250,10 @@ export default function PrintPreviewPage() {
                     restaurantFooter={settings.restaurantFooterText}
                     showRestaurantHeader={settings.showRestaurantHeader}
                     showFooter={settings.showFooter}
-                    width={coffeeConfig.width}
-                    margins={coffeeConfig.margins}
-                    padding={coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
-                    lineHeight={coffeeConfig.lineHeight || 1.2}
+                    width={universalWidth}
+                    margins={universalMargins}
+                    padding={universalPadding}
+                    lineHeight={universalLineHeight}
                   />
                 )}
               </div>
@@ -247,10 +270,10 @@ export default function PrintPreviewPage() {
             printerName={foodConfig.printerName} 
             restaurantHeader={settings.restaurantHeaderText}
             showRestaurantHeader={settings.showRestaurantHeader}
-            width={foodConfig.width}
-            margins={foodConfig.margins}
-            padding={foodConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
-            lineHeight={foodConfig.lineHeight || 1.2}
+            width={universalWidth}
+            margins={universalMargins}
+            padding={universalPadding}
+            lineHeight={universalLineHeight}
           />
         )}
         {activeTab === 'beverage' && (
@@ -259,10 +282,10 @@ export default function PrintPreviewPage() {
             printerName={coffeeConfig.printerName} 
             restaurantHeader={settings.restaurantHeaderText}
             showRestaurantHeader={settings.showRestaurantHeader}
-            width={coffeeConfig.width}
-            margins={coffeeConfig.margins}
-            padding={coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
-            lineHeight={coffeeConfig.lineHeight || 1.2}
+            width={universalWidth}
+            margins={universalMargins}
+            padding={universalPadding}
+            lineHeight={universalLineHeight}
           />
         )}
         {activeTab === 'bill' && (
@@ -272,10 +295,10 @@ export default function PrintPreviewPage() {
             restaurantFooter={settings.restaurantFooterText}
             showRestaurantHeader={settings.showRestaurantHeader}
             showFooter={settings.showFooter}
-            width={coffeeConfig.width}
-            margins={coffeeConfig.margins}
-            padding={coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
-            lineHeight={coffeeConfig.lineHeight || 1.2}
+            width={universalWidth}
+            margins={universalMargins}
+            padding={universalPadding}
+            lineHeight={universalLineHeight}
           />
         )}
       </div>

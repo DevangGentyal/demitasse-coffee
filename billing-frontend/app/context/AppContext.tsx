@@ -19,9 +19,47 @@ const toDate = (value: unknown): Date | null => {
   return null
 }
 import { db } from '@/lib/firebase/app'
-import { collection, query, where, onSnapshot, Timestamp, doc, updateDoc, deleteField } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, Timestamp, doc, getDoc, updateDoc, deleteField } from 'firebase/firestore'
 
 import { GlobalAutoPrintManager } from '@/app/components/GlobalAutoPrintManager'
+
+export interface PrintSettings {
+  defaultPaperWidth: number
+  decimalQuantityDigits: number
+  showRestaurantHeader: boolean
+  showFooter: boolean
+  autoPrintEnabled: boolean
+  restaurantHeaderText: string
+  restaurantFooterText: string
+  defaultLineHeight: number
+  defaultTopMargin: number
+  defaultRightMargin: number
+  defaultBottomMargin: number
+  defaultLeftMargin: number
+  defaultTopPadding: number
+  defaultRightPadding: number
+  defaultBottomPadding: number
+  defaultLeftPadding: number
+}
+
+const DEFAULT_PRINT_SETTINGS: PrintSettings = {
+  defaultPaperWidth: 280,
+  decimalQuantityDigits: 0,
+  showRestaurantHeader: true,
+  showFooter: true,
+  autoPrintEnabled: false,
+  restaurantHeaderText: 'Demitasse Coffee',
+  restaurantFooterText: 'Thank You',
+  defaultLineHeight: 0,
+  defaultTopMargin: 0,
+  defaultRightMargin: 0,
+  defaultBottomMargin: 0,
+  defaultLeftMargin: 10,
+  defaultTopPadding: 4,
+  defaultRightPadding: 4,
+  defaultBottomPadding: 4,
+  defaultLeftPadding: 4,
+}
 
 export interface Table {
   id: string
@@ -68,10 +106,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tables, setTables] = useState<Table[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [isLayoutEditing, setIsLayoutEditing] = useState(false)
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS)
   const prevPaymentFlagRef = useRef<Record<string, boolean>>({})
+  const activePaymentToastRef = useRef<Record<string, string | number>>({})
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadPrintSettings = async () => {
+      if (!isLoggedIn) return
+
+      try {
+        const snap = await getDoc(doc(db, 'kotBillingSettings', 'defaultSettings'))
+        if (cancelled) return
+
+        if (!snap.exists()) {
+          setPrintSettings(DEFAULT_PRINT_SETTINGS)
+          return
+        }
+
+        const data = snap.data() as Partial<PrintSettings>
+        setPrintSettings({
+          ...DEFAULT_PRINT_SETTINGS,
+          ...data,
+          defaultTopPadding: data.defaultTopPadding ?? DEFAULT_PRINT_SETTINGS.defaultTopPadding,
+          defaultRightPadding: data.defaultRightPadding ?? DEFAULT_PRINT_SETTINGS.defaultRightPadding,
+          defaultBottomPadding: data.defaultBottomPadding ?? DEFAULT_PRINT_SETTINGS.defaultBottomPadding,
+          defaultLeftPadding: data.defaultLeftPadding ?? DEFAULT_PRINT_SETTINGS.defaultLeftPadding,
+        })
+      } catch (error) {
+        console.error('Error fetching print settings:', error)
+        if (!cancelled) {
+          setPrintSettings(DEFAULT_PRINT_SETTINGS)
+        }
+      }
+    }
+
+    loadPrintSettings()
+    return () => {
+      cancelled = true
+    }
+  }, [isLoggedIn])
 
   const showPaymentToast = (table: Table) => {
-    toast(
+    const toastId = toast(
       <div className="flex items-center gap-4 bg-red-600 text-white px-5 py-4 rounded-xl shadow-[0_8px_30px_rgba(220,38,38,0.5)] border-2 border-red-500 w-[380px] md:w-[420px] pointer-events-auto">
         <span className="text-2xl animate-bounce">⚠️</span>
         <div className="flex-1">
@@ -94,6 +172,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
       }
     )
+
+    activePaymentToastRef.current[table.id] = toastId
   }
 
   useEffect(() => {
@@ -237,6 +317,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       )
       nextFlags[table.id] = paymentFlag
 
+      if (!paymentFlag) {
+        const activeToastId = activePaymentToastRef.current[table.id]
+        if (activeToastId !== undefined) {
+          toast.dismiss(activeToastId)
+          delete activePaymentToastRef.current[table.id]
+        }
+      }
+
       if (!paymentFlag || prevFlags[table.id]) return
 
       const updatedAtValue = table.updatedAt as { seconds?: number; toDate?: () => Date } | string | number | null | undefined
@@ -254,6 +342,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       showPaymentToast(table)
+    })
+
+    Object.keys(activePaymentToastRef.current).forEach((tableId) => {
+      if (nextFlags[tableId]) return
+      const activeToastId = activePaymentToastRef.current[tableId]
+      if (activeToastId !== undefined) {
+        toast.dismiss(activeToastId)
+        delete activePaymentToastRef.current[tableId]
+      }
     })
 
     prevPaymentFlagRef.current = nextFlags
@@ -306,6 +403,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateTable,
         isLayoutEditing,
         setIsLayoutEditing,
+        printSettings,
       }}>
       {children}
       <GlobalAutoPrintManager />

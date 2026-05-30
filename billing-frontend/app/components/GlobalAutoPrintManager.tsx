@@ -75,7 +75,7 @@ const normalizeManagerItem = async (item: any) => {
 }
 
 export function GlobalAutoPrintManager() {
-  const { orders, tables } = useApp()
+  const { orders, tables, printSettings } = useApp()
   const printedOrdersRef = useRef<Set<string>>(new Set())
   const [printQueue, setPrintQueue] = useState<any[]>([])
   const [activePrintJob, setActivePrintJob] = useState<any | null>(null)
@@ -441,6 +441,20 @@ export function GlobalAutoPrintManager() {
 
   let bevItems: any[] = []
   let foodItems: any[] = []
+  const universalWidth = printSettings?.defaultPaperWidth || 280
+  const universalMargins = {
+    top: printSettings?.defaultTopMargin ?? 0,
+    right: printSettings?.defaultRightMargin ?? 0,
+    bottom: printSettings?.defaultBottomMargin ?? 0,
+    left: printSettings?.defaultLeftMargin ?? 10,
+  }
+  const universalPadding = {
+    top: printSettings?.defaultTopPadding ?? 4,
+    right: printSettings?.defaultRightPadding ?? 4,
+    bottom: printSettings?.defaultBottomPadding ?? 4,
+    left: printSettings?.defaultLeftPadding ?? 4,
+  }
+  const universalLineHeight = printSettings?.defaultLineHeight || 1.2
 
   safeItems.forEach((item: any) => {
     const category = normalizeCategory(item.category)
@@ -573,10 +587,10 @@ export function GlobalAutoPrintManager() {
               printerName={printConfigs.foodConfig.printerName}
               restaurantHeader={printConfigs.settings.restaurantHeaderText}
               showRestaurantHeader={printConfigs.settings.showRestaurantHeader}
-              width={printConfigs.foodConfig.width}
-              margins={printConfigs.foodConfig.margins}
-              padding={printConfigs.foodConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
-              lineHeight={printConfigs.foodConfig.lineHeight || 1.2}
+              width={universalWidth}
+              margins={universalMargins}
+              padding={universalPadding}
+              lineHeight={universalLineHeight}
             />
           </div>
         )}
@@ -587,10 +601,10 @@ export function GlobalAutoPrintManager() {
               printerName={printConfigs.coffeeConfig.printerName}
               restaurantHeader={printConfigs.settings.restaurantHeaderText}
               showRestaurantHeader={printConfigs.settings.showRestaurantHeader}
-              width={printConfigs.coffeeConfig.width}
-              margins={printConfigs.coffeeConfig.margins}
-              padding={printConfigs.coffeeConfig.padding || { top: 4, right: 4, bottom: 4, left: 4 }}
-              lineHeight={printConfigs.coffeeConfig.lineHeight || 1.2}
+              width={universalWidth}
+              margins={universalMargins}
+              padding={universalPadding}
+              lineHeight={universalLineHeight}
             />
           </div>
         )}

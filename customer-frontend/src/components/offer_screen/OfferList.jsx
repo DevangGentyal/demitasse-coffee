@@ -3,6 +3,11 @@ import OfferCard from "./OfferCard";
 import { useOffers } from "../../context/OfferContext";
 import { isBirthday } from "../../lib/offerUtils";
 
+const getOfferCategoryKey = (offer) => {
+  const category = String(offer?.category || offer?.offerType || offer?.type || "").trim();
+  return category || "UNCATEGORIZED";
+};
+
 const OfferList = () => {
   const { offers, allValidOffers, fullUser } = useOffers();
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -20,9 +25,9 @@ const OfferList = () => {
     if (!activeOffers.length) return ["All"];
     const cats = new Set();
     activeOffers.forEach((o) => {
-      if (!o.category) return;
-      if (o.category === "BIRTHDAY" && !isUserBirthday) return;
-      cats.add(o.category);
+      const categoryKey = getOfferCategoryKey(o);
+      if (categoryKey === "BIRTHDAY" && !isUserBirthday) return;
+      cats.add(categoryKey);
     });
     return ["All", ...Array.from(cats)];
   }, [activeOffers, isUserBirthday]);
@@ -30,7 +35,7 @@ const OfferList = () => {
   // ✅ Filter offers by selected category only — no type filtering
   const displayOffers = useMemo(() => {
     if (selectedCategory === "All") return activeOffers;
-    return activeOffers.filter((o) => o.category === selectedCategory);
+    return activeOffers.filter((o) => getOfferCategoryKey(o) === selectedCategory);
   }, [activeOffers, selectedCategory]);
 
   if (!offers || !offers.length) {

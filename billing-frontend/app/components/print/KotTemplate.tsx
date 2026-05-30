@@ -54,6 +54,15 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   lineHeight = 1.2,
 }) => {
   const paperWidth = Number(width) || 280
+  const titleSize = '13px'
+  const headerSize = '16px'
+  const metaSize = '11px'
+  const itemHeaderSize = '12px'
+  const itemFontSize = '12px'
+  const notesFontSize = '11px'
+  const footerSize = '11px'
+  const itemGap = '8px'
+  const sectionGap = '6px'
 
   return (
     <>
@@ -107,11 +116,11 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
         }}
       >
         {/* Header */}
-        <div className="text-center mb-2">
+        <div className="text-center" style={{ marginBottom: sectionGap }}>
           {showRestaurantHeader && (
             <h2
               style={{
-                fontSize: '16px',
+                fontSize: headerSize,
                 fontWeight: 700,
                 marginBottom: '4px',
               }}
@@ -122,9 +131,10 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
 
           <h3
             style={{
-              fontSize: '13px',
+              fontSize: titleSize,
               fontWeight: 700,
               textTransform: 'uppercase',
+              lineHeight: 1.05,
             }}
           >
             {data.kotType} KOT
@@ -132,8 +142,9 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
 
           <div
             style={{
-              fontSize: '11px',
+              fontSize: metaSize,
               textTransform: 'uppercase',
+              lineHeight: 1.05,
             }}
           >
             ({printerName})
@@ -146,7 +157,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
                 marginTop: '6px',
                 padding: '2px 8px',
                 border: '1px solid black',
-                fontSize: '11px',
+                fontSize: metaSize,
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.08em',
@@ -157,10 +168,10 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
           )}
         </div>
 
-        <hr style={{ borderTop: '1px dashed black', margin: '6px 0' }} />
+        <hr style={{ borderTop: '1px dashed black', margin: sectionGap + ' 0' }} />
 
         {/* Meta */}
-        <div style={{ fontSize: '11px', marginBottom: '8px' }}>
+        <div style={{ fontSize: metaSize, marginBottom: itemGap }}>
           <div
             style={{
               display: 'flex',
@@ -192,7 +203,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
           </div>
         </div>
 
-        <hr style={{ borderTop: '1px dashed black', margin: '6px 0' }} />
+        <hr style={{ borderTop: '1px dashed black', margin: sectionGap + ' 0' }} />
 
         {/* Item Header */}
         <div
@@ -200,8 +211,8 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
             display: 'flex',
             justifyContent: 'space-between',
             fontWeight: 700,
-            fontSize: '12px',
-            marginBottom: '6px',
+            fontSize: itemHeaderSize,
+            marginBottom: sectionGap,
           }}
         >
           <span>ITEM</span>
@@ -213,7 +224,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
           <div
             key={`${item.id}-${item.name}-${index}`}
             style={{
-              marginBottom: '8px',
+              marginBottom: itemGap,
               pageBreakInside: 'avoid',
             }}
           >
@@ -222,8 +233,8 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'flex-start',
-                gap: '8px',
-                fontSize: '12px',
+                gap: '6px',
+                fontSize: itemFontSize,
                 fontWeight: 500,
               }}
             >
@@ -251,7 +262,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
             {item.notes && (
               <div
                 style={{
-                  fontSize: '11px',
+                  fontSize: notesFontSize,
                   color: '#444',
                   paddingLeft: '8px',
                   marginTop: '2px',
@@ -274,9 +285,9 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
         <div
           style={{
             textAlign: 'center',
-            fontSize: '11px',
+            fontSize: footerSize,
             fontWeight: 700,
-            marginTop: '8px',
+            marginTop: sectionGap,
           }}
         >
           *** END OF KOT ***

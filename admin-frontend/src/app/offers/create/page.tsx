@@ -201,9 +201,7 @@ export default function CreateOfferPage() {
         description: formData.description,
         offerType: formData.type,
         createdAt: new Date().toISOString(),
-        category: formData.type === 'DISCOUNT' && formData.discountScope === 'CATEGORY'
-          ? formData.discountCategory || null
-          : null,
+        category: formData.type,
         startDate: formData.startDate,
         endDate: formData.endDate,
         minOrderValue: formData.minOrderValue ? Number(formData.minOrderValue) : 0,

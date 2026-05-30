@@ -138,6 +138,24 @@ const getOfferDiscountProductIds = (offer: Offer | null | undefined): string[] =
   return normalizeProductIds(rawIds);
 };
 
+const getOfferDiscountCategoryName = (offer: Offer | null | undefined): string => {
+  const nestedCategory = String(
+    offer?.config?.discount?.categoryName
+    || offer?.config?.discount?.category
+    || ""
+  ).trim();
+
+  if (nestedCategory) return nestedCategory;
+
+  const legacyCategory = String(offer?.applicableCategory || offer?.category || "").trim();
+  const normalizedLegacyCategory = legacyCategory.toLowerCase();
+
+  if (!legacyCategory) return "";
+  if (normalizedLegacyCategory === "discount" || normalizedLegacyCategory === "product") return "";
+
+  return legacyCategory;
+};
+
 const getOfferB1G1ProductIds = (offer: Offer | null | undefined): string[] => {
   const b1g1Config: any = offer?.config?.b1g1 || {};
   const rawIds = b1g1Config.productIds
@@ -725,9 +743,11 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const resolvedOfferType = getResolvedOfferType(offer);
+  const discountCategoryName = getOfferDiscountCategoryName(offer);
+  const isCategoryDiscountMode = String(offer.config?.discount?.mode || offer.config?.discount?.type || "").toUpperCase() === "CATEGORY";
 
   // If it's a category discount, allow selecting all applicable items. Otherwise, rely on config.
-  const isCategoryDiscount = Boolean(offer.applicableCategory && offer.applicableCategory !== "all");
+  const isCategoryDiscount = Boolean(discountCategoryName && discountCategoryName.toLowerCase() !== "all");
   const maxSelection = isCategoryDiscount ? 999 : (offer.config?.selection?.maxSelection || 1);
 
   // Get applicable products based on category or specific product IDs
@@ -735,12 +755,12 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
     const allProducts = Object.values(productsMap);
 
     // If it's a category discount, filter all products by that category
-    if (offer.category && offer.category !== "all") {
-      const offerCat = String(offer.category).toLowerCase().trim();
+    if (isCategoryDiscountMode || isCategoryDiscount) {
+      const offerCat = discountCategoryName.toLowerCase();
 
       console.log("============= CATEGORY DISCOUNT DEBUG =============");
       console.log("Offer Config:", offer);
-      console.log("Offer Category (offer.applicableCategory):", offerCat);
+      console.log("Offer Category:", offerCat);
       console.log("Cart Items Structure:", cart);
 
       const categoryProducts = allProducts.filter((p: any) => {

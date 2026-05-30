@@ -72,11 +72,15 @@ interface OrderItem {
   unitPrice: number   // base unit price
   totalPrice: number  // (unitPrice + addons) * qty  ← DB key: totalPrice
   orderSubTotal: number // parent order's subTotal
+  discount?: number
+  discountedPrice?: number
+  tax?: number
   addOns: AddOn[]     // DB key: addOns – array of { name, price }
   orderOfferId?: string
   orderOfferType?: string
   orderOfferTitle?: string
   orderDiscount?: number
+  orderTax?: number
   orderDiscountedPrice?: number
   orderHasOffer?: boolean
   offerId?: string
@@ -86,6 +90,8 @@ interface OrderItem {
   finalPrice?: number | null
   discountAmount?: number | null
   dealPrice?: number | null
+  items?: OrderItem[]
+  isFree?: boolean
   isOfferItem?: boolean
   isCombo?: boolean
   isManualB1G1?: boolean
@@ -216,12 +222,23 @@ function OrderViewModal({
   const pricing = useMemo(() => {
     if (hasBill && billData?.pricing) return billData.pricing
 
-    // No server bill – compute locally but use the same integer rules as the server:
+    // No server bill – compute from per-item values when available.
     const subtotal = Math.round(getViewBillSubtotal(items))
-    const discount = 0
-    const tax = Math.floor(subtotal * 0.05)
-    const total = subtotal - discount + tax
-    return { subtotal, discount, discountedPrice: subtotal - discount, tax, total }
+    const discount = Math.round(items.reduce((sum, item) => sum + toSafeNumber(item.discount, 0), 0))
+    const discountedPrice = Math.max(
+      Math.round(
+        items.reduce((sum, item) => {
+          const explicitDiscounted = toSafeNumber(item.discountedPrice, NaN)
+          if (Number.isFinite(explicitDiscounted)) return sum + explicitDiscounted
+          return sum + Math.max(toSafeNumber(item.totalPrice, 0) - toSafeNumber(item.discount, 0), 0)
+        }, 0)
+      ),
+      0,
+    )
+    const taxBase = Math.max(subtotal - discount, 0)
+    const tax = taxBase > 0 ? Math.round(taxBase * 0.05) : 0
+    const total = discountedPrice + tax
+    return { subtotal, discount, discountedPrice, tax, total }
   }, [hasBill, billData, items])
 
   const displayTotal = Number(pricing.total ?? (pricing.subtotal - pricing.discount + pricing.tax))
@@ -321,10 +338,12 @@ function OrderViewModal({
                   rowIndex: number,
                   keyPrefix: string,
                   hideOfferMeta = false,
+                  hidePrimaryDetails = false,
                 ) => {
                   const hasAddons = rowItem.addOns.length > 0
                   const hasNotes = !!rowItem.notes?.trim()
-                  const hasDetails = hasAddons || hasNotes
+                  const hasNestedItems = Array.isArray(rowItem.items) && rowItem.items.length > 0
+                  const hasDetails = hasAddons || hasNotes || (rowItem.isCombo && hasNestedItems)
                   const rowKey = `${keyPrefix}-${orderId}-${rowItem.id || 'item'}-${rowIndex}`
                   const isExpanded = !!expandedItems[rowKey]
 
@@ -336,8 +355,8 @@ function OrderViewModal({
                           onClick={() => hasDetails && toggleExpanded(rowKey)}
                         >
                           <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-medium text-gray-900 truncate">{rowItem.name}</span>
-                            {hasDetails && (
+                            {!hidePrimaryDetails && <span className="text-sm font-medium text-gray-900 truncate">{rowItem.name}</span>}
+                            {hasDetails && !hidePrimaryDetails && (
                               <span
                                 className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${
                                   isExpanded ? 'rotate-180' : ''
@@ -347,8 +366,8 @@ function OrderViewModal({
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-gray-400 mt-0.5">{formatRupee(rowItem.unitPrice)} each</div>
-                          {!hideOfferMeta && rowItem.isOfferItem && (rowItem.offerTitle || rowItem.orderOfferTitle) && (
+                          {!hidePrimaryDetails && <div className="text-xs text-gray-400 mt-0.5">{formatRupee(rowItem.unitPrice)} each</div>}
+                          {!hideOfferMeta && !hidePrimaryDetails && rowItem.isOfferItem && (rowItem.offerTitle || rowItem.orderOfferTitle) && (
                             <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
                               <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{rowItem.offerType || rowItem.orderOfferType || 'Offer'}</span>
                               <span className="truncate">{rowItem.offerTitle || rowItem.orderOfferTitle}</span>
@@ -364,7 +383,7 @@ function OrderViewModal({
                         </div>
 
                         <div className="w-24 text-right text-sm font-semibold text-gray-900 shrink-0">
-                          {formatRupee(rowItem.totalPrice)}
+                          {formatRupee(rowItem.discountedPrice ?? rowItem.totalPrice)}
                         </div>
 
                         <button
@@ -398,6 +417,36 @@ function OrderViewModal({
                               ))}
                             </>
                           )}
+                          {hasNestedItems && (
+                            <>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mt-2 mb-1">
+                                Included items
+                              </p>
+                              {rowItem.items!.map((nestedItem, nestedIndex) => {
+                                const nestedAddOns = Array.isArray(nestedItem.addOns) ? nestedItem.addOns : []
+                                return (
+                                  <div key={`${rowKey}-nested-${nestedIndex}`} className="rounded-md bg-gray-50 px-2 py-1.5 text-xs text-gray-700">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-medium truncate">
+                                        {nestedItem.name}
+                                        {nestedItem.isFree && <span className="ml-1 text-[10px] font-semibold text-emerald-700">(FREE)</span>}
+                                      </span>
+                                      <span className="shrink-0 text-gray-500">
+                                        {formatRupee(nestedItem.totalPrice || 0)}
+                                      </span>
+                                    </div>
+                                    {nestedAddOns.length > 0 && (
+                                      <div className="mt-1 space-y-0.5 pl-2 text-[10px] text-amber-700">
+                                        {nestedAddOns.map((addon, addonIndex) => (
+                                          <div key={`${rowKey}-nested-${nestedIndex}-addon-${addonIndex}`}>+ {addon.name} {addon.price > 0 ? `(+₹${addon.price})` : ''}</div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </>
+                          )}
                           {hasNotes && (
                             <div className="flex items-start gap-1.5 text-xs text-gray-500 pt-1">
                               <span className="font-semibold text-gray-400 shrink-0">Note:</span>
@@ -414,20 +463,6 @@ function OrderViewModal({
                   <div key={orderId}>
                     {(() => {
                       const offerBucketList = Array.from(offerBuckets.values())
-                      const orderDiscountRaw = toSafeNumber(group[0]?.orderDiscount, 0)
-                      const orderDiscount = Math.max(orderDiscountRaw, 0)
-                      const orderDiscountedPriceDirect = toSafeNumber(group[0]?.orderDiscountedPrice, NaN)
-                      const orderDiscountedPriceFallback = toSafeNumber(group[0]?.orderSubTotal, NaN)
-                      const orderDiscountedPrice = Number.isFinite(orderDiscountedPriceDirect)
-                        ? orderDiscountedPriceDirect
-                        : Number.isFinite(orderDiscountedPriceFallback)
-                          ? orderDiscountedPriceFallback
-                          : NaN
-                      const basicSubtotal = regularRows.reduce((sum, row) => sum + toSafeNumber(row.item.totalPrice, 0), 0)
-                      const totalOfferSubtotal = offerBucketList.reduce((sum, b) => {
-                        const bucketSum = b.rows.reduce((acc, row) => acc + toSafeNumber(row.item.totalPrice, 0), 0)
-                        return sum + bucketSum
-                      }, 0)
 
                       return offerBucketList.map((bucket) => {
                       const matchedLog = appliedOfferLogs.find((log: AppliedOfferLog) => {
@@ -437,49 +472,121 @@ function OrderViewModal({
                           String(log?.offerType || '').trim().toLowerCase() === String(bucket.offerType || '').trim().toLowerCase()
                         return sameOfferId || sameTitleAndType
                       })
-                      const bucketSubtotal = bucket.rows.reduce((sum, row) => sum + toSafeNumber(row.item.totalPrice, 0), 0)
+                      const bucketSubtotal = bucket.rows.reduce((sum, row) => sum + toSafeNumber(row.item.discountedPrice ?? row.item.totalPrice, 0), 0)
                       const logBasedPrice = Number.isFinite(Number(matchedLog?.groupDiscountedPrice))
                         ? Number(matchedLog?.groupDiscountedPrice)
                         : NaN
+                      const flattenLeafItems = (items: any[]): any[] => {
+                        const leaves: any[] = []
+                        items.forEach((item) => {
+                          if (Array.isArray(item?.items) && item.items.length > 0) {
+                            leaves.push(...flattenLeafItems(item.items))
+                          } else {
+                            leaves.push(item)
+                          }
+                        })
+                        return leaves
+                      }
+                      const bucketSourceItems = bucket.offerType === 'COMBO' && Array.isArray(bucket.rows[0]?.item.items) ? bucket.rows[0].item.items : bucket.rows.map((row) => row.item)
+                      const bucketPreviewItems = bucket.offerType === 'COMBO' ? flattenLeafItems(bucketSourceItems) : bucketSourceItems
+                      const bucketPreviewNames = bucketPreviewItems
+                        .map((previewItem) => String(previewItem?.name || '').trim())
+                        .filter(Boolean)
+                      const renderComboLeafRows = (nodes: any[], keyPrefix: string, depth = 0): React.ReactNode[] => {
+                        const rendered: React.ReactNode[] = []
+                        nodes.forEach((node, nodeIndex) => {
+                          const childNodes = Array.isArray(node?.items) ? node.items : []
+                          if (childNodes.length > 0) {
+                            rendered.push(...renderComboLeafRows(childNodes, `${keyPrefix}-${nodeIndex}`, depth + 1))
+                            return
+                          }
 
-                      let orderBasedPrice = NaN
-                      if (Number.isFinite(orderDiscountedPrice)) {
-                        if (offerBucketList.length === 1) {
-                          // Offer price = order discounted total minus non-offer (basic) items in that order.
-                          orderBasedPrice = Math.max(orderDiscountedPrice - basicSubtotal, 0)
-                        } else if (totalOfferSubtotal > 0) {
-                          // If multiple offers are present in same order, distribute order-level discount
-                          // proportionally across offer buckets by their pre-discount subtotal.
-                          const bucketDiscountShare = (orderDiscount * bucketSubtotal) / totalOfferSubtotal
-                          orderBasedPrice = Math.max(bucketSubtotal - bucketDiscountShare, 0)
-                        }
+                          const nodeAddOns = Array.isArray(node?.addOns) ? node.addOns : []
+                          const indentClass = depth > 0 ? 'ml-4 border-l border-blue-100 pl-3' : ''
+                          rendered.push(
+                            <div key={`${keyPrefix}-${nodeIndex}`} className={`rounded-lg bg-white px-3 py-2 text-sm ${indentClass}`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="flex items-center gap-1.5 truncate font-medium text-gray-900">
+                                    <span>{node?.name || 'Item'}</span>
+                                    {node?.isFree && <span className="text-[10px] font-semibold text-emerald-700">(FREE)</span>}
+                                  </p>
+                                  {nodeAddOns.length > 0 && (
+                                    <p className="mt-0.5 text-[11px] font-medium text-amber-700">
+                                      Add-ons included
+                                    </p>
+                                  )}
+                                </div>
+                                <span className="shrink-0 font-semibold text-gray-900">
+                                  {formatRupee(Number(node?.discountedPrice ?? node?.totalPrice ?? 0))}
+                                </span>
+                              </div>
+                              {nodeAddOns.length > 0 && (
+                                <div className="mt-2 space-y-0.5 pl-2 text-[11px] text-amber-700">
+                                  {nodeAddOns.map((addon: any, addonIndex: number) => (
+                                    <div key={`${keyPrefix}-${nodeIndex}-addon-${addonIndex}`}>+ {addon.name} {addon.price ? `(+₹${addon.price})` : ''}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>,
+                          )
+                        })
+                        return rendered
                       }
 
-                      const consideredPrice = Number.isFinite(orderBasedPrice)
-                        ? orderBasedPrice
+                      const itemLevelPrice = bucket.rows.reduce((sum, row) => {
+                        const explicitDiscounted = toSafeNumber(row.item.discountedPrice, NaN)
+                        if (Number.isFinite(explicitDiscounted)) return sum + explicitDiscounted
+                        return sum + Math.max(toSafeNumber(row.item.totalPrice, 0) - toSafeNumber(row.item.discount, 0), 0)
+                      }, 0)
+
+                      const consideredPrice = Number.isFinite(itemLevelPrice)
+                        ? itemLevelPrice
                         : Number.isFinite(logBasedPrice)
                           ? logBasedPrice
                           : bucketSubtotal
+                      const groupKey = `offer-group-${orderId}-${bucket.offerId}`
+                      const isGroupExpanded = !!expandedItems[groupKey]
 
                       return (
-                      <div key={`offer-group-${orderId}-${bucket.offerId}`} className="mx-3 my-3 rounded-xl border border-blue-200 bg-blue-50/60">
-                        <div className="flex items-center justify-between border-b border-blue-200 px-3 py-2">
-                          <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
-                            <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
-                              {bucket.offerType}
-                            </span>
-                            <span className="truncate max-w-[220px]">{bucket.offerTitle}</span>
+                      <div key={groupKey} className="mx-3 my-3 rounded-xl border border-blue-200 bg-blue-50/60">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(groupKey)}
+                          className="flex w-full items-center justify-between gap-3 border-b border-blue-200 px-3 py-2 text-left"
+                          aria-expanded={isGroupExpanded}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
+                              <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
+                                {bucket.offerType}
+                              </span>
+                              <span className="truncate max-w-[220px]">{bucket.offerTitle}</span>
+                            </div>
+                            <div className="mt-1 text-[11px] font-medium text-blue-700/80">
+                              {isGroupExpanded ? 'Hide items' : 'View items'}
+                            </div>
                           </div>
                           <div className="text-right">
                             <div className="text-[10px] font-medium uppercase tracking-wide text-blue-600">
                               {bucket.rows.length} item{bucket.rows.length > 1 ? 's' : ''}
+                              <span className={`ml-1 inline-block transition-transform ${isGroupExpanded ? 'rotate-180' : ''}`}>▼</span>
                             </div>
                             <div className="text-xs font-bold text-blue-800">
                               Offer Price: {formatRupee(consideredPrice)}
                             </div>
+                            
                           </div>
-                        </div>
-                        {bucket.rows.map(({ item, index }) => renderOrderRow(item, index, `offer-${bucket.offerId}`, true))}
+                        </button>
+
+                        {isGroupExpanded && (
+                          <div className="space-y-2 p-3">
+                            
+                            {bucket.offerType === 'COMBO' && bucket.rows.length > 0 && Array.isArray(bucket.rows[0].item.items) && bucket.rows[0].item.items.length > 0
+                              ? renderComboLeafRows(bucket.rows[0].item.items, `${groupKey}-combo`)
+                              : bucket.rows.map(({ item, index }) => renderOrderRow(item, index, `offer-${bucket.offerId}`, true, false))}
+                          </div>
+                        )}
                       </div>
                     )})
                     })()}
@@ -679,7 +786,7 @@ const buildWallFromAnchors = (start: WallAnchor, end: WallAnchor): IWall | null 
 
 export function FloorCanvas() {
   const { outletId } = useAuth()
-  const { tables, setTables, updateTable, orders, setIsLayoutEditing } = useApp()
+  const { tables, setTables, updateTable, orders, setIsLayoutEditing, printSettings } = useApp()
   const canvasRef = useRef<HTMLDivElement>(null)
   const safeSetTables = typeof setTables === 'function' ? setTables : null
 
@@ -692,6 +799,21 @@ export function FloorCanvas() {
   // Payment collection highlight (tracks tables the manager has been notified about)
   const [paymentHighlightIds, setPaymentHighlightIds] = useState<Set<string>>(new Set())
   const prevPaymentFlagRef = useRef<Record<string, boolean>>({})
+  const activePaymentToastRef = useRef<Record<string, string | number>>({})
+  const universalWidth = printSettings?.defaultPaperWidth || 280
+  const universalMargins = {
+    top: printSettings?.defaultTopMargin ?? 0,
+    right: printSettings?.defaultRightMargin ?? 0,
+    bottom: printSettings?.defaultBottomMargin ?? 0,
+    left: printSettings?.defaultLeftMargin ?? 10,
+  }
+  const universalPadding = {
+    top: printSettings?.defaultTopPadding ?? 4,
+    right: printSettings?.defaultRightPadding ?? 4,
+    bottom: printSettings?.defaultBottomPadding ?? 4,
+    left: printSettings?.defaultLeftPadding ?? 4,
+  }
+  const universalLineHeight = printSettings?.defaultLineHeight || 1.2
 
   // Detect needsPaymentCollection transitions on tables and show notifications
   useEffect(() => {
@@ -702,10 +824,26 @@ export function FloorCanvas() {
       const flag = Boolean(table.needsPaymentCollection)
       nextFlags[table.id] = flag
 
+      if (!flag) {
+        const activeToastId = activePaymentToastRef.current[table.id]
+        if (activeToastId !== undefined) {
+          toast.dismiss(activeToastId)
+          delete activePaymentToastRef.current[table.id]
+        }
+
+        setPaymentHighlightIds((prev) => {
+          if (!prev.has(table.id)) return prev
+          const next = new Set(prev)
+          next.delete(table.id)
+          return next
+        })
+      }
+
       // Detect false→true transition (new payment notification)
       if (flag && !prevFlags[table.id]) {
         // Define unique key for this notification instance to prevent double trigger/double toasts
-        const notificationKey = `${table.id}_${(table as any).needsPaymentCollectionAt?.seconds || Date.now()}`
+        const stableSeconds = (table as any).needsPaymentCollectionAt?.seconds ?? (table as any).updatedAt?.seconds ?? 'payment'
+        const notificationKey = `${table.id}_${stableSeconds}`
         
         let shouldToast = true
         if (typeof window !== 'undefined') {
@@ -722,7 +860,7 @@ export function FloorCanvas() {
         if (shouldToast) {
           console.log(`[FLOOR_CANVAS_PAYMENT_DEBUG] Displaying toast for ${table.name}. Key: ${notificationKey}`);
           // Show toast notification
-          toast(
+          const toastId = toast(
             <div className="flex items-center gap-4 bg-red-600 text-white px-5 py-4 rounded-xl shadow-[0_8px_30px_rgba(220,38,38,0.5)] border-2 border-red-500 w-[380px] md:w-[420px] pointer-events-auto">
               <span className="text-2xl animate-bounce">🚨</span>
               <div className="flex-1">
@@ -744,6 +882,8 @@ export function FloorCanvas() {
               },
             }
           )
+
+          activePaymentToastRef.current[table.id] = toastId
         }
 
         console.log(`[FLOOR_CANVAS_PAYMENT_DEBUG] Turning table ${table.name} RED (highlighted)`);
@@ -791,7 +931,7 @@ export function FloorCanvas() {
   const [closePaymentMode, setClosePaymentMode] = useState<PaymentMode>('UPI')
   const [isClosingSession, setIsClosingSession] = useState(false)
   const [billData, setBillData] = useState<{
-    pricing: { subtotal: number; discount: number; tax: number; total: number }
+    pricing: { subtotal: number; discount: number; discountedPrice?: number; tax: number; total: number }
     appliedOffers: Array<{ offerId: string; title: string; type: string; offerType?: string; amount: number }>
     appliedOfferLogs?: AppliedOfferLog[]
   } | null>(null)
@@ -903,17 +1043,23 @@ export function FloorCanvas() {
    */
   const getTableBillAmount = (tableId: string): number => {
     const relatedOrders = tableSessionOrders[tableId] || []
-    return relatedOrders.reduce((sum, order) => {
-    // Prefer order.discountedPrice (server-calculated billed total) first.
-    const orderTotal = toSafeNumber((order as any).discountedPrice ?? (order as any).grandTotal ?? (order as any).subTotal ?? (order as any).totalAmount, NaN)
-      if (Number.isFinite(orderTotal)) return sum + orderTotal
+    const orderPricingTotal = relatedOrders.reduce((sum: number, order: any) => {
+      const directTotal = toSafeNumber(
+        order.grandTotal ?? order.pricing?.total ?? order.totalPayable ?? order.finalTotal,
+        NaN,
+      )
+      if (Number.isFinite(directTotal)) return sum + directTotal 
 
-      // Fallback: sum item.totalPrice values
-      const itemsTotal = (order.items || []).reduce((iSum: number, item: any) => {
-        return iSum + getItemTotalPrice(item)
-      }, 0)
-      return sum + itemsTotal
+      const discountedTotal = toSafeNumber(order.discountedPrice ?? order.pricing?.discountedPrice, NaN)
+      const taxTotal = toSafeNumber(order.tax ?? order.pricing?.tax, NaN)
+      if (Number.isFinite(discountedTotal) && Number.isFinite(taxTotal)) return (sum + discountedTotal + taxTotal )+0.5
+
+      return sum + toSafeNumber(order.totalAmount, 0)
     }, 0)
+
+    if (orderPricingTotal > 0) return orderPricingTotal
+
+    return 0
   }
 
   /**
@@ -922,24 +1068,29 @@ export function FloorCanvas() {
   const buildOrderItems = (relatedOrders: Order[]): OrderItem[] =>
     relatedOrders.flatMap((order: any) => {
       const orderDiscount = toFiniteNumber((order as any).discount ?? (order as any).pricing?.discount, 0)
+      const orderTax = toFiniteNumber((order as any).tax ?? (order as any).pricing?.tax, 0)
       const orderDiscountedPrice = toFiniteNumber((order as any).discountedPrice ?? (order as any).pricing?.discountedPrice ?? (order as any).pricing?.subtotal ?? (order as any).subTotal ?? (order as any).totalAmount, NaN)
       const orderOfferId = String((order as any).offerId || (order as any).autoAppliedOfferId || '')
       const orderOfferTitle = String((order as any).offerTitle || (Array.isArray((order as any).appliedOffers) ? (order as any).appliedOffers[0]?.title : '') || '')
       const orderOfferType = String((order as any).offerType || (Array.isArray((order as any).appliedOffers) ? (order as any).appliedOffers[0]?.offerType || (order as any).appliedOffers[0]?.type : '') || '')
       const orderHasOffer = Boolean(orderOfferId || orderOfferType || orderOfferTitle || orderDiscount > 0)
 
-      return (order.items || []).map((item: any): OrderItem => ({
-        id: String(item.id || item.productId || item.productID || item.product_id || ''),
-        orderId: String(order.id),
+      const normalizeOrderItem = (item: any, index: number, parentOrderId: string): OrderItem => ({
+        id: String(item.id || item.productId || item.productID || item.product_id || `${parentOrderId}-${index}`),
+        orderId: String(parentOrderId),
         name: String(item.name || ''),
         qty: getItemQty(item),
         unitPrice: getItemUnitPrice(item),
         totalPrice: getItemTotalPrice(item),
-        orderSubTotal: toFiniteNumber((order as any).discountedPrice ?? (order as any).pricing?.discountedPrice ?? order.totalAmount ?? order.subTotal, NaN),
+        orderSubTotal: toFiniteNumber((order as any).subTotal ?? (order as any).pricing?.subtotal ?? order.totalAmount ?? (order as any).discountedPrice, NaN),
+        discount: toFiniteNumber(item.discount ?? item.discountAmount, 0),
+        discountedPrice: toFiniteNumber(item.discountedPrice, NaN),
+        tax: toFiniteNumber(item.tax, NaN),
         orderOfferId,
         orderOfferType,
         orderOfferTitle,
         orderDiscount,
+        orderTax,
         orderDiscountedPrice,
         orderHasOffer,
         offerId: String(item.offerId || ''),
@@ -960,13 +1111,16 @@ export function FloorCanvas() {
           ? item.addons
           : [],
         notes: item.notes || '',
-      }))
+        items: Array.isArray(item.items) ? item.items.map((child: any, childIndex: number) => normalizeOrderItem(child, childIndex, parentOrderId)) : [],
+      })
+
+      return (order.items || []).map((item: any, index: number) => normalizeOrderItem(item, index, String(order.id)))
     })
 
   const buildBillTemplateData = (
     table: Table,
     relatedOrders: Order[],
-    pricing: { subtotal: number; discount: number; tax: number; total: number },
+    pricing: { subtotal: number; discount: number; discountedPrice?: number; tax: number; total: number },
     billItems?: any[]
   ) => {
     const fallbackItems = relatedOrders.flatMap((order: any) => {
@@ -1427,16 +1581,21 @@ export function FloorCanvas() {
         pricing: {
           subtotal: Number.isFinite(result.pricing?.subtotal) ? Math.round(result.pricing.subtotal) : 0,
           discount: Number.isFinite(result.pricing?.discount) ? Math.round(result.pricing.discount) : 0,
+          discountedPrice: Number.isFinite(result.pricing?.discountedPrice) ? Math.round(result.pricing.discountedPrice) : 0,
           tax: Number.isFinite(result.pricing?.tax) ? Math.round(result.pricing.tax) : 0,
           total: Number.isFinite(result.pricing?.total) ? Math.round(result.pricing.total) : 0,
         },
         appliedOffers: Array.isArray(result.appliedOffers) ? result.appliedOffers : [],
         appliedOfferLogs: Array.isArray(result.appliedOfferLogs) ? result.appliedOfferLogs : [],
       })
+      updateTable(table.id, {
+        billAmount: Number.isFinite(result.pricing?.total) ? Number(result.pricing.total) : 0,
+      }, true)
       setPrintBillData(
         buildBillTemplateData(table, tableSessionOrders[table.id] || [], {
           subtotal: Number.isFinite(result.pricing?.subtotal) ? Math.round(result.pricing.subtotal) : 0,
           discount: Number.isFinite(result.pricing?.discount) ? Math.round(result.pricing.discount) : 0,
+          discountedPrice: Number.isFinite(result.pricing?.discountedPrice) ? Math.round(result.pricing.discountedPrice) : 0,
           tax: Number.isFinite(result.pricing?.tax) ? Math.round(result.pricing.tax) : 0,
           total: Number.isFinite(result.pricing?.total) ? Math.round(result.pricing.total) : 0,
         }, result.items)
@@ -1708,8 +1867,11 @@ export function FloorCanvas() {
               isBillRequested
 
             // Bill amount shown on the card:
-            // sum of order.totalAmount across all orders for this table
-            const tableBillAmount = getTableBillAmount(table.id)
+            // Prefer the canonical table.billAmount written from the bill summary,
+            // then fall back to the backend-derived table total for older data.
+            const tableBillAmount = Number.isFinite(Number(table.billAmount)) && Number(table.billAmount) > 0
+              ? Number(table.billAmount)
+              : getTableBillAmount(table.id)
 
             return (
               <div
@@ -1988,10 +2150,10 @@ export function FloorCanvas() {
             restaurantFooter="Thank You"
             showRestaurantHeader={true}
             showFooter={true}
-            width={250}
-            margins={{ top: 0, right: 0, bottom: 0, left: 10 }}
-            padding={{ top: 4, right: 4, bottom: 4, left: 4 }}
-            lineHeight={1.2}
+            width={universalWidth}
+            margins={universalMargins}
+            padding={universalPadding}
+            lineHeight={universalLineHeight}
           />
         </div>
       )}

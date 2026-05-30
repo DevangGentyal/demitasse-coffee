@@ -8,7 +8,8 @@ import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
 import { FieldValue } from "firebase-admin/firestore";
 import {
 	normalizeOrderItemsForPricing,
-	buildPricingSummary,
+	applyOfferPricingByGroup,
+	buildPricingSummaryFromItems,
 	NormalisedOrderItem,
 } from "../../shared/utilities/offers/orderPricing";
 import { applyOffer, OfferDocument } from "../../shared/utilities/offers/applyOffer";
@@ -92,14 +93,6 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const effectiveOfferId: string | null =
 				readString(offerId) || readString(orderData.autoAppliedOfferId) || null;
 
-			let offerDoc: OfferDocument | null = null;
-			if (effectiveOfferId) {
-				const offerSnap = await tx.get(db.collection("offers").doc(effectiveOfferId));
-				if (offerSnap.exists) {
-					offerDoc = { id: offerSnap.id, ...(offerSnap.data() || {}) } as OfferDocument;
-				}
-			}
-
 			// ── Price resolver (always from products collection) ──────────────
 			const productCache = new Map<string, number>();
 			const resolveProductPrice = async (productId: string): Promise<number | null> => {
@@ -156,20 +149,37 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const existingItems: NormalisedOrderItem[] = Array.isArray(orderData.items) ? orderData.items : [];
 			const mergedItems = [...existingItems, ...newNormalized];
 
+			const offerDocsById = new Map<string, OfferDocument>();
+			const offerIds = new Set<string>();
+			if (effectiveOfferId) offerIds.add(effectiveOfferId);
+			for (const item of mergedItems) {
+				const itemOfferId = readString(item.offerId);
+				if (itemOfferId) offerIds.add(itemOfferId);
+			}
+			for (const offerId of offerIds) {
+				const offerSnap = await tx.get(db.collection("offers").doc(offerId));
+				if (offerSnap.exists) {
+					offerDocsById.set(offerId, { id: offerSnap.id, ...(offerSnap.data() || {}) } as OfferDocument);
+				}
+			}
+
 			// ── subTotal ──────────────────────────────────────────────────────
 			const subTotal = calculateSubtotal(mergedItems);
 
-			// ── Offer / discount ──────────────────────────────────────────────
-			const { orderType, discount } = applyOffer({ subTotal, items: mergedItems }, offerDoc);
+			// ── Apply offer to items individually ──────────────────────────────
+			const itemsWithPricing = applyOfferPricingByGroup(mergedItems, offerDocsById as any, applyTax);
+
+			// ── Get order type ───────────────────────────────────────────────
+			const { orderType } = applyOffer({ subTotal, items: itemsWithPricing }, effectiveOfferId ? (offerDocsById.get(effectiveOfferId) || null) : null);
 
 			// ── Grand total ───────────────────────────────────────────────────
-			// discountedPrice = max(subTotal - discount, 0)
-			// tax             = floor(discountedPrice * 5%)
+			// discountedPrice = sum of all items' discountedPrice
+			// tax             = sum of all items' tax
 			// grandTotal      = discountedPrice + tax
-			const pricing = buildPricingSummary(subTotal, discount, applyTax);
+			const pricing = buildPricingSummaryFromItems(itemsWithPricing);
 
 			const existingUsageCounts = getAppliedOfferUsageCounts(orderData.consumedOfferUsages);
-			const requestedOfferUsages = collectRequestedOfferUsages(newNormalized, effectiveOfferId);
+			const requestedOfferUsages = collectRequestedOfferUsages(itemsWithPricing, effectiveOfferId);
 			const deltaOfferUsages = requestedOfferUsages.filter((usage) => {
 				const existingCount = existingUsageCounts.get(usage.offerId) || 0;
 				return usage.count > existingCount;
@@ -201,7 +211,7 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 
 			const updatePayload = {
 				orderType,
-				items: mergedItems,
+				items: itemsWithPricing,
 				autoAppliedOfferId: effectiveOfferId,
 				offerId: effectiveOfferId,
 				subTotal: pricing.subTotal,
