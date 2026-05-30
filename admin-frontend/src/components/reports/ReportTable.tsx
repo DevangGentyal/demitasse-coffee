@@ -34,9 +34,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({
     if (val === undefined || val === null) return '-'
     const lowerKey = key.toLowerCase()
     
-    // Check if it is a currency field
+    // Check if it is a currency field (excluding count fields)
+    const isCountField = lowerKey.includes('bills') || lowerKey.includes('orders') || lowerKey.includes('items') || lowerKey.includes('invoices') || lowerKey.includes('count');
     if (
-      typeof val === 'number' &&
+      typeof val === 'number' && !isCountField &&
       (lowerKey.includes('price') ||
         lowerKey.includes('amount') ||
         lowerKey.includes('sales') ||

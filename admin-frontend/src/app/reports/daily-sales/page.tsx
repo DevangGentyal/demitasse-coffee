@@ -10,6 +10,7 @@ import {
 } from '@/services/reports.service'
 import { exportToExcel } from '@/utils/exporters/excelExporter'
 import { exportToPDF } from '@/utils/exporters/pdfExporter'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 // Shared components
 import { ReportLayout } from '@/components/reports/ReportLayout'
@@ -161,101 +162,62 @@ export default function DailySalesReportPage() {
     }
   }
 
-  // Draw custom premium SVG line trend chart for revenue
+  // Draw premium Bar Chart for revenue using Recharts
   const chartSvg = useMemo(() => {
     if (!report || report.rows.length === 0) return null
     
-    // Sort rows chronological for chart
-    const chronRows = [...report.rows].reverse()
-    
-    const width = 600
-    const height = 200
-    const padding = 35
-    
-    const maxVal = Math.max(...chronRows.map(r => r.finalAmount)) || 1000
-    
-    const getX = (index: number) => padding + (index * (width - 2 * padding)) / Math.max(1, chronRows.length - 1)
-    const getY = (val: number) => height - padding - (val * (height - 2 * padding)) / maxVal
-
-    // Build line coordinates path
-    let pathD = ''
-    chronRows.forEach((r, idx) => {
-      const x = getX(idx)
-      const y = getY(r.finalAmount)
-      if (idx === 0) {
-        pathD += `M ${x} ${y}`
-      } else {
-        pathD += ` L ${x} ${y}`
+    // Sort rows chronological for chart using actual Date objects
+    const chronRows = [...report.rows].map(r => {
+      const dateParts = r.date.split(' ')
+      const label = dateParts[0] + ' ' + (dateParts[1] || '')
+      return {
+        ...r,
+        label,
+        _dateObj: new Date(r.date)
       }
-    })
-
-    // Build area coordinates path (for gradient under the trend line)
-    let areaD = pathD
-    if (chronRows.length > 0) {
-      areaD += ` L ${getX(chronRows.length - 1)} ${height - padding}`
-      areaD += ` L ${getX(0)} ${height - padding} Z`
-    }
-
+    }).sort((a, b) => a._dateObj.getTime() - b._dateObj.getTime())
+    
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
-        <defs>
-          <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.4" />
-            <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
-          </linearGradient>
-        </defs>
-
-        {/* Grid lines */}
-        {[0, 0.25, 0.5, 0.75, 1].map((p, idx) => {
-          const y = padding + p * (height - 2 * padding)
-          const val = Math.round(maxVal * (1 - p))
-          return (
-            <g key={idx} className="opacity-25">
-              <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#94a3b8" strokeWidth={1} strokeDasharray="4 4" />
-              <text x={padding - 5} y={y + 3} textAnchor="end" className="text-[9px] fill-slate-500 font-semibold">{val}</text>
-            </g>
-          )
-        })}
-
-        {/* X Axis label ticks */}
-        {chronRows.map((r, idx) => {
-          if (chronRows.length > 8 && idx % Math.round(chronRows.length / 5) !== 0) return null
-          const x = getX(idx)
-          // take only day and month: e.g. "23 May"
-          const dateParts = r.date.split(' ')
-          const label = dateParts[0] + ' ' + (dateParts[1] || '')
-          return (
-            <g key={idx} className="opacity-60">
-              <line x1={x} y1={height - padding} x2={x} y2={height - padding + 4} stroke="#94a3b8" strokeWidth={1} />
-              <text x={x} y={height - padding + 15} textAnchor="middle" className="text-[8px] fill-slate-500 font-bold">{label}</text>
-            </g>
-          )
-        })}
-
-        {/* Area fill */}
-        {areaD && <path d={areaD} fill="url(#chartGrad)" />}
-
-        {/* Line path */}
-        {pathD && <path d={pathD} fill="none" stroke="#f59e0b" strokeWidth={2.5} />}
-
-        {/* Interactive dots */}
-        {chronRows.map((r, idx) => {
-          const x = getX(idx)
-          const y = getY(r.finalAmount)
-          return (
-            <circle
-              key={idx}
-              cx={x}
-              cy={y}
-              r={4}
-              className="fill-white stroke-amber-500 hover:r-6 cursor-pointer transition-all duration-150"
-              strokeWidth={2}
-            >
-              <title>{r.date}: INR {r.finalAmount}</title>
-            </circle>
-          )
-        })}
-      </svg>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chronRows} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis 
+            dataKey="label" 
+            tick={{ fontSize: 12, fill: '#64748b' }} 
+            axisLine={false} 
+            tickLine={false}
+            tickMargin={10}
+            minTickGap={20}
+          />
+          <YAxis 
+            tick={{ fontSize: 12, fill: '#64748b' }} 
+            axisLine={false} 
+            tickLine={false} 
+            tickFormatter={(value) => value >= 1000 ? `${value / 1000}k` : value}
+          />
+          <Tooltip 
+            cursor={{ fill: '#f8fafc' }}
+            content={({ active, payload }) => {
+              if (active && payload && payload.length) {
+                const data = payload[0].payload
+                return (
+                  <div className="bg-white border border-slate-200 p-2 rounded shadow-sm text-sm">
+                    <p className="font-semibold text-slate-800">{data.date}</p>
+                    <p className="text-amber-600 font-bold">INR {data.finalAmount}</p>
+                  </div>
+                )
+              }
+              return null
+            }}
+          />
+          <Bar 
+            dataKey="finalAmount" 
+            fill="#f59e0b" 
+            radius={[4, 4, 0, 0]} 
+            maxBarSize={50}
+          />
+        </BarChart>
+      </ResponsiveContainer>
     )
   }, [report])
 
