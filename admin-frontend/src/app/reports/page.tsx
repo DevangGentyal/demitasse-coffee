@@ -10,11 +10,7 @@ import {
   FileSpreadsheet, 
   TrendingUp, 
   FileX, 
-  Pizza, 
   CreditCard, 
-  Calculator, 
-  Tag, 
-  Users, 
   Star 
 } from 'lucide-react'
 
@@ -89,29 +85,14 @@ export default function ReportsPage() {
       icon: <FileX size={24} />,
       color: 'bg-rose-500/10 text-rose-700 ring-rose-200',
     },
+
     {
-      id: 'product-sales',
-      title: 'Product Sales Report',
-      description: 'Performance stats per product showing total quantities sold, gross revenue, and net collections.',
-      path: '/reports/product-sales',
-      icon: <Pizza size={24} />,
-      color: 'bg-blue-500/10 text-blue-700 ring-blue-200',
-    },
-    {
-      id: 'offers',
-      title: 'Offer Usage Report',
-      description: 'Monitor promotion and coupon code statistics showing coupon usage frequency and total discounts given.',
-      path: '/reports/offers',
-      icon: <Tag size={24} />,
-      color: 'bg-teal-500/10 text-teal-700 ring-teal-200',
-    },
-    {
-      id: 'customers',
-      title: 'Customer Analytics Report',
-      description: 'Insightful metric logs detailing customer purchase frequencies, average spends, and preferred locations.',
-      path: '/reports/customers',
-      icon: <Users size={24} />,
-      color: 'bg-pink-500/10 text-pink-700 ring-pink-200',
+      id: 'cash-card',
+      title: 'Cash/Card Report',
+      description: 'Analyze collections by payment mode including Cash, Card, UPI and Other payment channels with gross sales, discounts, taxes and final collections.',
+      path: '/reports/cash-card',
+      icon: <CreditCard size={24} />,
+      color: 'bg-purple-500/10 text-purple-700 ring-purple-200',
     },
   ]
 

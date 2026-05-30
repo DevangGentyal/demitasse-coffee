@@ -537,3 +537,67 @@ export const getCustomerReport = async (filters: {
   return data as CustomerReportResponse
 }
 
+export interface CashCardPaymentSummaryRow {
+  paymentMode: string
+  transactionsCount: number
+  amountCollected: number
+}
+
+export interface CashCardPaymentDetailRow {
+  orderId: string
+  date: string
+  timestamp: string
+  outletName: string
+  paymentMode: string
+  amountPaid: number
+}
+
+export interface CashCardPaymentReportResponse {
+  success: boolean
+  filters: {
+    outletId: string
+    startDate: string
+    endDate: string
+  }
+  outlet: {
+    id: string
+    name: string
+  } | null
+  summary: {
+    totalTransactions: number
+    totalCollection: number
+    totalPaymentSources: number
+  }
+  paymentSummary: CashCardPaymentSummaryRow[]
+  transactions: CashCardPaymentDetailRow[]
+}
+
+export const getCashCardPaymentReport = async (filters: {
+  outletId?: string
+  startDate?: string
+  endDate?: string
+}): Promise<CashCardPaymentReportResponse> => {
+  const token = await getIdToken()
+  const params = new URLSearchParams()
+
+  if (filters.outletId) params.set('outletId', filters.outletId)
+  if (filters.startDate) params.set('startDate', filters.startDate)
+  if (filters.endDate) params.set('endDate', filters.endDate)
+
+  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportCashCardPayment?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+
+  const data = await response.json()
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || 'Failed to fetch cash/card payment report')
+  }
+
+  return data as CashCardPaymentReportResponse
+}
+
+
+
