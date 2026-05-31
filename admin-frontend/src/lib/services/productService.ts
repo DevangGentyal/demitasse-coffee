@@ -1,6 +1,7 @@
 import { auth } from '@/lib/firebase/auth'
 import { getCurrentUserProfile, getProductsByOutletId as getProductsByOutletIdFromBackend } from './backendApi'
-import { getCloudFunctionsBaseUrl } from './cloudFunctions'
+import { buildCloudFunctionsUrl } from './cloudFunctions'
+import { parseJsonOrFallback } from './httpUtils'
 
 export interface Product {
   id: string
@@ -60,7 +61,7 @@ const getIdToken = async (): Promise<string> => {
   return await auth.currentUser.getIdToken()
 }
 
-const CLOUD_FUNCTIONS_URL = getCloudFunctionsBaseUrl()
+
 
 /**
  * Create a new product via Cloud Function
@@ -74,7 +75,7 @@ export const createProduct = async (
     
     console.log('📥 CREATE PRODUCT - Request:', { outletId, name: productData.name, price: productData.price })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminCreateProduct`, {
+    const response = await fetch(buildCloudFunctionsUrl('adminCreateProduct'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -87,11 +88,11 @@ export const createProduct = async (
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       throw new Error(errorData.message || 'Failed to create product')
     }
 
-    const data = await response.json()
+    const data = await parseJsonOrFallback(response)
     console.log('✅ Product created successfully:', data.id)
     return data.id
   } catch (error) {
@@ -113,7 +114,7 @@ export const updateProduct = async (
     
     console.log('📥 UPDATE PRODUCT - Request:', { outletId, productId, updates: Object.keys(updates) })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateProduct`, {
+    const response = await fetch(buildCloudFunctionsUrl('adminUpdateProduct'), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -126,7 +127,7 @@ export const updateProduct = async (
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       const errorMsg = errorData.error ? `${errorData.message}: ${errorData.error}` : (errorData.message || 'Failed to update product')
       throw new Error(errorMsg)
     }
@@ -151,7 +152,7 @@ export const updateProductAvailability = async (
     
     console.log('📥 UPDATE AVAILABILITY - Request:', { outletId, productId, available })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateProduct`, {
+    const response = await fetch(buildCloudFunctionsUrl('adminUpdateProduct'), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -165,7 +166,7 @@ export const updateProductAvailability = async (
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       throw new Error(errorData.message || 'Failed to update availability')
     }
 
@@ -185,7 +186,7 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
     
     console.log('📥 DELETE PRODUCT - Request:', { outletId, productId })
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminDeleteProduct`, {
+    const response = await fetch(buildCloudFunctionsUrl('adminDeleteProduct'), {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -197,7 +198,7 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       throw new Error(errorData.message || 'Failed to delete product')
     }
 

@@ -1,6 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
 import { getOffersByOutletId as getOffersByOutletIdFromBackend } from '@/lib/services/backendApi'
-import { getCloudFunctionsBaseUrl } from '@/lib/services/cloudFunctions'
+import { buildCloudFunctionsUrl } from '@/lib/services/cloudFunctions'
 
 export interface Offer {
   id: string
@@ -76,7 +76,6 @@ export interface Offer {
   updatedAt?: any
 }
 
-const CLOUD_FUNCTIONS_URL = getCloudFunctionsBaseUrl()
 
 type TimestampLike = {
   toDate?: () => Date
@@ -138,7 +137,7 @@ export const getOffersByOutletId = async (outletId: string): Promise<Offer[]> =>
 export const createOffer = async (outletId: string, data: any): Promise<string> => {
   const token = await auth.currentUser?.getIdToken()
 
-  const res = await fetch(`${CLOUD_FUNCTIONS_URL}/adminCreateOffer`, {
+  const res = await fetch(buildCloudFunctionsUrl('adminCreateOffer'), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -150,7 +149,10 @@ export const createOffer = async (outletId: string, data: any): Promise<string> 
     }),
   })
 
-  const result = await res.json()
+  const result = await res.json().catch(async () => {
+    const text = await res.text().catch(() => '<unreadable>')
+    return { success: false, message: text }
+  })
 
   if (!res.ok || !result.success) {
     const errorMsg = result.error ? `${result.message}: ${result.error}` : (result.message || "Failed to create offer")
@@ -164,7 +166,7 @@ export const createOffer = async (outletId: string, data: any): Promise<string> 
 export const updateOffer = async (offerId: string, updates: any) => {
   const token = await auth.currentUser?.getIdToken()
 
-  const res = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateOffer`, {
+  const res = await fetch(buildCloudFunctionsUrl('adminUpdateOffer'), {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -176,7 +178,10 @@ export const updateOffer = async (offerId: string, updates: any) => {
     }),
   })
 
-  const result = await res.json()
+  const result = await res.json().catch(async () => {
+    const text = await res.text().catch(() => '<unreadable>')
+    return { success: false, message: text }
+  })
 
   if (!res.ok || !result.success) {
     const errorMsg = result.error ? `${result.message}: ${result.error}` : (result.message || "Failed to update offer")

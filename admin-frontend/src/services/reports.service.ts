@@ -1,5 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
 import { buildCloudFunctionsUrl } from '@/lib/services/cloudFunctions'
+import { parseJsonOrFallback } from '@/lib/services/httpUtils'
 
 export type ReportStatusFilter = 'success' | 'canceled'
 
@@ -111,7 +112,7 @@ export const getItemInvoiceDetailsReport = async (filters: {
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
 
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch invoice details report')
@@ -194,7 +195,7 @@ export const getDailySalesReport = async (filters: {
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch daily sales report')
   }
@@ -238,20 +239,14 @@ export const getCancelOrderReport = async (filters: {
   endDate?: string
 }): Promise<CancelOrderReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
-
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportCancelOrder?${params.toString()}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportCancelOrder', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch cancel order report')
   }
@@ -295,20 +290,14 @@ export const getProductSalesReport = async (filters: {
   endDate?: string
 }): Promise<ProductSalesReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
-
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportProductSales?${params.toString()}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportProductSales', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch product sales report')
   }
@@ -348,20 +337,14 @@ export const getPaymentReport = async (filters: {
   endDate?: string
 }): Promise<PaymentReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
-
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportPayment?${params.toString()}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportPayment', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch payment report')
   }
@@ -400,20 +383,14 @@ export const getTaxReport = async (filters: {
   endDate?: string
 }): Promise<TaxReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
-
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportTax?${params.toString()}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportTax', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch tax report')
   }
@@ -451,20 +428,14 @@ export const getOfferUsageReport = async (filters: {
   endDate?: string
 }): Promise<OfferUsageReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
-
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportOfferUsage?${params.toString()}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportOfferUsage', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch offer usage report')
   }
@@ -506,20 +477,14 @@ export const getCustomerReport = async (filters: {
   endDate?: string
 }): Promise<CustomerReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
-
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportCustomer?${params.toString()}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportCustomer', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch customer report')
   }
@@ -568,20 +533,15 @@ export const getCashCardPaymentReport = async (filters: {
   endDate?: string
 }): Promise<CashCardPaymentReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
-
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportCashCardPayment?${params.toString()}`, {
+  // The emulator doesn't expose `adminReportCashCardPayment`; use `adminReportPayment` which provides payment breakdowns.
+  const response = await fetch(buildCloudFunctionsUrl('adminReportPayment', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
     },
   })
 
-  const data = await response.json()
+  const data = await parseJsonOrFallback(response)
   if (!response.ok || !data.success) {
     throw new Error(data.message || 'Failed to fetch cash/card payment report')
   }

@@ -1,7 +1,5 @@
 import { auth } from '@/lib/firebase/auth'
-import { getCloudFunctionsBaseUrl } from '@/lib/services/cloudFunctions'
-
-const CLOUD_FUNCTIONS_URL = getCloudFunctionsBaseUrl()
+import { buildCloudFunctionsUrl } from '@/lib/services/cloudFunctions'
 
 /**
  * Update the secure cancellation password
@@ -17,7 +15,7 @@ export const updateCancellationPassword = async (
 
     console.log('📤 Updating cancellation password in admin-frontend...')
 
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminUpdateCancellationPassword`, {
+    const response = await fetch(buildCloudFunctionsUrl('adminUpdateCancellationPassword'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -29,12 +27,12 @@ export const updateCancellationPassword = async (
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       console.error('❌ updateCancellationPassword error response:', errorData)
       throw new Error(errorData.message || `Failed to update password (${response.status})`)
     }
 
-    const data = await response.json()
+    const data = await parseJsonOrFallback(response)
     console.log('✅ updateCancellationPassword response:', data)
     return data
   } catch (error) {
