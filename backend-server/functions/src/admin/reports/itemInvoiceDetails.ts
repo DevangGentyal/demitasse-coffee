@@ -26,6 +26,12 @@ interface ReportRow {
 	discount: number;
 	tax: number;
 	finalTotal: number;
+	grossSales: number;
+	discountAmount: number;
+	taxAmount: number;
+	netSales: number;
+	finalPaidAmount: number;
+	offerItems: string;
 	status: string;
 	tableNo: string;
 	area: string;
@@ -45,12 +51,14 @@ interface ReportRow {
 }
 
 interface GroupSummary {
-	groupName: string;
+	category: string;
 	totalItems: number;
-	totalInvoices: number;
+	invoiceCount: number;
 	grossSales: number;
 	discount: number;
+	netSales: number;
 	tax: number;
+	finalPaidAmount: number;
 	finalTotal: number;
 }
 
@@ -63,7 +71,16 @@ interface ReportResponse {
 		orderStatus: ReportStatusFilter;
 	};
 	outlet: { id: string; name: string } | null;
-	summary: { totalInvoices: number; totalItems: number; grossSales: number; discount: number; tax: number; finalTotal: number };
+	summary: {
+		totalInvoices: number;
+		totalItems: number;
+		grossSales: number;
+		discount: number;
+		netSales: number;
+		tax: number;
+		finalPaidAmount: number;
+		finalTotal: number;
+	};
 	groupSummaries: GroupSummary[];
 	rows: ReportRow[];
 }
@@ -74,18 +91,22 @@ const setCors = (res: Response): void => {
 	res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 };
 const readString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-const readNumber = (value: unknown, fallback = 0): number => { const numeric = Number(value); return Number.isFinite(numeric) ? numeric : fallback; };
+// const readNumber = (value: unknown, fallback = 0): number => { const numeric = Number(value); return Number.isFinite(numeric) ? numeric : fallback; };
 const toDateSafe = (value: unknown): Date | null => { if (!value) return null; if (value instanceof Date) return value; if (typeof (value as { toDate?: () => Date })?.toDate === "function") { try { return (value as { toDate: () => Date }).toDate(); } catch { return null; } } const parsed = new Date(String(value)); return Number.isNaN(parsed.getTime()) ? null : parsed; };
-const startOfDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-const endOfDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
-const parseDateInput = (value?: string, edge: "start" | "end" = "start"): Date | null => { if (!value) return null; const parsed = new Date(`${value}T00:00:00`); if (Number.isNaN(parsed.getTime())) return null; return edge === "start" ? startOfDay(parsed) : endOfDay(parsed); };
+const parseDateInput = (value?: string, edge: "start" | "end" = "start"): Date | null => {
+	if (!value) return null;
+	const isoStr = edge === "start" ? `${value}T00:00:00.000+05:30` : `${value}T23:59:59.999+05:30`;
+	const parsed = new Date(isoStr);
+	if (Number.isNaN(parsed.getTime())) return null;
+	return parsed;
+};
 const resolveLifecycleStatus = (order: FirebaseFirestore.DocumentData): ReportStatusFilter => { const candidates = [order.status, order.orderStatus, order.orderLifecycleStatus]; for (const candidate of candidates) { const status = readString(candidate).toLowerCase(); if (!status) continue; if (status.includes("cancel")) return "canceled"; if (status.includes("success") || status.includes("complete") || status.includes("close") || status.includes("final") || status.includes("paid")) return "success"; } return "success"; };
 const resolveOrderTimestamp = (order: FirebaseFirestore.DocumentData): Date | null => toDateSafe(order.archivedAt) || toDateSafe(order.finalizedAt) || toDateSafe(order.closedAt) || toDateSafe(order.updatedAt) || toDateSafe(order.createdAt) || toDateSafe(order.timeOfOrder);
 const resolveOutletName = (outlet: FirebaseFirestore.DocumentData | null, outletId: string): string => readString(outlet?.name) || outletId || "All Outlets";
 const resolveRestaurantName = (outlet: FirebaseFirestore.DocumentData | null, order: FirebaseFirestore.DocumentData): string => readString(order.restaurant) || readString(outlet?.name) || readString(order.outletName) || readString(order.outletId) || "Demitasse";
 const resolveTableNo = (order: FirebaseFirestore.DocumentData): string => readString(order.tableId) || readString(order.tableNo) || readString(order.tableName) || "";
 const resolveArea = (order: FirebaseFirestore.DocumentData): string => { const directArea = readString(order.area || order.section || order.floorArea); if (directArea) return directArea; const tableNo = resolveTableNo(order).toUpperCase(); if (tableNo.startsWith("OD")) return "Outdoor"; if (tableNo) return "Indoor"; return ""; };
-const resolvePaymentType = (order: FirebaseFirestore.DocumentData, payment: FirebaseFirestore.DocumentData | null): string => readString(payment?.paymentType) || readString(payment?.paymentMethod) || readString(payment?.paymentMode) || readString(payment?.mode) || readString(payment?.payAt) || readString(order.paymentType) || readString(order.paymentMethod) || readString(order.paymentMode) || readString(order.payAt) || readString(order.settlementStatus) || "NA";
+// const resolvePaymentType = (order: FirebaseFirestore.DocumentData, payment: FirebaseFirestore.DocumentData | null): string => readString(payment?.paymentType) || readString(payment?.paymentMethod) || readString(payment?.paymentMode) || readString(payment?.mode) || readString(payment?.payAt) || readString(order.paymentType) || readString(order.paymentMethod) || readString(order.paymentMode) || readString(order.payAt) || readString(order.settlementStatus) || "NA";
 const resolveServerName = (order: FirebaseFirestore.DocumentData): string => readString(order.serverName) || readString(order.server) || readString(order.assignedTo) || readString(order.placedBy) || "biller";
 const resolveCustomerField = (order: FirebaseFirestore.DocumentData, key: string): string => { const customer = order.customer || {}; return readString(order[key]) || readString(customer[key]) || "NA"; };
 const cleanCategory = (val: string): string => {
@@ -130,9 +151,21 @@ const resolveItemCategory = (item: FirebaseFirestore.DocumentData, productsCache
 };
 
 const resolveVariation = (item: FirebaseFirestore.DocumentData): string => { const directVariation = readString(item.variation); if (directVariation) return directVariation; if (Array.isArray(item.variations) && item.variations.length > 0) { const first = item.variations[0] || {}; return readString(first.name) || readString(first.option) || readString(first.type) || readString(first.value); } return ""; };
-const resolveInvoiceNo = (order: FirebaseFirestore.DocumentData, fallbackIndex: number): string => readString(order.invoiceNo) || readString(order.billNo) || readString(order.invoiceNumber) || readString(order.orderNo) || readString(order.referenceNo) || readString(order.invoiceId) || readString(order.billId) || readString(order.id) || String(fallbackIndex);
 const distributeAmount = (target: number, base: number, total: number): number => { if (!Number.isFinite(target) || !Number.isFinite(base) || !Number.isFinite(total) || base <= 0 || total <= 0) return 0; return Math.round((target * base / total) * 100) / 100; };
 const fetchDocById = async (collectionName: string, id: string): Promise<FirebaseFirestore.DocumentData | null> => { const resolvedId = readString(id); if (!resolvedId) return null; const snapshot = await db.collection(collectionName).doc(resolvedId).get(); return snapshot.exists ? snapshot.data() || null : null; };
+
+const safeNumber = (value: any): number => {
+	const numeric = Number(value);
+	return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const resolveItemPaymentType = (order: FirebaseFirestore.DocumentData, orderId: string, paymentsCache: Map<string, string>): string => {
+	const directMode = readString(order.paymentMode || order.paymentType || order.paymentMethod || order.payAt);
+	if (directMode) return directMode.toUpperCase();
+	const cachedMode = paymentsCache.get(orderId);
+	if (cachedMode) return cachedMode;
+	return "UNKNOWN";
+};
 
 const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<ReportResponse> => {
 	const outletId = readString(filters.outletId);
@@ -144,6 +177,23 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 	const productsCache = new Map<string, any>();
 	productsSnap.docs.forEach((doc) => {
 		productsCache.set(doc.id, doc.data());
+	});
+
+	// Fetch all offers for combo item resolution
+	const offersSnap = await db.collection("offers").get();
+	const offersCache = new Map<string, any>();
+	offersSnap.docs.forEach((doc) => {
+		offersCache.set(doc.id, doc.data());
+	});
+
+	// Fetch all successPayments for paymentMode lookup fallback
+	const paymentsSnap = await db.collection("successPayments").get();
+	const paymentsCache = new Map<string, string>();
+	paymentsSnap.docs.forEach((doc) => {
+		const pData = doc.data();
+		if (pData && pData.orderId && pData.paymentMode) {
+			paymentsCache.set(String(pData.orderId), readString(pData.paymentMode).toUpperCase());
+		}
 	});
 
 	let ordersQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection("ordersHistory");
@@ -168,22 +218,24 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 	let grossSales = 0;
 	let discount = 0;
 	let tax = 0;
-	let finalTotal = 0;
+	let finalTotal = 0; // netSales total
+	let finalPaidAmount = 0; // finalPaidAmount total
+
+	const resolveInvoiceNo = (order: FirebaseFirestore.DocumentData, fallbackIndex: number): string => readString(order.invoiceNo) || readString(order.billNo) || readString(order.invoiceNumber) || readString(order.orderNo) || readString(order.referenceNo) || readString(order.invoiceId) || readString(order.billId) || readString(order.id) || String(fallbackIndex);
 
 	filteredOrders.forEach(({ id, data }, orderIndex) => {
 		const orderTimestamp = resolveOrderTimestamp(data) || new Date();
 		const items = Array.isArray(data.items) ? data.items : [];
-		const orderSubtotal = readNumber(data.pricing?.subtotal, items.reduce((sum, item) => { const qty = readNumber(item.qty ?? item.quantity, 1) || 1; const linePrice = readNumber(item.totalPrice, readNumber(item.price, 0) * qty); return sum + linePrice; }, 0));
-		const orderDiscount = readNumber(data.pricing?.discount, 0);
-		const orderTax = readNumber(data.pricing?.tax, 0);
+		const orderDiscount = safeNumber(data.pricing?.discount || data.discount || data.discountAmount);
+		const orderTax = safeNumber(data.pricing?.tax || data.tax || data.taxAmount);
 		const rowInvoiceNo = resolveInvoiceNo(data, orderIndex + 1);
 		const restaurant = resolveRestaurantName(currentOutlet, data);
-		const paymentType = resolvePaymentType(data, null);
+		const paymentType = resolveItemPaymentType(data, id, paymentsCache);
 		const orderType = readString(data.orderType) || readString(data.deliveryType) || readString(data.placedBy) || "Dine In";
 		const tableNo = resolveTableNo(data);
 		const area = resolveArea(data);
 		const serverName = resolveServerName(data);
-		const covers = readNumber(data.covers || data.noOfCovers || data.guestCount, 0);
+		const covers = safeNumber(data.covers || data.noOfCovers || data.guestCount);
 		const name = resolveCustomerField(data, "customerName");
 		const phone = resolveCustomerField(data, "customerPhone");
 		const address = resolveCustomerField(data, "address");
@@ -193,37 +245,251 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 		const displayStatus = statusGroup === "canceled" ? "Canceled" : "Success";
 
 		totalInvoices += 1;
-		const orderBaseTotal = orderSubtotal > 0 ? orderSubtotal : items.reduce((sum, item) => { const qty = readNumber(item.qty ?? item.quantity, 1) || 1; const linePrice = readNumber(item.totalPrice, readNumber(item.price, 0) * qty); return sum + linePrice; }, 0);
+		// 1. Organize items into logical invoice lines
+		interface OrderInvoiceLine {
+			type: 'normal' | 'combo';
+			offerId?: string;
+			items: any[];
+			grossSales: number;
+		}
 
-		items.forEach((item, itemIndex) => {
-			const qty = readNumber(item.qty ?? item.quantity, 1) || 1;
-			const unitPrice = readNumber(item.price ?? item.finalUnitPrice ?? item.basePrice, 0);
-			const lineSubTotal = readNumber(item.totalPrice, unitPrice * qty);
-			const lineDiscount = orderDiscount > 0 ? distributeAmount(orderDiscount, lineSubTotal, orderBaseTotal) : 0;
-			const lineTax = orderTax > 0 ? distributeAmount(orderTax, lineSubTotal, orderBaseTotal) : 0;
-			const lineFinalTotal = Math.max(lineSubTotal - lineDiscount + lineTax, 0);
-			const itemGroup = resolveItemGroup(item, productsCache);
-			const itemCategory = resolveItemCategory(item, productsCache);
+		const invoiceLines: OrderInvoiceLine[] = [];
+		const comboGroups = new Map<string, any[]>();
 
-			totalItems += qty; grossSales += lineSubTotal; discount += lineDiscount; tax += lineTax; finalTotal += lineFinalTotal;
-			rows.push({ restaurant, date: orderTimestamp.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }), timestamp: orderTimestamp.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), invoiceNo: rowInvoiceNo, paymentType, orderType, itemName: readString(item.name) || `Item ${itemIndex + 1}`, price: unitPrice, qty, subTotal: lineSubTotal, discount: lineDiscount, tax: lineTax, finalTotal: lineFinalTotal, status: displayStatus, tableNo, area, serverName, covers, variation: resolveVariation(item), category: itemCategory, groupName: itemGroup, hsn: readString(item.hsn) || readString(data.hsn) || "", sapCode: readString(item.sapCode) || readString(data.sapCode) || "", phone, name, address, gst, assignTo, orderId: id });
+		items.forEach((item) => {
+			const isCombo = item.isOfferItem === true || String(item.isOfferItem).toLowerCase() === 'true' ||
+				item.isCombo === true || String(item.isCombo).toLowerCase() === 'true' ||
+				!!item.offerId;
+			if (isCombo) {
+				// We append order ID to ensure combos from different orders don't merge, though this scope is per-order anyway
+				const oId = String(item.offerId || "unknown_offer");
+				if (!comboGroups.has(oId)) {
+					comboGroups.set(oId, []);
+				}
+				comboGroups.get(oId)!.push(item);
+			} else {
+				invoiceLines.push({ type: 'normal', items: [item], grossSales: 0 });
+			}
+		});
+
+		comboGroups.forEach((childItems, offerId) => {
+			invoiceLines.push({ type: 'combo', offerId, items: childItems, grossSales: 0 });
+		});
+
+		// 2. Calculate Gross Sales for each line
+		let orderBaseGrossSales = 0;
+		invoiceLines.forEach(line => {
+			let lineGross = 0;
+			line.items.forEach(item => {
+				const qty = safeNumber(item.qty ?? item.quantity) || 1;
+				const unitPrice = safeNumber(item.price ?? item.finalUnitPrice ?? item.basePrice);
+				
+				let itemGross = 0;
+				if (item.pricing?.subtotal !== undefined && item.pricing?.subtotal !== null && Number.isFinite(Number(item.pricing.subtotal))) {
+					itemGross = safeNumber(item.pricing.subtotal);
+				} else if (item.totalPrice !== undefined && item.totalPrice !== null && Number.isFinite(Number(item.totalPrice))) {
+					itemGross = safeNumber(item.totalPrice);
+				} else {
+					const addOnTotal = Array.isArray(item.addOns) ? item.addOns.reduce((sum: number, a: any) => sum + safeNumber(a.price ?? a.amount), 0) : 0;
+					itemGross = safeNumber((unitPrice + addOnTotal) * qty);
+				}
+				lineGross += itemGross;
+			});
+			line.grossSales = safeNumber(lineGross);
+			orderBaseGrossSales += lineGross;
+		});
+
+		// 3. Distribute proportional discount and tax with delta correction
+		let accumulatedDiscount = 0;
+		let accumulatedTax = 0;
+
+		invoiceLines.forEach((line, index) => {
+			const isLast = index === invoiceLines.length - 1;
+			let lineDiscount = 0;
+			let lineTax = 0;
+
+			// Proportional Discount
+			if (orderDiscount > 0) {
+				if (isLast) {
+					lineDiscount = Math.round((orderDiscount - accumulatedDiscount) * 100) / 100;
+				} else {
+					lineDiscount = distributeAmount(orderDiscount, line.grossSales, orderBaseGrossSales);
+					accumulatedDiscount += lineDiscount;
+				}
+			}
+
+			// Proportional Tax
+			if (orderTax > 0) {
+				if (isLast) {
+					lineTax = Math.round((orderTax - accumulatedTax) * 100) / 100;
+				} else {
+					lineTax = distributeAmount(orderTax, line.grossSales, orderBaseGrossSales);
+					accumulatedTax += lineTax;
+				}
+			}
+
+			// Calculations mapping exactly to formulas
+			const lineNetSales = Math.round((line.grossSales - lineDiscount) * 100) / 100;
+			const lineFinalPaid = Math.round((lineNetSales + lineTax) * 100) / 100;
+
+			// Add to running totals for summary
+			const lineQty = line.type === 'normal' ? (safeNumber(line.items[0].qty ?? line.items[0].quantity) || 1) : 1;
+			totalItems += lineQty;
+			grossSales += line.grossSales;
+			discount += lineDiscount;
+			tax += lineTax;
+			finalTotal += lineNetSales;
+			finalPaidAmount += lineFinalPaid;
+
+			// Format itemName depending on type
+			let itemName = "";
+			let lineCategory = "Uncategorized";
+			let lineGroup = "Uncategorized";
+			let combinedHsn = "";
+			let combinedSapCode = "";
+			let variation = "";
+			let unitPrice = line.grossSales; // Default for combo
+
+			if (line.type === 'normal') {
+				const item = line.items[0];
+				itemName = readString(item.name) || "Unnamed Item";
+				const nestedItems = Array.isArray(item.items) ? item.items : [];
+				if (nestedItems.length > 0) {
+					const subItemsList = nestedItems.map((subItem: any) => `* ${readString(subItem.name || subItem.title)}`).join("\n");
+					itemName = `${itemName}\n${subItemsList}`;
+				}
+				lineCategory = resolveItemCategory(item, productsCache);
+				lineGroup = resolveItemGroup(item, productsCache);
+				combinedHsn = readString(item.hsn) || readString(data.hsn) || "";
+				combinedSapCode = readString(item.sapCode) || readString(data.sapCode) || "";
+				variation = resolveVariation(item);
+				unitPrice = safeNumber(item.price ?? item.finalUnitPrice ?? item.basePrice);
+			} else {
+				// Combo formatting
+				const offerDoc = line.offerId ? offersCache.get(line.offerId) : null;
+				let offerTitle = offerDoc ? readString(offerDoc.title || offerDoc.name) : "";
+				if (!offerTitle) {
+					for (const child of line.items) {
+						if (child.offerTitle) {
+							offerTitle = readString(child.offerTitle);
+							break;
+						}
+					}
+				}
+				if (!offerTitle) offerTitle = `Combo Offer (${line.offerId})`;
+
+				const childNames = line.items.map((child) => {
+					const addOnsList = Array.isArray(child.addOns) ? child.addOns : [];
+					const addOnStr = addOnsList.map((a: any) => readString(a.name || a.title)).filter(Boolean).join(", ");
+					const nameStr = readString(child.name || child.title || "Unnamed Item");
+					return `• ${nameStr}${addOnStr ? ` (+ ${addOnStr})` : ""}`;
+				}).join("\n");
+				
+				itemName = `${offerTitle}\n${childNames}`;
+				lineCategory = "COMBO";
+				lineGroup = "COMBO";
+				combinedHsn = line.items.map(child => readString(child.hsn)).filter(Boolean).join(", ") || readString(data.hsn) || "";
+				combinedSapCode = line.items.map(child => readString(child.sapCode)).filter(Boolean).join(", ") || readString(data.sapCode) || "";
+				unitPrice = lineNetSales;
+			}
+
+			rows.push({
+				restaurant,
+				date: orderTimestamp.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }),
+				timestamp: orderTimestamp.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" }),
+				invoiceNo: rowInvoiceNo,
+				paymentType,
+				orderType,
+				itemName,
+				price: unitPrice,
+				qty: lineQty,
+				subTotal: line.grossSales,
+				discount: lineDiscount,
+				tax: lineTax,
+				finalTotal: lineFinalPaid,
+				grossSales: Math.round(line.grossSales * 100) / 100,
+				discountAmount: Math.round(lineDiscount * 100) / 100,
+				taxAmount: Math.round(lineTax * 100) / 100,
+				netSales: lineNetSales,
+				finalPaidAmount: lineFinalPaid,
+				offerItems: "",
+				status: displayStatus,
+				tableNo,
+				area,
+				serverName,
+				covers,
+				variation,
+				category: lineCategory,
+				groupName: lineGroup,
+				hsn: combinedHsn,
+				sapCode: combinedSapCode,
+				phone,
+				name,
+				address,
+				gst,
+				assignTo,
+				orderId: id
+			});
 		});
 	});
 
-	const groupMap = new Map<string, GroupSummary>();
+	const groupMap = new Map<string, {
+		category: string;
+		totalItems: number;
+		grossSales: number;
+		discount: number;
+		netSales: number;
+		tax: number;
+		finalPaidAmount: number;
+	}>();
 	const invoiceGroupMap = new Map<string, Set<string>>();
 	for (const row of rows) {
-		const key = row.groupName || "Uncategorized";
-		const existing = groupMap.get(key) || { groupName: key, totalItems: 0, totalInvoices: 0, grossSales: 0, discount: 0, tax: 0, finalTotal: 0 };
-		existing.totalItems += row.qty; existing.grossSales += row.subTotal; existing.discount += row.discount; existing.tax += row.tax; existing.finalTotal += row.finalTotal; groupMap.set(key, existing);
+		const key = row.category || "Uncategorized";
+		const existing = groupMap.get(key) || { category: key, totalItems: 0, grossSales: 0, discount: 0, netSales: 0, tax: 0, finalPaidAmount: 0 };
+		existing.totalItems += safeNumber(row.qty);
+		existing.grossSales += safeNumber(row.grossSales);
+		existing.discount += safeNumber(row.discountAmount);
+		existing.netSales += safeNumber(row.netSales);
+		existing.tax += safeNumber(row.taxAmount);
+		existing.finalPaidAmount += safeNumber(row.finalPaidAmount);
+		groupMap.set(key, existing);
+		
 		if (!invoiceGroupMap.has(key)) invoiceGroupMap.set(key, new Set());
 		invoiceGroupMap.get(key)?.add(row.invoiceNo);
 	}
 
-	const groupSummaries = Array.from(groupMap.values()).map((group) => ({ ...group, totalInvoices: invoiceGroupMap.get(group.groupName)?.size || 0 })).sort((a, b) => b.totalItems - a.totalItems || a.groupName.localeCompare(b.groupName));
+	const groupSummaries = Array.from(groupMap.values()).map((group) => {
+		return {
+			category: group.category,
+			totalItems: group.totalItems,
+			invoiceCount: invoiceGroupMap.get(group.category)?.size || 0,
+			grossSales: Math.round(group.grossSales * 100) / 100,
+			discount: Math.round(group.discount * 100) / 100,
+			netSales: Math.round(group.netSales * 100) / 100,
+			tax: Math.round(group.tax * 100) / 100,
+			finalPaidAmount: Math.round(group.finalPaidAmount * 100) / 100,
+			finalTotal: Math.round(group.netSales * 100) / 100 // compatibility
+		};
+	}).sort((a, b) => b.totalItems - a.totalItems || a.category.localeCompare(b.category));
 	rows.sort((a, b) => b.timestamp.localeCompare(a.timestamp) || a.invoiceNo.localeCompare(b.invoiceNo) || a.itemName.localeCompare(b.itemName));
 
-	return { success: true, filters: { outletId, startDate: filters.startDate || "", endDate: filters.endDate || "", orderStatus: "success" }, outlet: { id: outletId || "", name: resolveOutletName(currentOutlet, outletId) }, summary: { totalInvoices, totalItems, grossSales: Math.round(grossSales * 100) / 100, discount: Math.round(discount * 100) / 100, tax: Math.round(tax * 100) / 100, finalTotal: Math.round(finalTotal * 100) / 100 }, groupSummaries, rows };
+	return {
+		success: true,
+		filters: { outletId, startDate: filters.startDate || "", endDate: filters.endDate || "", orderStatus: "success" },
+		outlet: { id: outletId || "", name: resolveOutletName(currentOutlet, outletId) },
+		summary: {
+			totalInvoices,
+			totalItems,
+			grossSales: Math.round(grossSales * 100) / 100,
+			discount: Math.round(discount * 100) / 100,
+			tax: Math.round(tax * 100) / 100,
+			netSales: Math.round(finalTotal * 100) / 100,
+			finalTotal: Math.round(finalTotal * 100) / 100,
+			finalPaidAmount: Math.round(finalPaidAmount * 100) / 100
+		},
+		groupSummaries,
+		rows
+	};
 };
 
 export const getItemInvoiceDetailsReport = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {

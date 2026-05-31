@@ -14,6 +14,7 @@ export interface ReportTableProps {
   rows: any[]
   currencySymbol?: string
   minWidth?: string
+  maxHeight?: string
 }
 
 export const ReportTable: React.FC<ReportTableProps> = ({
@@ -23,6 +24,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
   rows,
   currencySymbol = 'INR',
   minWidth = '900px',
+  maxHeight,
 }) => {
   const currency = new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -37,7 +39,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({
     // Check if it is a currency field (excluding count fields)
     const isCountField = lowerKey.includes('bills') || lowerKey.includes('orders') || lowerKey.includes('items') || lowerKey.includes('invoices') || lowerKey.includes('count');
     if (
-      typeof val === 'number' && !isCountField &&
+      typeof val === 'number' &&
+      !lowerKey.includes('count') &&
+      !lowerKey.includes('qty') &&
+      !lowerKey.includes('items') &&
+      !lowerKey.includes('bills') &&
       (lowerKey.includes('price') ||
         lowerKey.includes('amount') ||
         lowerKey.includes('sales') ||
@@ -63,9 +69,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({
         <CardTitle className="text-lg font-bold text-slate-800">{title}</CardTitle>
         {description && <CardDescription className="text-xs text-slate-500 mt-1">{description}</CardDescription>}
       </CardHeader>
-      <CardContent className="p-0 overflow-x-auto">
+      <CardContent 
+        className="w-full overflow-auto p-0" 
+        style={maxHeight ? { maxHeight } : undefined}
+      >
         <table className="w-full text-sm text-slate-600" style={{ minWidth }}>
-          <thead className="border-b border-slate-200 bg-slate-50/70 font-semibold text-slate-700 text-left">
+          <thead className="sticky top-0 border-b border-slate-200 bg-slate-50 font-semibold text-slate-700 text-left z-10 shadow-[inset_0_-1px_0_rgba(226,232,240,1)]">
             <tr>
               {columns.map((col) => (
                 <th
@@ -85,7 +94,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                 {columns.map((col) => {
                   const alignment = col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
                   return (
-                    <td key={col.key} className={`py-3 px-4 text-slate-900 ${alignment}`}>
+                    <td key={col.key} className={`py-3 px-4 text-slate-900 ${alignment} ${col.key === 'itemName' ? 'whitespace-pre-wrap' : ''}`}>
                       {formatCellValue(col.key, row[col.key])}
                     </td>
                   )

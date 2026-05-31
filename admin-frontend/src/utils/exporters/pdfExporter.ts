@@ -20,25 +20,39 @@ export interface PDFExportOptions {
 export const exportToPDF = (options: PDFExportOptions) => {
   const { title, subtitle, filename, columns, rows, summary, filters, currencySymbol = 'INR' } = options
 
-  const currency = new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: currencySymbol,
-    maximumFractionDigits: 2,
-  })
+  const sanitizeText = (str: string): string => {
+    if (!str) return ''
+    return str
+      .replace(/₹/g, 'Rs. ')
+      .replace(/\u20B9/g, 'Rs. ')
+      .replace(/\u00B9/g, 'Rs. ')
+      .replace(/¹/g, 'Rs. ')
+  }
+
+  const formatCurrency = (val: any) => {
+    const numericStr = Number(val || 0).toFixed(2)
+    const numericVal = Number(numericStr)
+    const formatted = new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+    }).format(numericVal)
+    return sanitizeText(formatted).trim()
+  }
 
   const doc = new jsPDF({ orientation: 'landscape' })
 
   // 1. Report Title & Subtitle
   doc.setFontSize(18)
   doc.setTextColor(15, 23, 42) // slate-900
-  doc.text(title, 14, 15)
+  doc.text(sanitizeText(title), 14, 15)
 
   let currentY = 21
 
   if (subtitle) {
     doc.setFontSize(10)
     doc.setTextColor(100, 116, 139) // slate-500
-    doc.text(subtitle, 14, currentY)
+    doc.text(sanitizeText(subtitle), 14, currentY)
     currentY += 6
   }
 
@@ -55,7 +69,7 @@ export const exportToPDF = (options: PDFExportOptions) => {
       .join(' | ')
 
     if (filterStrings) {
-      doc.text(`Filters: ${filterStrings}`, 14, currentY)
+      doc.text(sanitizeText(`Filters: ${filterStrings}`), 14, currentY)
       currentY += 8
     }
   }
@@ -64,9 +78,25 @@ export const exportToPDF = (options: PDFExportOptions) => {
   if (summary && Object.keys(summary).length > 0) {
     const summaryData = Object.entries(summary).map(([key, val]) => {
       const readableKey = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')
-      const formattedVal = typeof val === 'number' && key.toLowerCase().includes('sales') || key.toLowerCase().includes('total') || key.toLowerCase().includes('amount') || key.toLowerCase().includes('revenue') || key.toLowerCase().includes('discount') || key.toLowerCase().includes('tax') || key.toLowerCase().includes('spend') || key.toLowerCase().includes('bill')
-        ? currency.format(val)
-        : String(val)
+      const lowerKey = key.toLowerCase()
+      const formattedVal =
+        (typeof val === 'number' || (typeof val === 'string' && !isNaN(Number(val)) && val.trim() !== '')) &&
+        !lowerKey.includes('count') &&
+        !lowerKey.includes('qty') &&
+        !lowerKey.includes('items') &&
+        !lowerKey.includes('bills') &&
+        (lowerKey.includes('sales') ||
+          lowerKey.includes('total') ||
+          lowerKey.includes('amount') ||
+          lowerKey.includes('revenue') ||
+          lowerKey.includes('discount') ||
+          lowerKey.includes('tax') ||
+          lowerKey.includes('spend') ||
+          lowerKey.includes('bill') ||
+          lowerKey.includes('price') ||
+          lowerKey.includes('refund'))
+          ? formatCurrency(val)
+          : sanitizeText(String(val))
       return [readableKey, formattedVal]
     })
 
@@ -87,15 +117,31 @@ export const exportToPDF = (options: PDFExportOptions) => {
   }
 
   // 4. Main Data Table
-  const tableHead = columns.map((col) => col.header)
+  const tableHead = columns.map((col) => sanitizeText(col.header))
   const tableBody = rows.map((row) =>
     columns.map((col) => {
       const val = row[col.key]
       if (val === undefined || val === null) return ''
-      if (typeof val === 'number' && col.key.toLowerCase().includes('sales') || col.key.toLowerCase().includes('total') || col.key.toLowerCase().includes('amount') || col.key.toLowerCase().includes('revenue') || col.key.toLowerCase().includes('discount') || col.key.toLowerCase().includes('tax') || col.key.toLowerCase().includes('spend') || col.key.toLowerCase().includes('price') || col.key.toLowerCase().includes('refund')) {
-        return currency.format(val)
+      const lowerKey = col.key.toLowerCase()
+      if (
+        (typeof val === 'number' || (typeof val === 'string' && !isNaN(Number(val)) && val.trim() !== '')) &&
+        !lowerKey.includes('count') &&
+        !lowerKey.includes('qty') &&
+        !lowerKey.includes('items') &&
+        !lowerKey.includes('bills') &&
+        (lowerKey.includes('sales') ||
+          lowerKey.includes('total') ||
+          lowerKey.includes('amount') ||
+          lowerKey.includes('revenue') ||
+          lowerKey.includes('discount') ||
+          lowerKey.includes('tax') ||
+          lowerKey.includes('spend') ||
+          lowerKey.includes('price') ||
+          lowerKey.includes('refund'))
+      ) {
+        return formatCurrency(val)
       }
-      return String(val)
+      return sanitizeText(String(val))
     })
   )
 

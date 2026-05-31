@@ -18,6 +18,12 @@ export interface ReportRow {
   discount: number
   tax: number
   finalTotal: number
+  grossSales: number
+  discountAmount: number
+  taxAmount: number
+  netSales: number
+  finalPaidAmount: number
+  offerItems: string
   status: string
   tableNo: string
   area: string
@@ -37,12 +43,14 @@ export interface ReportRow {
 }
 
 export interface ReportGroupSummary {
-  groupName: string
+  category: string
   totalItems: number
-  totalInvoices: number
+  invoiceCount: number
   grossSales: number
   discount: number
+  netSales: number
   tax: number
+  finalPaidAmount: number
   finalTotal: number
 }
 
@@ -62,7 +70,9 @@ export interface InvoiceDetailsReportResponse {
     totalItems: number
     grossSales: number
     discount: number
+    netSales: number
     tax: number
+    finalPaidAmount: number
     finalTotal: number
   }
   groupSummaries: ReportGroupSummary[]
@@ -75,7 +85,7 @@ const getIdToken = async (): Promise<string> => {
   }
 
   try {
-    return await auth.currentUser.getIdToken(false)
+    return await auth.currentUser.getIdToken(true)
   } catch (error) {
     console.warn('Network request failed for token refresh. Attempting to use cached token...', error)
     const rawToken =
@@ -528,4 +538,68 @@ export const getCustomerReport = async (filters: {
 
   return data as CustomerReportResponse
 }
+
+export interface CashCardPaymentSummaryRow {
+  paymentMode: string
+  transactionsCount: number
+  amountCollected: number
+}
+
+export interface CashCardPaymentDetailRow {
+  orderId: string
+  date: string
+  timestamp: string
+  outletName: string
+  paymentMode: string
+  amountPaid: number
+}
+
+export interface CashCardPaymentReportResponse {
+  success: boolean
+  filters: {
+    outletId: string
+    startDate: string
+    endDate: string
+  }
+  outlet: {
+    id: string
+    name: string
+  } | null
+  summary: {
+    totalTransactions: number
+    totalCollection: number
+    totalPaymentSources: number
+  }
+  paymentSummary: CashCardPaymentSummaryRow[]
+  transactions: CashCardPaymentDetailRow[]
+}
+
+export const getCashCardPaymentReport = async (filters: {
+  outletId?: string
+  startDate?: string
+  endDate?: string
+}): Promise<CashCardPaymentReportResponse> => {
+  const token = await getIdToken()
+  const params = new URLSearchParams()
+
+  if (filters.outletId) params.set('outletId', filters.outletId)
+  if (filters.startDate) params.set('startDate', filters.startDate)
+  if (filters.endDate) params.set('endDate', filters.endDate)
+
+  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportCashCardPayment?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+
+  const data = await response.json()
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || 'Failed to fetch cash/card payment report')
+  }
+
+  return data as CashCardPaymentReportResponse
+}
+
+
 
