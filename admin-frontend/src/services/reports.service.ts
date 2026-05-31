@@ -209,6 +209,8 @@ export interface CancelOrderRow {
   id: string
   date: string
   outlet: string
+  custId: string
+  billerId: string
   amount: number
   reason: string
 }

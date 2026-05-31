@@ -2,6 +2,7 @@ import React from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -23,6 +24,7 @@ export interface ReportFiltersProps {
   onStartDateChange: (val: string) => void
   onEndDateChange: (val: string) => void
   onOutletChange: (val: string) => void
+  onAllTime?: () => void
 
   // Optional filters
   status?: string
@@ -42,6 +44,7 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
   onStartDateChange,
   onEndDateChange,
   onOutletChange,
+  onAllTime,
   status,
   onStatusChange,
   statusOptions,
@@ -90,6 +93,17 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
               </SelectContent>
             </Select>
           </div>
+
+          {onAllTime && (
+            <Button
+              type="button"
+              variant={!startDate && !endDate ? 'secondary' : 'outline'}
+              onClick={onAllTime}
+              disabled={!startDate && !endDate}
+            >
+              All Time
+            </Button>
+          )}
 
           {/* Conditional Status filter */}
           {status !== undefined && onStatusChange && statusOptions && (
