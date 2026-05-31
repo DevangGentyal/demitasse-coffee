@@ -4,12 +4,31 @@ import { getOrdersByOutletId as getOrdersByOutletIdFromBackend, getCurrentUserPr
 
 export interface OrderItem {
   id: string
+  productId?: string | null
   name: string
   quantity: number
+  qty?: number
   status?: 'in-progress' | 'ready' | 'completed'
+  unitPrice?: number
   price?: number
+  totalPrice?: number
+  discountedPrice?: number
+  discount?: number
+  finalUnitPrice?: number
+  originalPrice?: number | null
+  finalPrice?: number | null
   addOns?: any[]
+  variation?: Record<string, any>
   notes?: string
+  offerId?: string | null
+  offerType?: string | null
+  offerTitle?: string | null
+  isFree?: boolean
+  isCombo?: boolean
+  isManualB1G1?: boolean
+  isDiscount?: boolean
+  isBirthday?: boolean
+  items?: OrderItem[]
 }
 
 export interface Order {
@@ -37,17 +56,43 @@ const getIdToken = async (): Promise<string> => {
   return await auth.currentUser.getIdToken()
 }
 
-const serializeOrderItem = (item: any) => ({
-  id: item.id || Math.random().toString(36).substr(2, 9),
-  name: item.name || '',
-  quantity: item.quantity || item.qty || 1,
-  status: item.status || 'in-progress',
-  price: item.price || 0,
-  addOns: Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [],
-  notes: item.notes || '',
-  offerId: item.offerId || null,
-  ...(Array.isArray(item.items) ? { items: item.items.map((sub: any) => serializeOrderItem(sub)) } : {}),
-})
+const serializeOrderItem = (item: any) => {
+  const qty = Number(item?.qty ?? item?.quantity ?? 1) || 1
+  const unitPrice = Number(item?.unitPrice ?? item?.price ?? item?.finalUnitPrice ?? 0) || 0
+  const totalPrice = Number.isFinite(Number(item?.totalPrice))
+    ? Number(item.totalPrice)
+    : unitPrice * qty
+
+  return {
+    id: item.id || item.productId || Math.random().toString(36).substr(2, 9),
+    productId: item.productId || item.id || null,
+    name: item.name || '',
+    quantity: qty,
+    qty,
+    unitPrice,
+    price: unitPrice,
+    totalPrice,
+    discountedPrice: Number.isFinite(Number(item?.discountedPrice)) ? Number(item.discountedPrice) : totalPrice,
+    discount: Number(item?.discount ?? item?.discountAmount ?? 0) || 0,
+    finalUnitPrice: Number.isFinite(Number(item?.finalUnitPrice)) ? Number(item.finalUnitPrice) : unitPrice,
+    originalPrice: Number.isFinite(Number(item?.originalPrice)) ? Number(item.originalPrice) : null,
+    finalPrice: Number.isFinite(Number(item?.finalPrice)) ? Number(item.finalPrice) : null,
+    status: item.status || 'in-progress',
+    category: item.category || '',
+    addOns: Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [],
+    variation: item.variation || {},
+    notes: item.notes || '',
+    offerId: item.offerId || null,
+    offerType: item.offerType || null,
+    offerTitle: item.offerTitle || null,
+    isFree: !!item.isFree,
+    isCombo: !!item.isCombo,
+    isManualB1G1: !!item.isManualB1G1,
+    isDiscount: !!item.isDiscount,
+    isBirthday: !!item.isBirthday,
+    ...(Array.isArray(item.items) ? { items: item.items.map((sub: any) => serializeOrderItem(sub)) } : {}),
+  }
+}
 
 /**
  * Fetch outlet ID from current user's document

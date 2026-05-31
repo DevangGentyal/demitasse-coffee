@@ -166,12 +166,10 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
             <span className="flex-1 pr-1">ITEM</span>
             <span className="w-8 text-center">QTY</span>
             <span className="w-16 text-right">PRICE</span>
-            <span className="w-16 text-right">AMT</span>
           </div>
           <div className="border-b border-dashed border-black mb-1"></div>
 
           {data.items.map((item, index) => {
-            const lineTotal = getLineTotal(item)
             const noteText = Array.isArray(item.notes)
               ? item.notes.filter(Boolean).join(', ')
               : item.notes || ''
@@ -182,7 +180,6 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
                   <span className="flex-1 font-medium pr-1 break-words">{item.name}</span>
                   <span className="w-8 text-center flex-shrink-0">{item.quantity}</span>
                   <span className="w-16 text-right flex-shrink-0">{formatAmount(item.price)}</span>
-                  <span className="w-16 text-right flex-shrink-0">{formatAmount(lineTotal)}</span>
                 </div>
                 {(item.category || noteText) && (
                   <div className="flex justify-between gap-2 text-[9px] text-gray-600 mt-0.5">

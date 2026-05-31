@@ -24,9 +24,18 @@ interface AddOrderModalProps {
 
 interface OrderItem {
   id: string
+  productId?: string | null
   name: string
   quantity: number
+  qty?: number
+  unitPrice?: number
   price: number
+  totalPrice?: number
+  discountedPrice?: number
+  discount?: number
+  finalUnitPrice?: number
+  originalPrice?: number | null
+  finalPrice?: number | null
   status: 'in-progress' | 'ready'
   category: string
   addOns?: any[]
@@ -34,6 +43,15 @@ interface OrderItem {
   variations?: any[]
   variation?: Record<string, any>
   notes?: string
+  offerId?: string | null
+  offerType?: string | null
+  offerTitle?: string | null
+  isFree?: boolean
+  isCombo?: boolean
+  isManualB1G1?: boolean
+  isDiscount?: boolean
+  isBirthday?: boolean
+  items?: OrderItem[]
 }
 
 export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId }: AddOrderModalProps) {
@@ -56,15 +74,41 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v)
   }
 
-  const serializeOrderItem = (item: OrderItem) => ({
-    id: item.id,
-    name: item.name,
-    quantity: item.quantity,
-    price: item.price,
-    status: item.status,
-    addOns: Array.isArray(item.addOns) ? item.addOns : [],
-    notes: item.notes || '',
-  })
+  const serializeOrderItem = (item: OrderItem) => {
+    const qty = Number(item.qty ?? item.quantity ?? 1) || 1
+    const unitPrice = Number(item.unitPrice ?? item.price ?? item.finalUnitPrice ?? 0) || 0
+    const totalPrice = Number.isFinite(Number(item.totalPrice)) ? Number(item.totalPrice) : unitPrice * qty
+
+    return {
+      id: item.id,
+      productId: item.productId || item.id,
+      name: item.name,
+      quantity: qty,
+      qty,
+      unitPrice,
+      price: unitPrice,
+      totalPrice,
+      discountedPrice: Number.isFinite(Number(item.discountedPrice)) ? Number(item.discountedPrice) : totalPrice,
+      discount: Number(item.discount ?? 0) || 0,
+      finalUnitPrice: Number.isFinite(Number(item.finalUnitPrice)) ? Number(item.finalUnitPrice) : unitPrice,
+      originalPrice: Number.isFinite(Number(item.originalPrice)) ? Number(item.originalPrice) : null,
+      finalPrice: Number.isFinite(Number(item.finalPrice)) ? Number(item.finalPrice) : null,
+      status: item.status,
+      category: item.category,
+      addOns: Array.isArray(item.addOns) ? item.addOns : [],
+      variation: item.variation || {},
+      notes: item.notes || '',
+      offerId: item.offerId || null,
+      offerType: item.offerType || null,
+      offerTitle: item.offerTitle || null,
+      isFree: !!item.isFree,
+      isCombo: !!item.isCombo,
+      isManualB1G1: !!item.isManualB1G1,
+      isDiscount: !!item.isDiscount,
+      isBirthday: !!item.isBirthday,
+      ...(Array.isArray(item.items) ? { items: item.items.map((sub: any) => serializeOrderItem(sub)) } : {}),
+    }
+  }
   // Customization modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [variation, setVariation] = useState<Record<number, string>>({})
@@ -205,12 +249,30 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
     // Unique ID if item is customized
     const isCustomized = Object.keys(variationObj).length > 0 || finalAddons.length > 0
     const itemId = isCustomized ? `${product.id}_${Date.now()}` : product.id
+    const qty = 1
+    const unitPrice = finalPrice
 
     const existingItem = items.find(i => i.id === itemId)
     if (existingItem && !isCustomized) {
       setItems(items.map(i =>
         i.id === itemId
-          ? { ...i, quantity: i.quantity + 1 }
+          ? (() => {
+              const nextQty = (Number(i.qty ?? i.quantity ?? 1) || 1) + 1
+              const unitPrice = Number(i.unitPrice ?? i.price ?? finalPrice ?? 0) || 0
+              const nextTotal = unitPrice * nextQty
+              return {
+                ...i,
+                quantity: nextQty,
+                qty: nextQty,
+                unitPrice,
+                price: unitPrice,
+                totalPrice: nextTotal,
+                discountedPrice: nextTotal,
+                finalUnitPrice: unitPrice,
+                originalPrice: Number.isFinite(Number(i.originalPrice)) ? Number(i.originalPrice) : unitPrice,
+                finalPrice: unitPrice,
+              }
+            })()
           : i
       ))
     } else {
@@ -218,9 +280,18 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
         ...items,
         {
           id: itemId,
+          productId: product.id,
           name: product.name,
-          quantity: 1,
-          price: finalPrice,
+          quantity: qty,
+          qty,
+          unitPrice,
+          price: unitPrice,
+          totalPrice: unitPrice * qty,
+          discountedPrice: unitPrice * qty,
+          discount: 0,
+          finalUnitPrice: unitPrice,
+          originalPrice: unitPrice,
+          finalPrice: unitPrice,
           status: 'in-progress',
           category: product.category,
           addOns: finalAddons,
@@ -301,7 +372,23 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       prevItems
         .map(item =>
           item.id === itemId
-            ? { ...item, quantity: item.quantity - 1 }
+            ? (() => {
+                const nextQty = Math.max(0, Number(item.qty ?? item.quantity ?? 1) - 1)
+                const unitPrice = Number(item.unitPrice ?? item.price ?? item.finalUnitPrice ?? 0) || 0
+                const nextTotal = unitPrice * nextQty
+                return {
+                  ...item,
+                  quantity: nextQty,
+                  qty: nextQty,
+                  unitPrice,
+                  price: unitPrice,
+                  totalPrice: nextTotal,
+                  discountedPrice: nextTotal,
+                  finalUnitPrice: unitPrice,
+                  originalPrice: Number.isFinite(Number(item.originalPrice)) ? Number(item.originalPrice) : unitPrice,
+                  finalPrice: unitPrice,
+                }
+              })()
             : item
         )
         .filter(item => item.quantity > 0)
@@ -329,22 +416,16 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       console.log('  - Items:', items)
       console.log('  - Total Amount:', totalAmount)
 
+      const payloadItems = items.map(item => serializeOrderItem(item))
+      console.log('  - Payload Items:', payloadItems)
+
       // Create order via cloud function
       const orderId = await createOrderService(outletId, {
         customerName: resolvedCustomerName || 'Walk-in Customer',
         customerPhone: resolvedCustomerPhone,
         placedBy: 'billing',
         tableId: initialTableId || undefined,
-        items: items.map(item => ({
-          id: item.id,
-          name: item.name,
-          quantity: item.quantity,
-          price: item.price,
-          status: 'in-progress',
-          category: item.category,
-          addOns: item.addOns || [],
-          notes: item.notes || ''
-        })),
+        items: payloadItems,
         orderStatus: 'in-progress',
         totalAmount,
       })
@@ -358,15 +439,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
         placedBy: 'billing' as const,
         customerName: resolvedCustomerName,
         customerPhone: resolvedCustomerPhone,
-        items: items.map(item => ({
-          id: item.id,
-          name: item.name,
-          quantity: item.quantity,
-          status: 'in-progress' as const,
-          category: item.category,
-          addOns: item.addOns || [],
-          notes: item.notes || ''
-        })),
+        items: payloadItems,
         timeOfOrder: new Date(),
         status: 'in-progress' as const,
         orderStatus: 'in-progress' as const,

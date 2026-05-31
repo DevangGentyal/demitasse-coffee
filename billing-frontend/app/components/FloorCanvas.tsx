@@ -1044,23 +1044,71 @@ export function FloorCanvas() {
    */
   const getTableBillAmount = (tableId: string): number => {
     const relatedOrders = tableSessionOrders[tableId] || []
-    const orderPricingTotal = relatedOrders.reduce((sum: number, order: any) => {
-      const directTotal = toSafeNumber(
-        order.grandTotal ?? order.pricing?.total ?? order.totalPayable ?? order.finalTotal,
-        NaN,
+    const tableObj = tables.find((t: any) => t.id === tableId)
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[getTableBillAmount] tableId:', tableId, 'relatedOrders:', relatedOrders.length, 'table.billAmount:', tableObj?.billAmount)
+    }
+
+    // Helper to compute per-order display total using same rules as OrderViewModal
+    const computeOrderDisplayTotal = (order: any): number => {
+      if (order?.pricing && Number.isFinite(Number(order.pricing.total))) {
+        return Number(order.pricing.total)
+      }
+
+      const items = Array.isArray(order.items) ? order.items : []
+      // subtotal: prefer server subtotal where present, otherwise compute from items
+      const subtotal = Math.round(getViewBillSubtotal(items.map((it: any) => ({
+        qty: it.qty ?? it.quantity,
+        unitPrice: it.unitPrice ?? it.price,
+        totalPrice: it.totalPrice ?? it.total_amount ?? it.totalAmount,
+        discount: it.discount,
+        discountedPrice: it.discountedPrice,
+      } as any))))
+
+      const discount = Math.round(items.reduce((sum: number, item: any) => sum + toSafeNumber(item.discount, 0), 0))
+
+      const discountedPrice = Math.max(
+        Math.round(
+          items.reduce((sum: number, item: any) => {
+            const explicitDiscounted = toSafeNumber(item.discountedPrice, NaN)
+            if (Number.isFinite(explicitDiscounted)) return sum + explicitDiscounted
+            return sum + Math.max(toSafeNumber(item.totalPrice, 0) - toSafeNumber(item.discount, 0), 0)
+          }, 0)
+        ),
+        0,
       )
-      if (Number.isFinite(directTotal)) return sum + directTotal 
 
-      const discountedTotal = toSafeNumber(order.discountedPrice ?? order.pricing?.discountedPrice, NaN)
-      const taxTotal = toSafeNumber(order.tax ?? order.pricing?.tax, NaN)
-      if (Number.isFinite(discountedTotal) && Number.isFinite(taxTotal)) return (sum + discountedTotal + taxTotal )+0.5
+      const taxBase = Math.max(subtotal - discount, 0)
+      const tax = taxBase > 0 ? Math.round(taxBase * 0.05) : 0
+      const total = discountedPrice + tax
+      return Number(total)
+    }
 
-      return sum + toSafeNumber(order.totalAmount, 0)
+    // Sum per-order `displayTotal` using the server `pricing` object when available.
+    const orderPricingTotal = relatedOrders.reduce((sum: number, order: any) => {
+      const perOrderTotal = computeOrderDisplayTotal(order)
+      if (process.env.NODE_ENV !== 'production') {
+        console.debug('[getTableBillAmount] order:', order?.id || order?.orderId || '<unknown>', 'computedPerOrderTotal:', perOrderTotal)
+      }
+
+      if (Number.isFinite(perOrderTotal)) return sum + perOrderTotal
+      return sum
     }, 0)
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[getTableBillAmount] tableId:', tableId, 'orderPricingTotal(sum):', orderPricingTotal)
+    }
 
     if (orderPricingTotal > 0) return orderPricingTotal
 
-    return 0
+    // Last-resort fallback: use table.billAmount if available
+    const fallbackTableAmount = tableObj && Number.isFinite(Number(tableObj.billAmount)) ? Number(tableObj.billAmount) : 0
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[getTableBillAmount] tableId:', tableId, 'fallbackTableAmount:', fallbackTableAmount)
+    }
+
+    return fallbackTableAmount || 0
   }
 
   /**
@@ -1926,11 +1974,17 @@ export function FloorCanvas() {
               isBillRequested
 
             // Bill amount shown on the card:
-            // Prefer the canonical table.billAmount written from the bill summary,
-            // then fall back to the backend-derived table total for older data.
-            const tableBillAmount = Number.isFinite(Number(table.billAmount)) && Number(table.billAmount) > 0
-              ? Number(table.billAmount)
-              : getTableBillAmount(table.id)
+            // Prefer the summed per-order `displayTotal` (server `pricing.total`) where available;
+            // fall back to `table.billAmount` if no per-order totals are found.
+            const tableBillAmount = (() => {
+              const summed = getTableBillAmount(table.id)
+              if (summed > 0) return summed
+              return Number.isFinite(Number(table.billAmount)) ? Number(table.billAmount) : 0
+            })()
+
+            if (process.env.NODE_ENV !== 'production') {
+              console.debug('[TableCard] tableId:', table.id, 'tableBillAmount:', tableBillAmount, 'raw.table.billAmount:', table.billAmount, 'relatedOrders:', (tableSessionOrders[table.id] || []).map((o: any) => o.id || o.orderId))
+            }
 
             return (
               <div
@@ -1981,13 +2035,13 @@ export function FloorCanvas() {
                   <div className="text-center leading-tight py-0.5">
                     <div className="text-xs font-semibold text-gray-900 truncate">{table.name}</div>
                     <div className="text-[10px] text-gray-500 mt-0.5">Bill</div>
-                    {/* tableBillAmount = sum of order.totalAmount values */}
+                            {/* tableBillAmount = sum of server-provided order totals (displayTotal/pricing.total) */}
                     <div
                       className={`text-sm font-semibold mt-0.5 ${
                         isBillRequested ? 'text-red-700' : 'text-gray-900'
                       }`}
                     >
-                      ₹{tableBillAmount.toFixed(0)}
+                              {formatRupee(tableBillAmount)}
                     </div>
                   </div>
 
