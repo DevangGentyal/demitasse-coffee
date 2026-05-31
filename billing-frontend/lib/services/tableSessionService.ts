@@ -1,6 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
-
-const CLOUD_FUNCTIONS_URL = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
+import { buildCloudFunctionsUrl } from './cloudFunctions'
+import { parseJsonOrFallback } from './httpUtils'
 
 const getIdToken = async (): Promise<string> => {
   if (!auth.currentUser) throw new Error('User not authenticated')
@@ -15,7 +15,7 @@ export const tableSessionService = {
 
     const idToken = await getIdToken()
     const tryClose = async (requestPayload: { sessionId?: string; tableId?: string; status?: string; paymentMode?: string }) => {
-      const responseResult = await fetch(`${CLOUD_FUNCTIONS_URL}/billingSessionsClose`, {
+      const responseResult = await fetch(buildCloudFunctionsUrl('billingSessionsClose'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -23,7 +23,7 @@ export const tableSessionService = {
         },
         body: JSON.stringify(requestPayload),
       })
-      const responsePayload = await responseResult.json().catch(() => ({}))
+      const responsePayload = await parseJsonOrFallback(responseResult)
       return { response: responseResult, responsePayload }
     }
 

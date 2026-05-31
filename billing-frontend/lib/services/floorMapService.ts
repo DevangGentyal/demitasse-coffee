@@ -1,6 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
-
-const CLOUD_FUNCTIONS_URL = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
+import { buildCloudFunctionsUrl } from './cloudFunctions'
+import { parseJsonOrFallback } from './httpUtils'
 
 const getIdToken = async (): Promise<string> => {
   if (!auth.currentUser) throw new Error('User not authenticated')
@@ -34,7 +34,7 @@ export interface TablePosition {
 export const floorMapService = {
   async saveFloorMap(outletId: string, walls: Wall[], tablePositions: TablePosition[]) {
     const idToken = await getIdToken()
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/billingFloorMapSave`, {
+    const response = await fetch(buildCloudFunctionsUrl('billingFloorMapSave'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -43,12 +43,12 @@ export const floorMapService = {
       body: JSON.stringify({ outletId, walls, tablePositions }),
     })
     if (!response.ok) throw new Error('Failed to save floor map layout')
-    return response.json()
+    return parseJsonOrFallback(response)
   },
 
   async addTable(tableData: TableData) {
     const idToken = await getIdToken()
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/billingTablesAdd`, {
+    const response = await fetch(buildCloudFunctionsUrl('billingTablesAdd'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -57,12 +57,12 @@ export const floorMapService = {
       body: JSON.stringify(tableData),
     })
     if (!response.ok) throw new Error('Failed to add table')
-    return response.json()
+    return parseJsonOrFallback(response)
   },
 
   async updateTable(tableId: string, updates: Partial<TableData>) {
     const idToken = await getIdToken()
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/billingTablesUpdate`, {
+    const response = await fetch(buildCloudFunctionsUrl('billingTablesUpdate'), {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -71,12 +71,12 @@ export const floorMapService = {
       body: JSON.stringify({ tableId, ...updates }),
     })
     if (!response.ok) throw new Error('Failed to update table')
-    return response.json()
+    return parseJsonOrFallback(response)
   },
 
   async deleteTable(tableId: string) {
     const idToken = await getIdToken()
-    const response = await fetch(`${CLOUD_FUNCTIONS_URL}/billingTablesDelete`, {
+    const response = await fetch(buildCloudFunctionsUrl('billingTablesDelete'), {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -85,6 +85,6 @@ export const floorMapService = {
       body: JSON.stringify({ tableId }),
     })
     if (!response.ok) throw new Error('Failed to delete table')
-    return response.json()
+    return parseJsonOrFallback(response)
   },
 }

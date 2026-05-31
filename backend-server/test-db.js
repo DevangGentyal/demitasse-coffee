@@ -56,7 +56,7 @@ async function run() {
     });
 
     console.log("\n--- CANCEL ORDERS ---");
-    const cancelSnap = await db.collection("OrderCancel").limit(5).get();
+    const cancelSnap = await db.collection("orderCancel").limit(5).get();
     cancelSnap.docs.forEach(doc => {
       const c = doc.data();
       console.log(`Cancel ID: "${doc.id}", outletId: "${c.outletId}", cancelledAt: ${c.cancelledAt?.toDate ? c.cancelledAt.toDate().toISOString() : c.cancelledAt}`);

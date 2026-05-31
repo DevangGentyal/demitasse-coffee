@@ -74,7 +74,7 @@ export const getCancelOrderReport = functions.https.onRequest(async (req: Reques
 		}));
 
 		// Build cancellation query
-		let query: admin.firestore.Query = db.collection("OrderCancel");
+		let query: admin.firestore.Query = db.collection("orderCancel");
 		if (startTimestamp) {
 			query = query.where("cancelledAt", ">=", startTimestamp);
 		}

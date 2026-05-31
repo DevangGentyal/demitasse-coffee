@@ -33,7 +33,7 @@ export const getTodayOrders = async (outletId: string): Promise<{ total: number;
 
 	const [historySnap, cancelSnap] = await Promise.all([
 		db.collection("ordersHistory").where("archivedAt", ">=", todayStartTimestamp).get(),
-		db.collection("OrderCancel").where("cancelledAt", ">=", todayStartTimestamp).get()
+		db.collection("orderCancel").where("cancelledAt", ">=", todayStartTimestamp).get()
 	]);
 
 	const total = historySnap.docs.filter((doc) => {

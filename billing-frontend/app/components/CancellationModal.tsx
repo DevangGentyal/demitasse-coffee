@@ -50,7 +50,6 @@ export function CancellationModal({ isOpen, onClose, orderId, cancelledItems, on
       setReason('')
       onClose()
     } catch (err: any) {
-      console.error('[CANCELLATION] Error:', err)
       const errMsg = err.message || 'Failed to cancel order'
       setError(errMsg)
       toast.error(errMsg)

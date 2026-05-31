@@ -1,6 +1,8 @@
 import { auth } from '@/lib/firebase/auth'
 import { Timestamp } from 'firebase/firestore'
 import { getOrdersByOutletId as getOrdersByOutletIdFromBackend, getCurrentUserProfile } from './backendApi'
+import { buildCloudFunctionsUrl } from './cloudFunctions'
+import { parseJsonOrFallback } from './httpUtils'
 
 export interface OrderItem {
   id: string
@@ -43,8 +45,6 @@ export interface Order {
   orderStatus: 'in-progress' | 'ready' | 'completed'
   totalAmount?: number
 }
-
-const CLOUD_FUNCTIONS_URL = process.env.NEXT_PUBLIC_CLOUD_FUNCTIONS_URL || 'https://us-central1-demitasse-coffee.cloudfunctions.net'
 
 /**
  * Get ID token for authenticated Cloud Functions calls
@@ -162,7 +162,7 @@ export const createOrder = async (
 
     console.log('📤 Creating order with payload:', payload)
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/billingOrdersCreate`, {
+    const response = await fetch(buildCloudFunctionsUrl('billingOrdersCreate'), {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -174,12 +174,12 @@ export const createOrder = async (
     console.log('📥 Create response status:', response.status)
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       console.error('❌ Create error response:', errorData)
       throw new Error(errorData.message || `Failed to create order (${response.status})`)
     }
 
-    const data = await response.json()
+    const data = await parseJsonOrFallback(response)
     console.log('✅ Order created with ID:', data.id)
     return data.id
   } catch (error) {
@@ -198,7 +198,7 @@ export const deleteOrder = async (outletId: string, orderId: string): Promise<vo
 
     console.log('📤 Deleting order:', { outletId, orderId })
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/billingOrdersDelete`, {
+    const response = await fetch(buildCloudFunctionsUrl('billingOrdersDelete'), {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -213,7 +213,7 @@ export const deleteOrder = async (outletId: string, orderId: string): Promise<vo
     console.log('📥 Delete response status:', response.status)
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       console.error('❌ Delete error response:', errorData)
       throw new Error(errorData.message || `Failed to delete order (${response.status})`)
     }
@@ -238,7 +238,7 @@ export const updateOrder = async (
     console.log(`[ORDER_SERVICE] 📤 Updating order ${orderId} for outlet ${outletId}...`);
     console.log(`[ORDER_SERVICE] Payload:`, JSON.stringify(updates, null, 2));
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/billingOrdersUpdate`, {
+    const response = await fetch(buildCloudFunctionsUrl('billingOrdersUpdate'), {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -252,7 +252,7 @@ export const updateOrder = async (
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       console.error(`[ORDER_SERVICE] ❌ Update failed with status ${response.status}:`, errorData);
       throw new Error(errorData.message || 'Failed to update order')
     }
@@ -279,7 +279,7 @@ export const removeOrderItem = async (
 
     console.log('📤 Removing order item:', { outletId, orderId, itemId })
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/customerOrdersRemoveItem`, {
+    const response = await fetch(buildCloudFunctionsUrl('customerOrdersRemoveItem'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -293,12 +293,12 @@ export const removeOrderItem = async (
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      const errorData = await parseJsonOrFallback(response)
       console.error('❌ removeOrderItem error response:', errorData)
       throw new Error(errorData.message || `Failed to remove item (${response.status})`)
     }
 
-    const data = await response.json()
+    const data = await parseJsonOrFallback(response)
     console.log('✅ removeOrderItem response:', data)
     return data
   } catch (error) {
@@ -323,7 +323,7 @@ export const cancelEntireOrder = async (
 
     console.log('📤 Cancelling entire order:', { orderId, reason })
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/customerOrdersCancelEntire`, {
+    const response = await fetch(buildCloudFunctionsUrl('customerOrdersCancelEntire'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -338,12 +338,12 @@ export const cancelEntireOrder = async (
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
-      console.error('❌ cancelEntireOrder error response:', errorData)
+      const errorData = await parseJsonOrFallback(response)
+      console.warn('⚠️ cancelEntireOrder error response:', errorData)
       throw new Error(errorData.message || `Failed to cancel order (${response.status})`)
     }
 
-    const data = await response.json()
+    const data = await parseJsonOrFallback(response)
     console.log('✅ cancelEntireOrder response:', data)
     return data
   } catch (error) {
@@ -365,7 +365,7 @@ export const updateCancellationPassword = async (
 
     console.log('📤 Updating cancellation password...')
 
-    const response = await fetch(`http://localhost:5001/demitasse-cafe-pilot/us-central1/adminUpdateCancellationPassword`, {
+    const response = await fetch(buildCloudFunctionsUrl('adminUpdateCancellationPassword'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -377,12 +377,12 @@ export const updateCancellationPassword = async (
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
+      const errorData = await parseJsonOrFallback(response)
       console.error('❌ updateCancellationPassword error response:', errorData)
       throw new Error(errorData.message || `Failed to update password (${response.status})`)
     }
 
-    const data = await response.json()
+    const data = await parseJsonOrFallback(response)
     console.log('✅ updateCancellationPassword response:', data)
     return data
   } catch (error) {

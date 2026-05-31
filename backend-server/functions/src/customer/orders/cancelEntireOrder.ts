@@ -54,7 +54,7 @@ export const cancelEntireOrder = functions.https.onRequest(async (req: Request, 
 		ordersToCancel.forEach((doc) => batch.delete(doc.ref));
 		await batch.commit();
 
-		await db.collection("OrderCancel").doc(sessionId || tableId || orderId).set({ custId: customerUserId, billerId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp() }, { merge: true });
+		await db.collection("orderCancel").doc(sessionId || tableId || orderId).set({ custId: customerUserId, billerId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp() }, { merge: true });
 
 		res.status(200).json({ success: true, message: "Order cancelled successfully" });
 	} catch (error) {
