@@ -1,5 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
 import { getCurrentUserProfile, getProductsByOutletId as getProductsByOutletIdFromBackend } from './backendApi'
+import { getCloudFunctionsBaseUrl } from './cloudFunctions'
 
 export interface Product {
   id: string
@@ -59,7 +60,7 @@ const getIdToken = async (): Promise<string> => {
   return await auth.currentUser.getIdToken()
 }
 
-const CLOUD_FUNCTIONS_URL = process.env.NEXT_PUBLIC_CLOUD_FUNCTIONS_URL || 'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
+const CLOUD_FUNCTIONS_URL = getCloudFunctionsBaseUrl()
 
 /**
  * Create a new product via Cloud Function

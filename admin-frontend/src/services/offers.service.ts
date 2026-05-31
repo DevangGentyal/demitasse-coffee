@@ -1,5 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
 import { getOffersByOutletId as getOffersByOutletIdFromBackend } from '@/lib/services/backendApi'
+import { getCloudFunctionsBaseUrl } from '@/lib/services/cloudFunctions'
 
 export interface Offer {
   id: string
@@ -75,7 +76,7 @@ export interface Offer {
   updatedAt?: any
 }
 
-const CLOUD_FUNCTIONS_URL = process.env.NEXT_PUBLIC_CLOUD_FUNCTIONS_URL || 'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
+const CLOUD_FUNCTIONS_URL = getCloudFunctionsBaseUrl()
 
 type TimestampLike = {
   toDate?: () => Date

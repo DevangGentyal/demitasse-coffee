@@ -1,6 +1,5 @@
 import { auth } from '@/lib/firebase/auth'
-
-const CLOUD_FUNCTIONS_URL = process.env.NEXT_PUBLIC_CLOUD_FUNCTIONS_URL || 'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
+import { buildCloudFunctionsUrl } from './cloudFunctions'
 
 type QueryParams = Record<string, string | undefined | null>
 
@@ -24,16 +23,7 @@ const getIdToken = async (): Promise<string> => {
 }
 
 const buildUrl = (resource: string, params: QueryParams = {}): string => {
-  const url = new URL(`${CLOUD_FUNCTIONS_URL}/readAppData`)
-  url.searchParams.set('resource', resource)
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.set(key, value)
-    }
-  })
-
-  return url.toString()
+  return buildCloudFunctionsUrl('readAppData', { resource, ...params })
 }
 
 const readResource = async <T>(resource: string, params: QueryParams = {}): Promise<T[]> => {
@@ -109,7 +99,7 @@ export interface LiveDashboardStats {
 
 export const getLiveDashboardStats = async (outletId: string): Promise<LiveDashboardStats> => {
   const token = await getIdToken()
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminDashboardStats?outletId=${outletId}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminDashboardStats', { outletId }), {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token}`,

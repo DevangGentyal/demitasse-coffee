@@ -1,6 +1,5 @@
 import { auth } from '@/lib/firebase/auth'
-
-const CLOUD_FUNCTIONS_URL = process.env.NEXT_PUBLIC_CLOUD_FUNCTIONS_URL || 'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
+import { buildCloudFunctionsUrl } from '@/lib/services/cloudFunctions'
 
 export type ReportStatusFilter = 'success' | 'canceled'
 
@@ -104,13 +103,8 @@ export const getItemInvoiceDetailsReport = async (filters: {
   endDate?: string
 }): Promise<InvoiceDetailsReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
 
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportItemInvoiceDetails?${params.toString()}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportItemInvoiceDetails', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -192,14 +186,8 @@ export const getDailySalesReport = async (filters: {
   status?: string
 }): Promise<DailySalesReportResponse> => {
   const token = await getIdToken()
-  const params = new URLSearchParams()
 
-  if (filters.outletId) params.set('outletId', filters.outletId)
-  if (filters.startDate) params.set('startDate', filters.startDate)
-  if (filters.endDate) params.set('endDate', filters.endDate)
-  if (filters.status) params.set('status', filters.status)
-
-  const response = await fetch(`${CLOUD_FUNCTIONS_URL}/adminReportDailySales?${params.toString()}`, {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportDailySales', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
