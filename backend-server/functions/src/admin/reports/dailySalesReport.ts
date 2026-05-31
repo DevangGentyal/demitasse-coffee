@@ -32,22 +32,28 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 		const endTimestamp = parseDateInput(endDate, "end");
 
 		let query: admin.firestore.Query = db.collection("ordersHistory");
-		if (startTimestamp) {
-			query = query.where("archivedAt", ">=", startTimestamp);
-		}
-		if (endTimestamp) {
-			query = query.where("archivedAt", "<=", endTimestamp);
-		}
 
 		const snap = await query.get();
 		const orders = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as any));
 
-		// Filter in memory for outletId and status since firestore does not support complex inequality or status query with range without compound index.
+		// Filter in memory for outletId, status, and dates to respect fallbacks safely
 		const filteredOrders = orders.filter((order) => {
 			if (outletId && order.outletId !== outletId) return false;
 			const lifecycle = resolveLifecycleStatus(order);
 			if (statusFilter === "success" && lifecycle !== "success") return false;
 			if (statusFilter === "canceled" && lifecycle !== "canceled") return false;
+
+			let dateObj = new Date();
+			if (order.archivedAt) {
+				const t = order.archivedAt as admin.firestore.Timestamp;
+				dateObj = t.toDate();
+			} else if (order.createdAt) {
+				const t = order.createdAt as admin.firestore.Timestamp;
+				dateObj = t.toDate();
+			}
+			if (startTimestamp && dateObj < startTimestamp.toDate()) return false;
+			if (endTimestamp && dateObj > endTimestamp.toDate()) return false;
+
 			return true;
 		});
 
@@ -69,6 +75,7 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 			finalAmount: number;
 		}>();
 
+		const invoiceTotalsMap = new Map<string, number>();
 		const outletsCache = new Map<string, any>();
 
 		for (const order of filteredOrders) {
@@ -98,10 +105,42 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 
 			const invoiceNo = readString(order.invoiceNumber || order.invoiceNo || order.billNo || order.id);
 
-			const subtotal = readNumber(order.pricing?.subtotal || order.subtotal || order.totalAmount, 0);
-			const discount = readNumber(order.pricing?.discount || order.discount, 0);
-			const tax = readNumber(order.pricing?.tax || order.tax, 0);
-			const finalTotal = readNumber(order.pricing?.total || order.total || order.totalAmount, 0);
+			// ── Gross Sales (subtotal before discount) ──────────────────────────
+			// Path A (tableSessions/closeSession): pricing.subtotal (lowercase 't')
+			// Path B (admin/closeSession → createOrder spread): top-level subTotal (camelCase 'T')
+			const subtotal = readNumber(
+				order.pricing?.subtotal ?? order.pricing?.subTotal ??
+				order.subTotal ?? order.subtotal ?? order.itemTotal ?? 0,
+				0
+			);
+
+			// ── Discount (offer-only) ────────────────────────────────────────────
+			const discount = readNumber(
+				order.pricing?.discount ?? order.discount ?? 0,
+				0
+			);
+
+			// ── Tax ──────────────────────────────────────────────────────────────
+			const tax = readNumber(
+				order.pricing?.tax ?? order.tax ?? 0,
+				0
+			);
+
+			// ── Final Amount (what customer pays) ────────────────────────────────
+			// Path A: pricing.total
+			// Path B: discountedPrice + tax  (discountedPrice = subTotal - discount)
+			const discountedPrice = readNumber(order.pricing?.discountedPrice ?? order.discountedPrice, Math.max(subtotal - discount, 0));
+			const calcTotal = discountedPrice + tax;
+			const finalTotal = readNumber(
+				order.pricing?.total ?? order.pricing?.grandTotal ??
+				order.grandTotal ?? order.total ?? 0,
+				0
+			) || calcTotal;
+
+			if (invoiceNo) {
+				const current = invoiceTotalsMap.get(invoiceNo) || 0;
+				invoiceTotalsMap.set(invoiceNo, current + finalTotal);
+			}
 
 			const deliveryCharge = readNumber(order.deliveryCharge || order.pricing?.deliveryCharge, 0);
 			const containerCharge = readNumber(order.containerCharge || order.pricing?.containerCharge, 0);
@@ -175,7 +214,10 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 			finalTotal += row.finalAmount;
 		});
 
-		const finalAmounts = rows.map((r) => r.finalAmount);
+		const invoiceTotals = Array.from(invoiceTotalsMap.values());
+		const validInvoiceTotals = invoiceTotals.filter((t) => t > 0);
+		const validInvoiceSum = validInvoiceTotals.reduce((sum, val) => sum + val, 0);
+
 		const summary = {
 			totalInvoices: totalBills,
 			grossSales: Math.round(grossSales * 100) / 100,
@@ -183,9 +225,9 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 			netSales: Math.round(totalNetSales * 100) / 100,
 			tax: Math.round(totalTax * 100) / 100,
 			finalTotal: Math.round(finalTotal * 100) / 100,
-			minBill: finalAmounts.length ? Math.min(...finalAmounts) : 0,
-			maxBill: finalAmounts.length ? Math.max(...finalAmounts) : 0,
-			avgBill: finalAmounts.length ? Math.round((finalTotal / finalAmounts.length) * 100) / 100 : 0,
+			minBill: validInvoiceTotals.length ? Math.min(...validInvoiceTotals) : 0,
+			maxBill: validInvoiceTotals.length ? Math.max(...validInvoiceTotals) : 0,
+			avgBill: validInvoiceTotals.length > 0 ? Math.round((validInvoiceSum / validInvoiceTotals.length) * 100) / 100 : 0,
 		};
 
 		res.status(200).json({
