@@ -44,7 +44,7 @@ export default function OrderHistoryCard({ order, onViewDetails }) {
   const orderType = placedBy === "customer" ? "Dine-In" : "Counter";
 
   // Status
-  const status = order.orderLifecycleStatus || "COMPLETED";
+  const status = String(order.status || order.orderLifecycleStatus || "COMPLETED").toUpperCase();
   const statusLabel = status === "COMPLETED" ? "Delivered" : status;
   const statusClass = status === "COMPLETED"
     ? "bg-emerald-100 text-emerald-700"

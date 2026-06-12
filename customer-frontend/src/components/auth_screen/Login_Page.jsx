@@ -149,6 +149,7 @@ const Login_Page = ({ setShowOutletPopup }) => {
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [linkModal, setLinkModal]   = useState(null); // { user, email }
+  const [waitingForApproval, setWaitingForApproval] = useState(false);
   const navigate = useNavigate();
 
   const clearMessages = () => { setErrorMsg(""); setSuccessMsg(""); };
@@ -157,6 +158,15 @@ const Login_Page = ({ setShowOutletPopup }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     clearMessages();
   };
+
+  React.useEffect(() => {
+    const authError = localStorage.getItem("auth_error");
+    if (authError && authError.toLowerCase().includes("pending admin approval")) {
+      setWaitingForApproval(true);
+      setErrorMsg("");
+      setSuccessMsg("");
+    }
+  }, []);
 
   // ── Email/password login ─────────────────────────────────────────────────
   const handleSubmit = async (e) => {
@@ -253,6 +263,31 @@ const Login_Page = ({ setShowOutletPopup }) => {
       await navigateAfterLogin(user.uid, setShowOutletPopup, navigate);
     }
   };
+
+  if (waitingForApproval) {
+    return (
+      <div className="min-h-screen bg-[#f4efe9] flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white shadow-2xl rounded-3xl p-8 text-center">
+          <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-2xl">
+            ⏳
+          </div>
+          <h2 className="text-2xl font-bold text-[#3e2723]">Waiting for Approval</h2>
+          <p className="text-sm text-gray-600 mt-3 leading-6">
+            Your outlet account is pending admin approval. Once approved, you will be able to access the billing portal.
+          </p>
+          <button
+            onClick={() => {
+              localStorage.removeItem("auth_error");
+              setWaitingForApproval(false);
+            }}
+            className="mt-6 w-full bg-[#8B4513] text-white py-3 rounded-xl font-semibold hover:bg-[#A0522D] transition"
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

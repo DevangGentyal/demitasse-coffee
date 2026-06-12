@@ -2,6 +2,8 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
+import { applyTax } from "../../shared/utilities/billing/tax";
+import { isOrderArchived } from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -217,9 +219,7 @@ export const generateBill = functions.https.onRequest(
       // ── 2. Filter archived orders (same as frontend hasBillableItems) ─────
       candidateDocs = candidateDocs.filter((doc) => {
         const d = doc.data();
-        const status = String(d.status || "").toUpperCase();
-        const orderStatus = String(d.orderStatus || "").toLowerCase();
-        return status !== "ARCHIVED" && orderStatus !== "archived";
+        return !isOrderArchived(d);
       });
 
       console.info("[generateBill] candidates after filter", {
@@ -294,7 +294,7 @@ export const generateBill = functions.https.onRequest(
       const discount = Math.round(grandDiscount);
       // Show Grand Total as the live subtotal (sum of item totals) — frontend's "Live Total"
       const discountedPrice = subtotal;
-      const tax = Math.round(discountedPrice * 0.05); // 5% GST
+      const tax = applyTax(discountedPrice);
       const total = discountedPrice + tax;
 
       const pricing = { subtotal, discount, discountedPrice, tax, total };

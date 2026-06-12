@@ -1,36 +1,49 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useApp } from '@/app/context/AppContext'
 import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { Card } from '@/components/ui/card'
-import { MapPin, Phone, Mail, Clock } from 'lucide-react'
-import { db } from "@/lib/firebase/app";
-import { auth } from "@/lib/firebase/auth";
-import { useEffect, useState } from "react";
-import { doc, getDoc, collection } from "firebase/firestore";
+import { MapPin, Phone, Mail } from 'lucide-react'
+import { useEffect, useState } from "react"
+import { getCurrentUserProfile, getOutletIdForCurrentUser } from "@/lib/services/backendApi"
+import { getDoc, doc } from "firebase/firestore"
+import { db } from "@/lib/firebase/app"
 
 export default function DetailsPage() {
   const router = useRouter();
   const { isLoggedIn, isLoading } = useAuth();
   const [outlet, setOutlet] = useState<any>(null);
   const [dataLoading, setDataLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (isLoading) return;
+    if (!isLoggedIn) {
+      setDataLoading(false);
+      return;
+    }
 
     const fetchOutlet = async () => {
       try {
-        var outletId = ""
-        const user = auth.currentUser;
+        setError(null);
+        let outletId = "";
 
+        const profile = await getCurrentUserProfile();
+        outletId = String(profile?.outletID || profile?.outletId || "");
 
-        if (user) {
-          const uid = user.uid;
-          const userRef = doc(db, "users", uid);
-          const userDoc = await getDoc(userRef);
-          outletId = userDoc.data()!.outletID
+        if (!outletId) {
+          try {
+            outletId = await getOutletIdForCurrentUser();
+          } catch {
+            outletId = "";
+          }
+        }
+
+        if (!outletId) {
+          setOutlet(null);
+          setError("Outlet not found");
+          return;
         }
 
         const ref = doc(db, "outlets", outletId);
@@ -38,16 +51,20 @@ export default function DetailsPage() {
 
         if (snap.exists()) {
           setOutlet(snap.data());
+        } else {
+          setOutlet(null);
+          setError("Outlet not found");
         }
       } catch (error) {
         console.error("Failed to fetch outlet:", error);
+        setError("Failed to load outlet details");
       } finally {
         setDataLoading(false);
       }
     };
 
     fetchOutlet();
-  }, [isLoggedIn]);
+  }, [isLoggedIn, isLoading]);
 
   // Wait for auth to be checked before rendering
   if (dataLoading) {
@@ -66,10 +83,10 @@ export default function DetailsPage() {
     return null
   }
 
-  if (!outlet) {
+  if (error || !outlet) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground">Outlet not found</p>
+        <p className="text-muted-foreground">{error || 'Outlet not found'}</p>
       </div>
     );
   }

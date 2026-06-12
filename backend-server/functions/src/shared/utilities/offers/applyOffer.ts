@@ -16,6 +16,7 @@ export interface OfferDocument {
 	offerType?: string;
 	type?: string;
 	title?: string;
+	name?: string;
 	config?: {
 		combo?: {
 			comboPrice?: number;

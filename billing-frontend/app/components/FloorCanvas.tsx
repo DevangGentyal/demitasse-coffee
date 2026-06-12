@@ -7,8 +7,9 @@ import { Plus, Trash2, Edit2, Check, Eye, Pencil, Printer, X, Power } from 'luci
 import { useAuth } from '@/context/AuthContext'
 import { floorMapService, type Wall as IWall } from '@/lib/services/floorMapService'
 import { tableSessionService } from '@/lib/services/tableSessionService'
+import { updateTableState } from '@/lib/services/tableStateService'
 import { db } from '@/lib/firebase/app'
-import { doc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore'
+import { doc, onSnapshot, deleteField } from 'firebase/firestore'
 import { toast } from 'sonner'
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
 import { CancellationModal } from '@/app/components/CancellationModal'
@@ -903,12 +904,11 @@ export function FloorCanvas() {
             return next
           })
 
-          // Clear the flag in Firestore so it doesn't re-trigger
+          // Clear the flag via cloud function so it doesn't re-trigger
           try {
-            const tableDocRef = doc(db, 'tables', table.id)
-            await updateDoc(tableDocRef, {
-              needsPaymentCollection: deleteField(),
-              needsPaymentCollectionAt: deleteField(),
+            await updateTableState(outletId || '', table.id, {
+              needsPaymentCollection: null,
+              needsPaymentCollectionAt: null,
             })
           } catch (err) {
             console.error(`Failed to clear payment flag for ${table.id}:`, err)

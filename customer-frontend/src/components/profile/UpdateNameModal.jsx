@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { updateProfile } from "firebase/auth";
-import { doc, updateDoc } from "firebase/firestore";
-import { auth, db } from "../../lib/firebase";
+import { auth } from "../../lib/firebase";
 
 export default function UpdateNameModal({ currentName, onClose, onSuccess }) {
   const [name, setName] = useState(currentName || "");
@@ -25,11 +24,26 @@ export default function UpdateNameModal({ currentName, onClose, onSuccess }) {
       // Update Firebase Auth displayName
       await updateProfile(user, { displayName: trimmed });
 
-      // Update Firestore users collection
-      await updateDoc(doc(db, "users", user.uid), {
-        name: trimmed,
-        updatedAt: new Date()
-      });
+      // Call cloud function to update Firestore user document
+      const idToken = await user.getIdToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'}/customerUpdateUserProfile`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            displayName: trimmed,
+          }),
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result.error?.message || result.message || "Failed to update name");
+      }
 
       onSuccess(trimmed);
     } catch (err) {

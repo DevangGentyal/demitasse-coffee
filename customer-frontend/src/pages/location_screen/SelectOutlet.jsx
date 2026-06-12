@@ -119,10 +119,15 @@ const SelectOutlet = ({ onClose }) => {
     try {
       const outletListRaw = await getOutlets()
 
-      const outletList = outletListRaw.map((docSnap) => {
-        const data = docSnap || {}
+      const outletList = outletListRaw
+        .filter((docSnap) => {
+          const status = String(docSnap?.status || '').trim().toLowerCase()
+          return status === "approved" || status === "accepted"
+        })
+        .map((docSnap) => {
+          const data = docSnap || {}
 
-        let distance = null
+          let distance = null
 
         if (
           userLocation &&
@@ -142,7 +147,7 @@ const SelectOutlet = ({ onClose }) => {
           ...data,
           distance,
         }
-      })
+        })
 
       // Sort only if we have user location
       if (userLocation) {

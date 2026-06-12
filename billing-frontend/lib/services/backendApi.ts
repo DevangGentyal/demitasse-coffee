@@ -4,6 +4,18 @@ import { parseJsonOrFallback } from './httpUtils'
 
 type QueryParams = Record<string, string | undefined | null>
 
+const CACHE_TTL_MS: Record<string, number> = {
+  currentUser: 5 * 60_000,
+  products: 5 * 60_000,
+  offers: 2 * 60_000,
+  floorMap: 60_000,
+  tables: 5_000,
+  orders: 5_000,
+}
+
+const readCache = new Map<string, { expiresAt: number; data: unknown[] }>()
+const inFlightReads = new Map<string, Promise<unknown[]>>()
+
 const getIdToken = async (): Promise<string> => {
   if (!auth.currentUser) {
     throw new Error('User not authenticated')
@@ -15,20 +27,76 @@ const getIdToken = async (): Promise<string> => {
 const buildUrl = (resource: string, params: QueryParams = {}): string =>
   buildCloudFunctionsUrl('readAppData', { resource, ...params })
 
-const readResource = async <T>(resource: string, params: QueryParams = {}): Promise<T[]> => {
-  const token = await getIdToken()
-  const response = await fetch(buildUrl(resource, params), {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
+const getCacheKey = (resource: string, params: QueryParams = {}): string => {
+  const uid = auth.currentUser?.uid || 'anonymous'
+  const normalizedParams = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null)
+    .sort(([a], [b]) => a.localeCompare(b))
+  return `${uid}:${resource}:${JSON.stringify(normalizedParams)}`
+}
 
-  const payload = await parseJsonOrFallback(response)
-  if (!response.ok || !payload.success) {
-    throw new Error(payload.message || `Failed to load ${resource}`)
+const readResource = async <T>(resource: string, params: QueryParams = {}): Promise<T[]> => {
+  const cacheKey = getCacheKey(resource, params)
+  const now = Date.now()
+  const cached = readCache.get(cacheKey)
+  if (cached && cached.expiresAt > now) {
+    return cached.data as T[]
   }
 
-  return Array.isArray(payload.data) ? (payload.data as T[]) : []
+  const existingRequest = inFlightReads.get(cacheKey)
+  if (existingRequest) {
+    return existingRequest as Promise<T[]>
+  }
+
+  const request = (async () => {
+    const token = await getIdToken()
+    const response = await fetch(buildUrl(resource, params), {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    const payload = await parseJsonOrFallback(response)
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.message || `Failed to load ${resource}`)
+    }
+
+    const data = Array.isArray(payload.data) ? (payload.data as T[]) : []
+    const ttl = CACHE_TTL_MS[resource] ?? 30_000
+    if (ttl > 0) {
+      readCache.set(cacheKey, { expiresAt: Date.now() + ttl, data })
+    }
+    return data
+  })()
+
+  inFlightReads.set(cacheKey, request as Promise<unknown[]>)
+  try {
+    return await request
+  } finally {
+    inFlightReads.delete(cacheKey)
+  }
+}
+
+export const invalidateReadCache = (resource?: string, params?: QueryParams): void => {
+  if (!resource) {
+    readCache.clear()
+    inFlightReads.clear()
+    return
+  }
+
+  if (params) {
+    readCache.delete(getCacheKey(resource, params))
+    inFlightReads.delete(getCacheKey(resource, params))
+    return
+  }
+
+  const resourceMarker = `:${resource}:`
+  for (const key of Array.from(readCache.keys())) {
+    if (key.includes(resourceMarker)) readCache.delete(key)
+  }
+  for (const key of Array.from(inFlightReads.keys())) {
+    if (key.includes(resourceMarker)) inFlightReads.delete(key)
+  }
 }
 
 export interface BackendUserProfile {
@@ -70,4 +138,40 @@ export const getOrdersByOutletId = async <T = unknown>(outletId: string): Promis
 export const getFloorMap = async <T = unknown>(outletId: string): Promise<T | null> => {
   const items = await readResource<T>('floorMap', { outletId })
   return items[0] || null
+}
+
+export const registerOutletPending = async (outlet: any, registrationPassword: string): Promise<any> => {
+  const token = await getIdToken()
+  const response = await fetch(buildCloudFunctionsUrl('registerOutletPending'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ outlet, registrationPassword }),
+  })
+
+  const payload = await parseJsonOrFallback(response)
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to register outlet')
+  }
+
+  return payload
+}
+
+export const verifySecurityPassword = async (name: string, password: string): Promise<boolean> => {
+  const response = await fetch(buildCloudFunctionsUrl('verifySecurityPassword'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, password }),
+  })
+
+  const payload = await parseJsonOrFallback(response)
+  if (!response.ok || !payload.success) {
+    return false
+  }
+
+  return true
 }

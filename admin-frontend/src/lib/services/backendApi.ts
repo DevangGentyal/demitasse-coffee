@@ -60,8 +60,22 @@ export interface BackendUserProfile {
 }
 
 export const getCurrentUserProfile = async (): Promise<BackendUserProfile | null> => {
-  const items = await readResource<BackendUserProfile>('currentUser')
-  return items[0] || null
+  if (!auth.currentUser) return null
+  try {
+    const items = await readResource<BackendUserProfile>('currentUser')
+    return items[0] || null
+  } catch (error: any) {
+    const message = String(error?.message || '')
+    if (
+      message.includes('Failed to load currentUser') ||
+      message.includes('Unsupported resource: currentUser') ||
+      message.includes('Missing token') ||
+      message.includes('Unauthorized')
+    ) {
+      return null
+    }
+    throw error
+  }
 }
 
 export const getOutletIdForCurrentUser = async (): Promise<string> => {
@@ -74,6 +88,8 @@ export const getOutletIdForCurrentUser = async (): Promise<string> => {
 }
 
 export const getOutlets = async (): Promise<BackendOutlet[]> => readResource<BackendOutlet>('outlets')
+
+export const getPendingOutlets = async (): Promise<BackendOutlet[]> => readResource<BackendOutlet>('pendingOutlets')
 
 export const getProductsByOutletId = async <T = unknown>(outletId: string): Promise<T[]> =>
   readResource<T>('products', { outletId })
@@ -112,4 +128,72 @@ export const getLiveDashboardStats = async (outletId: string): Promise<LiveDashb
   }
 
   return (payload.data || payload) as LiveDashboardStats
+}
+
+export const updateOutletStatus = async (outletId: string, status: 'approved' | 'rejected'): Promise<any> => {
+  const token = await getIdToken()
+  const response = await fetch(buildCloudFunctionsUrl('updateOutletStatus'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ outletId, status }),
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to update outlet status')
+  }
+  return payload
+}
+
+export const upsertSecurityPassword = async (name: string, newPassword: string, currentPassword?: string): Promise<any> => {
+  const token = await getIdToken()
+  const response = await fetch(buildCloudFunctionsUrl('upsertSecurityPassword'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name, newPassword, currentPassword }),
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to save security password')
+  }
+  return payload
+}
+
+export const getSecurityPasswordMeta = async (name: string): Promise<any | null> => {
+  const token = await getIdToken()
+  const response = await fetch(buildCloudFunctionsUrl('getSecurityPasswordMeta', { name }), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to load security password metadata')
+  }
+
+  return Array.isArray(payload.data) ? payload.data[0] || null : null
+}
+
+export const getSecurityPasswords = async (): Promise<any[]> => {
+  try {
+    return await readResource<any>('securityPasswords')
+  } catch (error: any) {
+    const message = String(error?.message || '')
+    if (
+      message.includes('Unsupported resource: securityPasswords') ||
+      message.includes('Failed to load securityPasswords') ||
+      message.includes('Failed to load resource')
+    ) {
+      return []
+    }
+    throw error
+  }
 }

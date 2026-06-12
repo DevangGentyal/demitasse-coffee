@@ -209,7 +209,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             toDate((order as { updatedAt?: unknown }).updatedAt) ||
             new Date()
 
-          const rawStatus = (order as { orderStatus?: unknown; status?: unknown }).orderStatus || (order as { status?: unknown }).status || 'in-progress'
+          const rawStatus = (order as { status?: unknown; orderStatus?: unknown }).status || (order as { orderStatus?: unknown }).orderStatus || 'in-progress'
           const normalized = String(rawStatus).toLowerCase().trim()
           const resolvedStatus: 'in-progress' | 'ready' | 'completed' = normalized === 'ready'
             ? 'ready'
@@ -267,8 +267,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Subscribe to orders for this outlet
     const ordersQuery = query(collection(db, 'orders'), where('outletId', '==', outletId))
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-      console.log(`[APP_CONTEXT] 🔄 Realtime update: Received ${snapshot.size} orders for outlet ${outletId}`);
-      
       const ordersList = snapshot.docs.map(doc => {
         const data = doc.data()
         const resolvedTime =
@@ -277,8 +275,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           toDate(data.updatedAt) ||
           new Date()
 
-        // Source of truth: orderStatus
-        const rawStatus = data.orderStatus || data.status || 'in-progress';
+        // Source of truth: canonical order `status`.
+        const rawStatus = data.status || data.orderStatus || 'in-progress';
         let resolvedStatus: 'in-progress' | 'ready' | 'completed' = 'in-progress';
         
         const normalized = String(rawStatus).toLowerCase().trim();
@@ -291,11 +289,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: doc.id,
           timeOfOrder: resolvedTime,
           orderStatus: resolvedStatus,
-          status: resolvedStatus, // Maintain status for legacy components
+          status: resolvedStatus,
         } as unknown as Order
       })
-      
-      console.log(`[APP_CONTEXT] ✅ Processed orders. In-Progress: ${ordersList.filter(o => o.orderStatus === 'in-progress').length}, Ready: ${ordersList.filter(o => o.orderStatus === 'ready').length}`);
       setOrders(ordersList)
     })
 
@@ -413,4 +409,3 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 }
 
 export const useApp = () => useContext(AppContext)
-

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useApp } from '@/app/context/AppContext'
+import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { X, Plus, Trash2, Search, Tag } from 'lucide-react'
 import { getProductsByOutletId, Product } from '@/lib/services/productService'
-import { getOutletIdForCurrentUser, createOrder as createOrderService } from '@/lib/services/orderService'
+import { createOrder as createOrderService } from '@/lib/services/orderService'
 
 interface AddOrderModalProps {
   isOpen: boolean
@@ -56,6 +57,7 @@ interface OrderItem {
 
 export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId }: AddOrderModalProps) {
   const { addOrder, tables, orders } = useApp()
+  const { outletId: authOutletId } = useAuth()
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [items, setItems] = useState<OrderItem[]>([])
@@ -68,6 +70,8 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [outletId, setOutletId] = useState<string | null>(null)
+  const lastMenuLoadKeyRef = useRef<string | null>(null)
+  const saveInFlightRef = useRef(false)
 
   const formatRupee = (value: number) => {
     const v = Number.isFinite(Number(value)) ? Math.round(Number(value)) : 0
@@ -160,40 +164,47 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   // Fetch menu items when modal opens
   useEffect(() => {
     if (!isOpen) return
+    if (!authOutletId) {
+      setError('Outlet ID not found')
+      return
+    }
+
+    const loadKey = authOutletId
+    setOutletId(authOutletId)
+    if (lastMenuLoadKeyRef.current === loadKey && products.length > 0) return
+
+    let cancelled = false
+    lastMenuLoadKeyRef.current = loadKey
 
     const fetchMenu = async () => {
       try {
-        setIsLoading(true)
+        if (products.length === 0) setIsLoading(true)
         setError(null)
 
-        console.log('📥 Fetching outlet ID...')
-        const fetchedOutletId = await getOutletIdForCurrentUser()
-        console.log('✅ Outlet ID:', fetchedOutletId)
-        setOutletId(fetchedOutletId)
-
-        console.log('📥 Fetching products for outlet:', fetchedOutletId)
-        const fetchedProducts = await getProductsByOutletId(fetchedOutletId)
-        console.log('✅ Total products fetched:', fetchedProducts.length)
-        console.log('📦 Products:', fetchedProducts)
-        
+        const fetchedProducts = await getProductsByOutletId(authOutletId)
+        if (cancelled) return
         const availableProducts = fetchedProducts.filter(p => p.isAvailable)
-        console.log('✅ Available products:', availableProducts.length)
         setProducts(availableProducts)
 
         if (availableProducts.length === 0) {
           setError('No available items in menu')
         }
       } catch (err) {
+        lastMenuLoadKeyRef.current = null
+        if (cancelled) return
         const message = err instanceof Error ? err.message : 'Failed to load menu'
         setError(message)
         console.error('❌ Error fetching menu:', err)
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
     }
 
     fetchMenu()
-  }, [isOpen])
+    return () => {
+      cancelled = true
+    }
+  }, [authOutletId, isOpen, products.length])
 
   useEffect(() => {
     if (!isOpen) return
@@ -252,9 +263,10 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
     const qty = 1
     const unitPrice = finalPrice
 
-    const existingItem = items.find(i => i.id === itemId)
-    if (existingItem && !isCustomized) {
-      setItems(items.map(i =>
+    setItems(prevItems => {
+      const existingItem = prevItems.find(i => i.id === itemId)
+      if (existingItem && !isCustomized) {
+        return prevItems.map(i =>
         i.id === itemId
           ? (() => {
               const nextQty = (Number(i.qty ?? i.quantity ?? 1) || 1) + 1
@@ -274,10 +286,11 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
               }
             })()
           : i
-      ))
-    } else {
-      setItems([
-        ...items,
+        )
+      }
+
+      return [
+        ...prevItems,
         {
           id: itemId,
           productId: product.id,
@@ -298,8 +311,8 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
           variation: variationObj,
           notes: '',
         },
-      ])
-    }
+      ]
+    })
     setIsCustomizationOpen(false)
     setSelectedProduct(null)
   }
@@ -396,6 +409,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   }
 
   const handleCreateOrder = async () => {
+    if (saveInFlightRef.current) return
     const resolvedCustomerName = customerName.trim() || reusableCustomerName.trim()
     const resolvedCustomerPhone = customerPhone.trim() || reusableCustomerPhone.trim()
 
@@ -405,19 +419,11 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       return
     }
 
+    saveInFlightRef.current = true
     setIsSaving(true)
     try {
       const totalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0)
-
-      console.log('📤 Creating order with:')
-      console.log('  - CustomerName:', resolvedCustomerName)
-      console.log('  - CustomerPhone:', resolvedCustomerPhone)
-      console.log('  - TableId:', initialTableId || undefined)
-      console.log('  - Items:', items)
-      console.log('  - Total Amount:', totalAmount)
-
       const payloadItems = items.map(item => serializeOrderItem(item))
-      console.log('  - Payload Items:', payloadItems)
 
       // Create order via cloud function
       const orderId = await createOrderService(outletId, {
@@ -426,11 +432,9 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
         placedBy: 'billing',
         tableId: initialTableId || undefined,
         items: payloadItems,
-        orderStatus: 'in-progress',
+        status: 'in-progress',
         totalAmount,
       })
-
-      console.log('✅ Order created with ID:', orderId)
 
       // Also add to local context for immediate UI update
       const newOrder = {
@@ -465,6 +469,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       setError(message)
       console.error('❌ Error creating order:', err)
     } finally {
+      saveInFlightRef.current = false
       setIsSaving(false)
     }
   }
@@ -631,8 +636,6 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
 
                         {/* Addons / Customizations / Variations / Notes */}
                         {(() => {
-                          console.log('FULL MANAGER ITEM:', JSON.stringify(item, null, 2))
-                          
                           const extractedOptions: string[] = []
 
                           // 1. HANDLE addOns ARRAY

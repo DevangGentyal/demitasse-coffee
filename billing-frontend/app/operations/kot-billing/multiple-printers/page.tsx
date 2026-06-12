@@ -19,12 +19,8 @@ import { db } from '@/lib/firebase/app'
 import {
   collection,
   getDocs,
-  doc,
-  setDoc,
-  addDoc,
-  deleteDoc,
-  Timestamp,
 } from 'firebase/firestore'
+import { createPrinterConfig, updatePrinterConfig, deletePrinterConfig } from '@/lib/services/printerConfigService'
 
 // ── Types ──────────────────────────────────────────────────────────
 interface PrinterMargins {
@@ -216,23 +212,20 @@ export default function MultiplePrintersPage() {
 
     setIsSaving(true)
     try {
-      const now = Timestamp.now()
-
       if (isEditing && editingId) {
-        // Update existing
-        const ref = doc(db, 'printerConfigs', editingId)
-        const updateData = { ...formData, updatedAt: now }
-        await setDoc(ref, updateData, { merge: true })
+        // Update existing via cloud function
+        const updateData = { ...formData }
+        await updatePrinterConfig(editingId, updateData)
 
         setPrinters(prev =>
           prev.map(p => (p.id === editingId ? { ...p, ...updateData } : p))
         )
       } else {
-        // Create new — use Firestore auto-generated document ID
-        const newData = { ...formData, createdAt: now, updatedAt: now }
-        const docRef = await addDoc(collection(db, 'printerConfigs'), newData)
+        // Create new via cloud function
+        const newData = { ...formData, enabled: true }
+        const result = await createPrinterConfig(newData)
 
-        setPrinters(prev => [...prev, { id: docRef.id, ...newData }])
+        setPrinters(prev => [...prev, result])
       }
 
       setIsModalOpen(false)
@@ -249,7 +242,7 @@ export default function MultiplePrintersPage() {
     if (!confirm(`Delete printer "${printer.printerName}"? This cannot be undone.`)) return
 
     try {
-      await deleteDoc(doc(db, 'printerConfigs', printer.id))
+      await deletePrinterConfig(printer.id)
       setPrinters(prev => prev.filter(p => p.id !== printer.id))
       setError(null)
     } catch (e: any) {
@@ -260,9 +253,8 @@ export default function MultiplePrintersPage() {
 
   const handleToggleEnabled = async (printer: PrinterConfig) => {
     try {
-      const ref = doc(db, 'printerConfigs', printer.id)
       const newEnabled = !printer.enabled
-      await setDoc(ref, { enabled: newEnabled, updatedAt: Timestamp.now() }, { merge: true })
+      await updatePrinterConfig(printer.id, { enabled: newEnabled })
       setPrinters(prev =>
         prev.map(p => (p.id === printer.id ? { ...p, enabled: newEnabled } : p))
       )

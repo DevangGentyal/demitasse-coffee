@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ArrowLeft, Check } from 'lucide-react'
 import { db } from '@/lib/firebase/app'
-import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore'
+import { doc, getDoc, Timestamp } from 'firebase/firestore'
+import { saveKotBillingSettings } from '@/lib/services/kotSettingsService'
 
 // ── Types ──────────────────────────────────────────────────────────
 interface KotBillingSettings {
@@ -152,15 +153,8 @@ export default function PreferredConfigurationPage() {
     setSuccessMsg(null)
 
     try {
-      const ref = doc(db, DOC_PATH, DOC_ID)
-      await setDoc(
-        ref,
-        {
-          ...settings,
-          updatedAt: Timestamp.now(),
-        },
-        { merge: true }
-      )
+      const outletId = auth.currentUser?.uid || ''
+      await saveKotBillingSettings(outletId, settings)
       setSuccessMsg('Settings saved successfully')
     } catch (e: any) {
       console.error('Error saving KOT settings:', e)

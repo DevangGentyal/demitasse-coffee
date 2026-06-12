@@ -5,6 +5,7 @@ import { Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createOrGetSession } from '../../shared/session/sessionUtils';
 import { handleCustomerPreflight } from '../../shared/utilities/security/cors';
+import { getOfferDocs, getProductDoc } from '../../shared/utilities/firestoreCatalog';
 import {
 	collectRequestedOfferUsages,
 	findUsageLimitViolation,
@@ -14,7 +15,7 @@ import {
 import { normalizeOrderItemsForPricing, applyOfferPricingByGroup, buildPricingSummaryFromItems } from '../../shared/utilities/offers/orderPricing';
 import { calculateSubtotal } from '../../shared/utilities/billing/pricing';
 import { applyTax } from '../../shared/utilities/billing/tax';
-import { applyOffer, OfferDocument } from '../../shared/utilities/offers/applyOffer';
+import { applyOffer } from '../../shared/utilities/offers/applyOffer';
 
 const db = admin.firestore();
 
@@ -31,11 +32,6 @@ const verifyToken = async (req: Request): Promise<admin.auth.DecodedIdToken> => 
 };
 
 const readString = (value: unknown): string => String(value ?? '').trim();
-const readNumber = (value: unknown, fallback = 0): number => {
-	const n = Number(value);
-	return Number.isFinite(n) ? n : fallback;
-};
-
 const resolveCustomerName = async (uid: string, fallbackName: unknown): Promise<string> => {
 	try {
 		const userSnap = await db.collection('users').doc(uid).get();
@@ -107,17 +103,12 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 		const resolvedCustomerPhone = readString(customerPhone);
 
 		// ── Price resolver (always from products collection) ─────────────────
-		const productCache = new Map<string, number>();
 		const resolveProductPrice = async (productId: string): Promise<number | null> => {
 			const id = readString(productId);
 			if (!id) return null;
-			if (productCache.has(id)) return productCache.get(id)!;
-			try {
-				const snap = await db.collection('products').doc(id).get();
-				if (!snap.exists) return null;
-				const price = readNumber((snap.data() || {}).price, NaN);
-				if (Number.isFinite(price)) { productCache.set(id, price); return price; }
-			} catch { /* ignore */ }
+			const productDoc = await getProductDoc(id);
+			if (!productDoc || !Number.isFinite(productDoc.price)) return null;
+			return productDoc.price;
 			return null;
 		};
 
@@ -126,14 +117,11 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 
 		// Enrich category / subcategory / name from products collection
 		for (const item of normalisedItems) {
-			try {
-				const snap = await db.collection('products').doc(item.productId).get();
-				if (!snap.exists) continue;
-				const pd = snap.data() || {};
-				item.name = readString(pd.name) || item.name;
-				item.category = readString(pd.category) || null;
-				item.subcategory = readString(pd.subcategory) || null;
-			} catch { /* ignore enrichment errors */ }
+			const productDoc = await getProductDoc(item.productId);
+			if (!productDoc) continue;
+			item.name = productDoc.name || item.name;
+			item.category = productDoc.category || null;
+			item.subcategory = productDoc.subcategory || null;
 		}
 
 		// ── subTotal ─────────────────────────────────────────────────────────
@@ -147,13 +135,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			const itemOfferId = readString(item.offerId);
 			if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 		}
-		const offerDocsById = new Map<string, OfferDocument>();
-		await Promise.all(Array.from(uniqueOfferIds).map(async (offerDocId) => {
-			const offerSnap = await db.collection('offers').doc(offerDocId).get();
-			if (offerSnap.exists) {
-				offerDocsById.set(offerDocId, { id: offerSnap.id, ...(offerSnap.data() || {}) } as OfferDocument);
-			}
-		}));
+		const offerDocsById = await getOfferDocs(uniqueOfferIds);
 
 		// ── Apply offer to each item individually ──────────────────────────
 		const itemsWithPricing = applyOfferPricingByGroup(normalisedItems, offerDocsById as any, applyTax);
@@ -268,7 +250,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				discount: pricing.discount,
 				discountedPrice: pricing.discountedPrice,
 				tax: pricing.tax,
-				orderStatus: req.body?.orderStatus || 'in-progress',
+				status: req.body?.status || req.body?.orderStatus || 'in-progress',
 				autoAppliedOfferId: alreadyCounted
 					? (readString(existingData.autoAppliedOfferId) || null)
 					: requestedOfferId,

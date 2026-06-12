@@ -9,16 +9,47 @@ import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { logIn } from "@/lib/firebase/auth"
 
+const PendingApprovalCard = ({ onBack }: { onBack: () => void }) => (
+  <Card className="w-full max-w-md shadow-lg">
+    <div className="p-8 text-center space-y-4">
+      <div className="mx-auto h-16 w-16 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-2xl">
+        ⏳
+      </div>
+      <h2 className="text-2xl font-bold text-foreground">Waiting for Approval</h2>
+      <p className="text-sm text-muted-foreground leading-6">
+        Your outlet account is currently pending admin approval. You will be able to access the billing portal once the admin marks it as approved.
+      </p>
+      <Button className="w-full" variant="outline" onClick={onBack}>
+        Back to Login
+      </Button>
+    </div>
+  </Card>
+)
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [showPendingApproval, setShowPendingApproval] = useState(false)
   const router = useRouter()
+
+  React.useEffect(() => {
+    // Check URL params
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('registered') === '1') {
+      setSuccessMessage('Registration submitted successfully! Your account is pending administrator approval.')
+    }
+
+    localStorage.removeItem('billing_account_status')
+    localStorage.removeItem('auth_error')
+  }, [router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setSuccessMessage('')
     setIsLoading(true)
 
     if (!email || !password) {
@@ -27,8 +58,15 @@ export default function LoginPage() {
       return
     }
 
-    try {
-      await logIn(email, password)
+      try {
+        await logIn(email, password)
+      const accountStatus = localStorage.getItem('billing_account_status')
+      if (accountStatus && accountStatus !== 'approved') {
+        setShowPendingApproval(true)
+        router.push('/pending-approval')
+        return
+      }
+
       router.push('/home')
     } catch (err: any) {
       const errorMessage = err.message || 'Login failed'
@@ -50,6 +88,12 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      {showPendingApproval ? (
+        <PendingApprovalCard onBack={() => {
+          setShowPendingApproval(false)
+          router.push('/login')
+        }} />
+      ) : (
       <Card className="w-full max-w-md shadow-lg">
         <div className="p-8">
           <div className="mb-8 text-center">
@@ -84,7 +128,8 @@ export default function LoginPage() {
               />
             </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {successMessage && <p className="text-sm text-green-600 dark:text-green-400 font-medium bg-green-50 dark:bg-green-950/20 p-2.5 rounded-lg border border-green-100 dark:border-green-900/40">{successMessage}</p>}
+            {error && <p className="text-sm text-destructive bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 font-medium">{error}</p>}
 
             <Button
               type="submit"
@@ -100,9 +145,14 @@ export default function LoginPage() {
                 <a href="/register">Register</a>
               </Button>
             </div>
+
+            <p className="text-center text-sm text-muted-foreground pt-2">
+              Don&apos;t have an account? <a href="/register" className="font-medium text-primary underline underline-offset-4">Register here</a>
+            </p>
           </form>
         </div>
       </Card>
+      )}
     </div>
   )
 }

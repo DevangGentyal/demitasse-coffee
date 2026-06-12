@@ -89,8 +89,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       completed: 'in-progress',
     }
     
-    // Use 'status' prop which is passed as order.orderStatus from page.tsx
-    const currentStatus = status || order.orderStatus || 'in-progress';
+    const currentStatus = status || order.status || order.orderStatus || 'in-progress';
     const newStatus = statusFlow[currentStatus] || 'ready'
     
     setIsUpdating(true)
@@ -101,7 +100,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       if (outletId) {
         console.log('[FRONTEND] 📤 Calling updateOrder service...');
         await updateOrderService(outletId, order.id, {
-          orderStatus: newStatus as any,
+          status: newStatus as any,
         })
         console.log('[FRONTEND] ✅ updateOrder service call successful');
       } else {
@@ -150,7 +149,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       if (outletId) {
         await updateOrderService(outletId, order.id, {
           items: updatedItems,
-          orderStatus: nextOrderStatus as any,
+          status: nextOrderStatus as any,
         })
       }
       updateOrderItem(order.id, itemId, { status: nextStatus as any })
@@ -519,4 +518,3 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
     </Card>
   )
 }
-

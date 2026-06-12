@@ -3,8 +3,8 @@ import * as admin from "firebase-admin";
 const db = admin.firestore();
 
 export const getActiveOffers = async (outletId: string): Promise<number> => {
-	// Fetch all offers to support global offers (where outletId is empty/null/missing) and outlet-specific offers
-	const snap = await db.collection("offers").get();
+	// Read only active offers, then filter in-memory for outlet/global scope.
+	const snap = await db.collection("offers").where("isActive", "==", true).get();
 	const now = new Date();
 	let activeOffersCount = 0;
 

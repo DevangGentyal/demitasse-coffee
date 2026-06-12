@@ -90,7 +90,7 @@ export default function OrderDetails() {
   const total = Number(pricing.total || 0);
   const appliedOffers = Array.isArray(order.appliedOffers) ? order.appliedOffers : [];
   const date = toDate(order.closedAt || order.archivedAt || order.createdAt);
-  const status = order.orderLifecycleStatus || "COMPLETED";
+  const status = String(order.status || order.orderLifecycleStatus || "COMPLETED").toUpperCase();
   const placedBy = order.placedBy || "customer";
   const orderType = placedBy === "customer" ? "Dine-In" : "Counter";
   const customer = order.customer || {};

@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, logOut as firebaseLogOut } from "@/lib/firebase/auth";
-import { getCurrentUserProfile } from "@/lib/services/backendApi";
+import { getCurrentUserProfile, invalidateReadCache } from "@/lib/services/backendApi";
 
 // Global Context
 interface AuthContextType {
@@ -11,6 +11,7 @@ interface AuthContextType {
   isLoggedIn: boolean;
   isLoading: boolean;
   outletId: string | null;
+  accountStatus: string | null;
   logout: () => Promise<void>;
 }
 
@@ -22,27 +23,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [outletId, setOutletId] = useState<string | null>(null);
+  const [accountStatus, setAccountStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log("Auth state changed:", firebaseUser?.email || "No user");
       setUser(firebaseUser);
       setIsLoggedIn(!!firebaseUser);
       
-      if (firebaseUser) {
-        // 1. Try to get outlet ID from custom claims
-        const idTokenResult = await firebaseUser.getIdTokenResult();
-        let outlet = idTokenResult.claims.outlet_id as string;
-        
-        // 2. If not in claims, try backend user profile
-        if (!outlet) {
-          try {
-            const profile = await getCurrentUserProfile();
+        if (firebaseUser) {
+        let outlet = null;
+        let status = 'approved';
+
+        try {
+          const profile = await getCurrentUserProfile();
+          if (profile) {
             outlet = (profile?.outletID || profile?.outletId) as string;
-            console.log("Fetched outlet ID from backend:", outlet);
-          } catch (err) {
-            console.error("Error fetching backend user profile for outlet ID:", err);
+            status = (profile?.status as string) || 'approved';
           }
+        } catch (err) {
+          console.error("Error fetching backend user profile for outlet ID/status:", err);
+          status = 'pending';
+        }
+
+          setAccountStatus(status);
+          if (status !== 'approved') {
+            localStorage.setItem('auth_error', `Your outlet account is currently ${status === 'pending' ? 'pending admin approval' : status}.`);
+          } else {
+            localStorage.removeItem('auth_error');
+          }
+          localStorage.setItem('billing_account_status', status);
+
+        // 2. Try custom claims as fallback
+        if (!outlet) {
+          const idTokenResult = await firebaseUser.getIdTokenResult();
+          outlet = idTokenResult.claims.outlet_id as string;
         }
 
         // 3. Fallback to localStorage
@@ -58,6 +72,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } else {
         setOutletId(null);
+        setAccountStatus(null);
+        localStorage.removeItem('billing_account_status');
       }
       
       setIsLoading(false);
@@ -72,7 +88,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setIsLoggedIn(false);
       setOutletId(null);
+      setAccountStatus(null);
       localStorage.removeItem('outlet_id');
+      localStorage.removeItem('billing_account_status');
+      invalidateReadCache();
     } catch (error) {
       console.error("Logout error:", error);
       throw error;
@@ -80,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoggedIn, isLoading, outletId, logout }}>
+    <AuthContext.Provider value={{ user, isLoggedIn, isLoading, outletId, accountStatus, logout }}>
       {children}
     </AuthContext.Provider>
   );

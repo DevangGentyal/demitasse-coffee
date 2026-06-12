@@ -43,10 +43,14 @@ export const updateCancellationPassword = functions.https.onRequest(
 			const saltRounds = 10;
 			const passkeyHash = bcrypt.hashSync(nextPassword, saltRounds);
 
-			const passwordRef = db.collection("secureOrderCancellationAccess").doc("main");
+			const passwordRef = db.collection("securityPasswords").doc("orderCancel");
+			const existing = await passwordRef.get();
 			await passwordRef.set({
-				passkeyHash,
-			});
+				name: "orderCancel",
+				password: passkeyHash,
+				createdAt: existing.exists ? existing.data()?.createdAt || admin.firestore.FieldValue.serverTimestamp() : admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			}, { merge: true });
 
 			res.status(200).json({
 				success: true,

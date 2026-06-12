@@ -4,12 +4,13 @@ import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { calculateSubtotal } from "../../shared/utilities/billing/pricing";
 import { applyTax } from "../../shared/utilities/billing/tax";
+import { getOfferDocs, getProductDoc } from "../../shared/utilities/firestoreCatalog";
 import {
 	normalizeOrderItemsForPricing,
 	applyOfferPricingByGroup,
 	buildPricingSummaryFromItems,
 } from "../../shared/utilities/offers/orderPricing";
-import { applyOffer, OfferDocument } from "../../shared/utilities/offers/applyOffer";
+import { applyOffer } from "../../shared/utilities/offers/applyOffer";
 
 const db = admin.firestore();
 const normalizeOrderStatus = (value: unknown): "pending" | "in-progress" | "ready" | "completed" => {
@@ -21,11 +22,6 @@ const normalizeOrderStatus = (value: unknown): "pending" | "in-progress" | "read
 };
 
 const readString = (value: unknown): string => String(value ?? "").trim();
-const readNumber = (value: unknown, fallback = 0): number => {
-	const n = Number(value);
-	return Number.isFinite(n) ? n : fallback;
-};
-
 export const updateOrder = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {
 	res.set("Access-Control-Allow-Origin", "*");
 	res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
@@ -57,36 +53,24 @@ export const updateOrder = functions.https.onRequest(async (req: Request, res: R
 		if (hasStatusUpdate) {
 			const normalizedOrderStatus = normalizeOrderStatus(nextStatusSource);
 			updateData.status = normalizedOrderStatus;
-			updateData.orderStatus = normalizedOrderStatus;
 		}
 
 		if (hasItemsUpdate) {
 			const resolveProductPrice = async (productId: string): Promise<number | null> => {
 				const id = readString(productId);
 				if (!id) return null;
-				try {
-					const snap = await db.collection("products").doc(id).get();
-					if (!snap.exists) return null;
-					const price = readNumber((snap.data() || {}).price, Number.NaN);
-					return Number.isFinite(price) ? price : null;
-				} catch {
-					return null;
-				}
+				const productDoc = await getProductDoc(id);
+				return productDoc && Number.isFinite(productDoc.price) ? productDoc.price : null;
 			};
 
 			const normalizedItems = await normalizeOrderItemsForPricing(items, resolveProductPrice);
 
 			for (const item of normalizedItems) {
-				try {
-					const snap = await db.collection("products").doc(item.productId).get();
-					if (!snap.exists) continue;
-					const pd = snap.data() || {};
-					item.name = readString(pd.name) || item.name;
-					item.category = readString(pd.category) || null;
-					item.subcategory = readString(pd.subcategory) || null;
-				} catch {
-					// Ignore enrichment failures.
-				}
+				const productDoc = await getProductDoc(item.productId);
+				if (!productDoc) continue;
+				item.name = productDoc.name || item.name;
+				item.category = productDoc.category || null;
+				item.subcategory = productDoc.subcategory || null;
 			}
 
 			const effectiveOfferId =
@@ -103,13 +87,7 @@ export const updateOrder = functions.https.onRequest(async (req: Request, res: R
 				if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 			}
 
-			const offerDocsById = new Map<string, OfferDocument>();
-			await Promise.all(Array.from(uniqueOfferIds).map(async (offerDocId) => {
-				const offerSnap = await db.collection("offers").doc(offerDocId).get();
-				if (offerSnap.exists) {
-					offerDocsById.set(offerDocId, { id: offerSnap.id, ...(offerSnap.data() || {}) } as OfferDocument);
-				}
-			}));
+			const offerDocsById = await getOfferDocs(uniqueOfferIds);
 
 			const subTotal = calculateSubtotal(normalizedItems);
 			const itemsWithPricing = applyOfferPricingByGroup(normalizedItems, offerDocsById as any, applyTax);

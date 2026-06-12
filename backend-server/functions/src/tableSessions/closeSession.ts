@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
+import { isOrderCancelled } from "../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -181,7 +182,7 @@ export const closeSession = functions.https.onRequest(
           const ownerId = readString(orderData.ownerId) || readString(sessionData.ownerId) || readString(orderData.userId) || null;
           const resolvedPricing = orderData.pricing || computePricingFromItems(Array.isArray(orderData.items) ? orderData.items : []);
 
-          const isCancelled = String(orderData.status || orderData.orderStatus || orderData.orderLifecycleStatus || "").toLowerCase() === "cancelled";
+          const isCancelled = isOrderCancelled(orderData);
 
           const paymentRef = paymentRefs.get(orderDoc.id) || db.collection("payments").doc();
           if (!isCancelled) {
@@ -288,7 +289,7 @@ export const closeSession = functions.https.onRequest(
         let totalBillAmount = 0;
         for (const orderDoc of candidateOrderDocs.values()) {
           const orderData = orderDoc.data();
-          const isCancelled = String(orderData.status || orderData.orderStatus || orderData.orderLifecycleStatus || "").toLowerCase() === "cancelled";
+          const isCancelled = isOrderCancelled(orderData);
           if (!isCancelled) {
             const resolvedPricing = orderData.pricing || computePricingFromItems(Array.isArray(orderData.items) ? orderData.items : []);
             totalBillAmount += readNumber(resolvedPricing.total, 0);

@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
+import { resolveLifecycleStatus } from "../reports/helpers";
 
 const db = admin.firestore();
 
@@ -14,17 +15,6 @@ export const getTodayStartIST = (): Date => {
 		0, 0, 0, 0
 	);
 	return new Date(localStart.getTime() - timezoneOffsetMinutes * 60 * 1000);
-};
-
-const resolveLifecycleStatus = (order: any): "success" | "canceled" => {
-	const candidates = [order.status, order.orderStatus, order.orderLifecycleStatus, order.paymentStatus];
-	for (const candidate of candidates) {
-		const status = String(candidate || "").trim().toLowerCase();
-		if (!status) continue;
-		if (status.includes("cancel")) return "canceled";
-		if (status.includes("success") || status.includes("complete") || status.includes("close") || status.includes("final") || status.includes("paid")) return "success";
-	}
-	return "success";
 };
 
 export const getTodayOrders = async (outletId: string): Promise<{ total: number; cancelled: number }> => {

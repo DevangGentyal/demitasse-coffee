@@ -27,6 +27,11 @@ const mapDoc = (docSnap: FirebaseFirestore.QueryDocumentSnapshot): Record<string
 	...docSnap.data(),
 })
 
+const normalizeStatus = (value: unknown): string => {
+	if (typeof value !== 'string') return ''
+	return value.trim().toLowerCase()
+}
+
 const listCollection = async (collectionName: string, fieldName?: string, fieldValue?: string) => {
 	let queryRef: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection(collectionName)
 	if (fieldName && fieldValue) {
@@ -115,9 +120,30 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
 		}
 		case 'currentUser': {
-			const userSnap = await db.collection('users').doc(uid).get()
-			return userSnap.exists ? [{ id: userSnap.id, ...userSnap.data() }] : []
+			let snap = await db.collection('admin').doc(uid).get()
+			if (snap.exists) {
+				return [{ id: snap.id, role: 'admin', ...snap.data() }]
+			}
+			snap = await db.collection('outlets').doc(uid).get()
+			if (snap.exists) {
+				return [{ id: snap.id, role: 'outlet', outletID: snap.id, outletId: snap.id, ...snap.data() }]
+			}
+			snap = await db.collection('users').doc(uid).get()
+			if (snap.exists) {
+				return [{ id: snap.id, role: 'customer', ...snap.data() }]
+			}
+			return []
 		}
+		case 'pendingOutlets': {
+			const snapshot = await db.collection('outlets').get()
+			return snapshot.docs
+				.map(mapDoc)
+				.filter((outlet) => normalizeStatus(outlet.status) === 'pending')
+		}
+		case 'securityPasswords':
+			return listCollection('securityPasswords').then((items) =>
+				items.map(({ password, ...rest }) => rest)
+			)
 		case 'userById': {
 			const userId = readString(params.get('userId'))
 			if (!userId) throw new Error('userId is required')

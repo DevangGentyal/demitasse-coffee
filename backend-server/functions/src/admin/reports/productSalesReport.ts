@@ -12,6 +12,7 @@ import {
 	distributeAmount,
 	fetchDocById,
 } from "./helpers";
+import { getProductDocs } from "../../shared/utilities/firestoreCatalog";
 
 const db = admin.firestore();
 
@@ -42,13 +43,6 @@ export const getProductSalesReport = functions.https.onRequest(async (req: Reque
 		const snap = await query.get();
 		const orders = snap.docs.map((doc) => doc.data() as any);
 
-		// Fetch all products for category mapping
-		const productsSnap = await db.collection("products").get();
-		const productsCache = new Map<string, any>();
-		productsSnap.docs.forEach((doc) => {
-			productsCache.set(doc.id, doc.data());
-		});
-
 		const cleanCategory = (val: string): string => {
 			const cleaned = val.trim();
 			if (!cleaned || cleaned.toLowerCase() === "unknown" || cleaned.toLowerCase() === "uncategorized") {
@@ -61,6 +55,19 @@ export const getProductSalesReport = functions.https.onRequest(async (req: Reque
 		const successOrders = orders.filter((order) => {
 			if (outletId && order.outletId !== outletId) return false;
 			return resolveLifecycleStatus(order) === "success";
+		});
+
+		const productIds = new Set<string>();
+		for (const order of successOrders) {
+			for (const item of Array.isArray(order.items) ? order.items : []) {
+				const pId = readString(item.productId || item.id);
+				if (pId) productIds.add(pId);
+			}
+		}
+		const productDocs = await getProductDocs(productIds);
+		const productsCache = new Map<string, any>();
+		productDocs.forEach((doc) => {
+			productsCache.set(doc.id, doc.data);
 		});
 
 		// Grouping key: `${productName}__${outletId}`

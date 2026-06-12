@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { resolveOrderStatus } from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -10,7 +11,7 @@ export const getLiveOrderItems = async (outletId: string): Promise<{ inProgress:
 
 	snap.docs.forEach((doc) => {
 		const orderData = doc.data();
-		const status = String(orderData.orderStatus || orderData.status || "in-progress").toLowerCase().trim();
+		const status = resolveOrderStatus(orderData).toLowerCase().trim() || "in-progress";
 		if (status === "completed" || status === "complete") {
 			completed++;
 		} else if (status === "in-progress" || status === "in_progress" || status === "pending" || status === "ready") {

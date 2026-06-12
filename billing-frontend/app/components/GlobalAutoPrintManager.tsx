@@ -8,6 +8,10 @@ import { clearPrintPageSize, fitPrintPageToContent } from './print/printPageSize
 import { useApp } from '@/app/context/AppContext'
 
 const MANUAL_KOT_PRINT_EVENT = 'demitasse:manual-kot-print'
+const DEBUG_AUTO_PRINT = false
+const debugLog = (...args: unknown[]) => {
+  if (DEBUG_AUTO_PRINT) console.log(...args)
+}
 
 const parseItemAddons = (item: any): string[] => {
   const notes: string[] = []
@@ -92,7 +96,7 @@ export function GlobalAutoPrintManager() {
     let isMounted = true
     const fetchConfigs = async () => {
       try {
-        console.log('[GlobalAutoPrint] ⏳ Fetching printerConfigs and settings...')
+        debugLog('[GlobalAutoPrint] ⏳ Fetching printerConfigs and settings...')
         const printersSnap = await getDocs(collection(db, 'printerConfigs'))
         let foodConfig: any = null
         let coffeeConfig: any = null
@@ -134,7 +138,7 @@ export function GlobalAutoPrintManager() {
         }
 
         if (isMounted) {
-          console.log('[GlobalAutoPrint] ✅ Configs loaded')
+          debugLog('[GlobalAutoPrint] ✅ Configs loaded')
           setPrintConfigs({
             foodConfig,
             coffeeConfig,
@@ -144,7 +148,7 @@ export function GlobalAutoPrintManager() {
           // Grace period: Wait 3 seconds before allowing new orders to queue
           setTimeout(() => {
             if (isMounted) {
-              console.log('[GlobalAutoPrint] ⏲️ 3-second grace period ended. Ready for new orders globally.')
+              debugLog('[GlobalAutoPrint] ⏲️ 3-second grace period ended. Ready for new orders globally.')
               isReadyToQueue.current = true
             }
           }, 3000)
@@ -164,10 +168,10 @@ export function GlobalAutoPrintManager() {
     inProgressOrders.forEach(o => {
       if (!printedOrdersRef.current.has(o.id)) {
         if (!isReadyToQueue.current) {
-          console.log(`[GlobalAutoPrint] 🛡️ Grace period active. Skipping existing order: ${o.id}`)
+          debugLog(`[GlobalAutoPrint] 🛡️ Grace period active. Skipping existing order: ${o.id}`)
           printedOrdersRef.current.add(o.id)
         } else {
-          console.log(`[GlobalAutoPrint] 🚀 New Order Detected: ${o.id}. Adding to global print queue.`)
+          debugLog(`[GlobalAutoPrint] 🚀 New Order Detected: ${o.id}. Adding to global print queue.`)
           printedOrdersRef.current.add(o.id)
           setPrintQueue(prev => [...prev, o])
         }
@@ -192,7 +196,7 @@ export function GlobalAutoPrintManager() {
         isDuplicateKot: Boolean(manualJob.isDuplicateKot),
         timeOfOrder: manualJob.timeOfOrder || new Date(),
       }
-      console.log(`[GlobalAutoPrint] 📣 Manual KOT print queued: ${queuedJob.id}`)
+      debugLog(`[GlobalAutoPrint] 📣 Manual KOT print queued: ${queuedJob.id}`)
       setPrintQueue((prev) => [...prev, queuedJob])
     }
 
@@ -210,7 +214,7 @@ export function GlobalAutoPrintManager() {
       if (activePrintJob === null && printQueue.length > 0 && printConfigs && !isProcessingQueueRef.current) {
         isProcessingQueueRef.current = true
         const nextOrder = printQueue[0]
-        console.log(`[GlobalAutoPrint] 🖨️ Preparing KOT for order: ${nextOrder.id}`)
+        debugLog(`[GlobalAutoPrint] 🖨️ Preparing KOT for order: ${nextOrder.id}`)
 
         // 5. Normalization: Extract actual items from offers/combos asynchronously
         const rawItems = nextOrder.items || []
@@ -224,12 +228,12 @@ export function GlobalAutoPrintManager() {
           const item = rawItems[i]
           if (Array.isArray(item.items) && item.items.length > 0) {
             offerCount++
-            console.log(`[GlobalAutoPrint] 🍔 RAW OFFER:`, item)
+            debugLog(`[GlobalAutoPrint] 🍔 RAW OFFER:`, item)
 
             const parentQty = Number(item.quantity || item.qty || 1)
             for (let j = 0; j < item.items.length; j++) {
               const sub = item.items[j]
-              console.log(`[GlobalAutoPrint] 📦 RAW SUB ITEM:`, sub)
+              debugLog(`[GlobalAutoPrint] 📦 RAW SUB ITEM:`, sub)
 
               let resolvedCategory = sub.category ||
                 sub.productCategory ||
@@ -245,7 +249,7 @@ export function GlobalAutoPrintManager() {
               const subId = sub.productId || sub.id
               if (!resolvedCategory && subId) {
                 try {
-                  console.log(`[GlobalAutoPrint] 🔍 Fetching missing category from DB for:`, sub.name)
+                  debugLog(`[GlobalAutoPrint] 🔍 Fetching missing category from DB for:`, sub.name)
                   const docRef = doc(db, 'products', String(subId))
                   const docSnap = await getDoc(docRef)
                   if (docSnap.exists()) {
@@ -269,7 +273,7 @@ export function GlobalAutoPrintManager() {
                 } else {
                   resolvedCategory = 'BEVERAGES'
                 }
-                console.log(`[GlobalAutoPrint] ⚠️ Category missing from DB. Applied Name-based Fallback:`, resolvedCategory)
+                debugLog(`[GlobalAutoPrint] ⚠️ Category missing from DB. Applied Name-based Fallback:`, resolvedCategory)
               }
 
               const normalizedItem = {
@@ -289,7 +293,7 @@ export function GlobalAutoPrintManager() {
                 variation: sub.variation || {}
               }
 
-              console.log(`[GlobalAutoPrint] ✨ FINAL NORMALIZED OFFER ITEM:`, normalizedItem)
+              debugLog(`[GlobalAutoPrint] ✨ FINAL NORMALIZED OFFER ITEM:`, normalizedItem)
               normalizedItemsArray.push(normalizedItem)
               extractedCount++
             }
@@ -297,12 +301,12 @@ export function GlobalAutoPrintManager() {
             normalCount++
             // Manager/Normal Item
             const normalizedItem = await normalizeManagerItem(item)
-            console.log(`[GlobalAutoPrint] ✨ FINAL NORMALIZED NORMAL/MANAGER ITEM:`, normalizedItem)
+            debugLog(`[GlobalAutoPrint] ✨ FINAL NORMALIZED NORMAL/MANAGER ITEM:`, normalizedItem)
             normalizedItemsArray.push(normalizedItem)
           }
         }
 
-        console.log(`[GlobalAutoPrint] 🔄 Normalization complete for ${nextOrder.id}:`, {
+        debugLog(`[GlobalAutoPrint] 🔄 Normalization complete for ${nextOrder.id}:`, {
           normalCount,
           offerCount,
           extractedCount,
@@ -319,9 +323,9 @@ export function GlobalAutoPrintManager() {
         setPrintQueue(prev => prev.slice(1))
 
         // Safely wait for React to flush state to DOM and browser to paint
-        console.log(`[GlobalAutoPrint] ⏳ Waiting for React DOM to render templates...`)
+        debugLog(`[GlobalAutoPrint] ⏳ Waiting for React DOM to render templates...`)
         setTimeout(() => {
-          console.log(`[GlobalAutoPrint] 🔔 Triggering window.print() for order: ${readyJob.id}`)
+          debugLog(`[GlobalAutoPrint] 🔔 Triggering window.print() for order: ${readyJob.id}`)
 
           const printTargets = Array.from(document.querySelectorAll<HTMLElement>('.print-receipt'))
           let printIndex = 0
@@ -337,13 +341,13 @@ export function GlobalAutoPrintManager() {
           const printNextReceipt = () => {
             const target = printTargets[printIndex]
             if (!target) {
-              console.log(`[GlobalAutoPrint] Finished print receipts for order: ${readyJob.id}`)
+              debugLog(`[GlobalAutoPrint] Finished print receipts for order: ${readyJob.id}`)
               finishPrintJob()
               return
             }
 
             const handleAfterPrint = () => {
-              console.log(`[GlobalAutoPrint] window.afterprint fired for receipt ${printIndex + 1}/${printTargets.length}: ${readyJob.id}`)
+              debugLog(`[GlobalAutoPrint] window.afterprint fired for receipt ${printIndex + 1}/${printTargets.length}: ${readyJob.id}`)
               window.removeEventListener('afterprint', handleAfterPrint)
               if (failsafeTimer) clearTimeout(failsafeTimer)
               clearPrintPageSize()
@@ -356,7 +360,7 @@ export function GlobalAutoPrintManager() {
             window.print()
 
             failsafeTimer = setTimeout(() => {
-              console.log(`[GlobalAutoPrint] Failsafe advancing print receipt ${printIndex + 1}/${printTargets.length}: ${readyJob.id}`)
+              debugLog(`[GlobalAutoPrint] Failsafe advancing print receipt ${printIndex + 1}/${printTargets.length}: ${readyJob.id}`)
               window.removeEventListener('afterprint', handleAfterPrint)
               clearPrintPageSize()
               printIndex += 1
@@ -381,12 +385,12 @@ export function GlobalAutoPrintManager() {
   if (!activePrintJob || !printConfigs) return null
 
   // STEP 1 - RAW ORDER
-  console.log(
+  debugLog(
     'FULL RAW MANAGER ORDER JSON:',
     JSON.stringify(activePrintJob, null, 2)
   )
   // STEP 2 - RAW ORDER ITEMS
-  console.log(
+  debugLog(
     'FULL RAW MANAGER ITEMS:',
     JSON.stringify(activePrintJob.items, null, 2)
   )
@@ -394,7 +398,7 @@ export function GlobalAutoPrintManager() {
   const rawNormalizedItems = activePrintJob.normalizedItems || []
 
   // STEP 3 - AFTER NORMALIZATION
-  console.log(
+  debugLog(
     'FINAL NORMALIZED MANAGER ITEMS:',
     JSON.stringify(rawNormalizedItems, null, 2)
   )
@@ -407,7 +411,7 @@ export function GlobalAutoPrintManager() {
     Number.isFinite(item.quantity)
   )
 
-  console.log('SAFE NORMALIZED ITEMS (Ready for Routing):', safeItems)
+  debugLog('SAFE NORMALIZED ITEMS (Ready for Routing):', safeItems)
 
   // 6. Strict Category Routing Logic
   const normalizeCategory = (value: string | undefined = '') =>
@@ -482,7 +486,7 @@ export function GlobalAutoPrintManager() {
     }
 
     // ADD DEBUG LOGS
-    console.log('ITEM ROUTING:', {
+    debugLog('ITEM ROUTING:', {
       name: item.name,
       rawCategory: item.category,
       normalizedCategory: category,
@@ -500,8 +504,8 @@ export function GlobalAutoPrintManager() {
   }
 
   // STEP 4 - AFTER ROUTING DEBUG LOGS
-  console.log('FINAL FOOD ITEMS:', foodItems)
-  console.log('FINAL BEV ITEMS:', bevItems)
+  debugLog('FINAL FOOD ITEMS:', foodItems)
+  debugLog('FINAL BEV ITEMS:', bevItems)
 
   const mockDate = activePrintJob.timeOfOrder || new Date()
 
@@ -568,12 +572,12 @@ export function GlobalAutoPrintManager() {
     highlightTitle: activePrintJob.isDuplicateKot ? 'Duplicate KOT' : undefined,
   }
 
-  console.log('ACTIVE PRINT JOB', activePrintJob)
-  console.log('NORMALIZED ITEMS', safeItems)
-  console.log('FOOD ITEMS', foodItems)
-  console.log('BEV ITEMS', bevItems)
-  console.log('FIRST FOOD ITEM', foodItems[0])
-  console.log('FIRST BEV ITEM', bevItems[0])
+  debugLog('ACTIVE PRINT JOB', activePrintJob)
+  debugLog('NORMALIZED ITEMS', safeItems)
+  debugLog('FOOD ITEMS', foodItems)
+  debugLog('BEV ITEMS', bevItems)
+  debugLog('FIRST FOOD ITEM', foodItems[0])
+  debugLog('FIRST BEV ITEM', bevItems[0])
 
   // Removed extra duplicate debug logs for manager
 

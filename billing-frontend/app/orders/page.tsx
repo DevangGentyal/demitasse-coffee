@@ -43,7 +43,8 @@ export default function OrdersPage() {
 
     const normalized = liveOrders.map( (order: any) => ({
       ...order,
-      orderStatus: (order as any).orderStatus || order.status || 'in-progress',
+      status: (order as any).status || order.orderStatus || 'in-progress',
+      orderStatus: (order as any).status || order.orderStatus || 'in-progress',
       timeOfOrder: new Date(
         toMillis((order as any).timeOfOrder) ||
         toMillis((order as any).createdAt) ||

@@ -1,6 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
 import { Timestamp } from 'firebase/firestore'
-import { getProductsByOutletId as getProductsByOutletIdFromBackend } from './backendApi'
+import { getProductsByOutletId as getProductsByOutletIdFromBackend, invalidateReadCache } from './backendApi'
 import { buildCloudFunctionsUrl } from './cloudFunctions'
 import { parseJsonOrFallback } from './httpUtils'
 
@@ -91,6 +91,7 @@ export const createProduct = async (
     }
 
     const data = await parseJsonOrFallback(response)
+    invalidateReadCache('products', { outletId })
     console.log('✅ Product created successfully:', data.id)
     return data.id
   } catch (error) {
@@ -130,6 +131,7 @@ export const updateProduct = async (
       throw new Error(errorMsg)
     }
 
+    invalidateReadCache('products', { outletId })
     console.log('✅ Product updated successfully')
   } catch (error) {
     console.error('❌ Error updating product:', error)
@@ -168,6 +170,7 @@ export const updateProductAvailability = async (
       throw new Error(errorData.message || 'Failed to update availability')
     }
 
+    invalidateReadCache('products', { outletId })
     console.log('✅ Availability updated successfully')
   } catch (error) {
     console.error('❌ Error updating availability:', error)
@@ -200,6 +203,7 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
       throw new Error(errorData.message || 'Failed to delete product')
     }
 
+    invalidateReadCache('products', { outletId })
     console.log('✅ Product deleted successfully')
   } catch (error) {
     console.error('❌ Error deleting product:', error)

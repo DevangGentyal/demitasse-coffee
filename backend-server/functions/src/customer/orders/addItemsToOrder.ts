@@ -4,6 +4,7 @@ import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { calculateSubtotal } from "../../shared/utilities/billing/pricing";
 import { applyTax } from "../../shared/utilities/billing/tax";
+import { getOfferDocs, getProductDoc } from "../../shared/utilities/firestoreCatalog";
 import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
 import { FieldValue } from "firebase-admin/firestore";
 import {
@@ -12,7 +13,7 @@ import {
 	buildPricingSummaryFromItems,
 	NormalisedOrderItem,
 } from "../../shared/utilities/offers/orderPricing";
-import { applyOffer, OfferDocument } from "../../shared/utilities/offers/applyOffer";
+import { applyOffer } from "../../shared/utilities/offers/applyOffer";
 import {
 	collectRequestedOfferUsages,
 	findUsageLimitViolation,
@@ -94,16 +95,11 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 				readString(offerId) || readString(orderData.autoAppliedOfferId) || null;
 
 			// ── Price resolver (always from products collection) ──────────────
-			const productCache = new Map<string, number>();
 			const resolveProductPrice = async (productId: string): Promise<number | null> => {
 				const id = readString(productId);
 				if (!id) return null;
-				if (productCache.has(id)) return productCache.get(id)!;
-				const snap = await tx.get(db.collection("products").doc(id));
-				if (!snap.exists) return null;
-				const price = readNumber((snap.data() || {}).price);
-				if (Number.isFinite(price)) { productCache.set(id, price); return price; }
-				return null;
+				const productDoc = await getProductDoc(id);
+				return productDoc && Number.isFinite(productDoc.price) ? productDoc.price : null;
 			};
 
 			// ── Normalise & validate new items ────────────────────────────────
@@ -123,12 +119,11 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 						unitPrice: normalised.unitPrice,
 						totalPrice: normalised.totalPrice,
 					});
-					const productSnap = await tx.get(db.collection("products").doc(normalised.productId));
-					if (productSnap.exists) {
-						const pd = productSnap.data() || {};
-						normalised.name = readString(pd.name) || normalised.name;
-						normalised.category = readString(pd.category) || null;
-						normalised.subcategory = readString(pd.subcategory) || null;
+					const productDoc = await getProductDoc(normalised.productId);
+					if (productDoc) {
+						normalised.name = productDoc.name || normalised.name;
+						normalised.category = productDoc.category || null;
+						normalised.subcategory = productDoc.subcategory || null;
 					}
 					normalised.status = 'in-progress';
 					normalised.createdBy = actorId;
@@ -149,19 +144,13 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const existingItems: NormalisedOrderItem[] = Array.isArray(orderData.items) ? orderData.items : [];
 			const mergedItems = [...existingItems, ...newNormalized];
 
-			const offerDocsById = new Map<string, OfferDocument>();
 			const offerIds = new Set<string>();
 			if (effectiveOfferId) offerIds.add(effectiveOfferId);
 			for (const item of mergedItems) {
 				const itemOfferId = readString(item.offerId);
 				if (itemOfferId) offerIds.add(itemOfferId);
 			}
-			for (const offerId of offerIds) {
-				const offerSnap = await tx.get(db.collection("offers").doc(offerId));
-				if (offerSnap.exists) {
-					offerDocsById.set(offerId, { id: offerSnap.id, ...(offerSnap.data() || {}) } as OfferDocument);
-				}
-			}
+			const offerDocsById = await getOfferDocs(offerIds);
 
 			// ── subTotal ──────────────────────────────────────────────────────
 			const subTotal = calculateSubtotal(mergedItems);

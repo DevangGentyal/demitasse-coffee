@@ -1,6 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
 import { Timestamp } from 'firebase/firestore'
-import { getOrdersByOutletId as getOrdersByOutletIdFromBackend, getCurrentUserProfile } from './backendApi'
+import { getOrdersByOutletId as getOrdersByOutletIdFromBackend, getCurrentUserProfile, invalidateReadCache } from './backendApi'
 import { buildCloudFunctionsUrl } from './cloudFunctions'
 import { parseJsonOrFallback } from './httpUtils'
 
@@ -42,7 +42,8 @@ export interface Order {
   tableId?: string
   items: OrderItem[]
   timeOfOrder: Timestamp | Date
-  orderStatus: 'in-progress' | 'ready' | 'completed'
+  status: 'in-progress' | 'ready' | 'completed'
+  orderStatus?: 'in-progress' | 'ready' | 'completed'
   totalAmount?: number
 }
 
@@ -148,6 +149,8 @@ export const createOrder = async (
     
     const idToken = await getIdToken()
 
+    const resolvedStatus = orderData.status || orderData.orderStatus || 'in-progress'
+
     // Structure payload according to cloud function schema
     const payload = {
       outletId,
@@ -156,11 +159,9 @@ export const createOrder = async (
       placedBy: orderData.placedBy || 'billing',
       tableId: orderData.tableId || null,
       items: orderData.items.map(item => serializeOrderItem(item)),
-      orderStatus: orderData.orderStatus,
+      status: resolvedStatus,
       totalAmount: orderData.totalAmount || 0,
     }
-
-    console.log('📤 Creating order with payload:', payload)
 
     const response = await fetch(buildCloudFunctionsUrl('billingOrdersCreate'), {
       method: 'PUT',
@@ -171,8 +172,6 @@ export const createOrder = async (
       body: JSON.stringify(payload),
     })
 
-    console.log('📥 Create response status:', response.status)
-
     if (!response.ok) {
       const errorData = await parseJsonOrFallback(response)
       console.error('❌ Create error response:', errorData)
@@ -180,7 +179,8 @@ export const createOrder = async (
     }
 
     const data = await parseJsonOrFallback(response)
-    console.log('✅ Order created with ID:', data.id)
+    invalidateReadCache('orders', { outletId })
+    invalidateReadCache('tables', { outletId })
     return data.id
   } catch (error) {
     console.error('Error creating order:', error)
@@ -196,8 +196,6 @@ export const deleteOrder = async (outletId: string, orderId: string): Promise<vo
 
     const idToken = await getIdToken()
 
-    console.log('📤 Deleting order:', { outletId, orderId })
-
     const response = await fetch(buildCloudFunctionsUrl('billingOrdersDelete'), {
       method: 'DELETE',
       headers: {
@@ -210,15 +208,14 @@ export const deleteOrder = async (outletId: string, orderId: string): Promise<vo
       }),
     })
 
-    console.log('📥 Delete response status:', response.status)
-
     if (!response.ok) {
       const errorData = await parseJsonOrFallback(response)
       console.error('❌ Delete error response:', errorData)
       throw new Error(errorData.message || `Failed to delete order (${response.status})`)
     }
 
-    console.log('✅ Order deleted successfully')
+    invalidateReadCache('orders', { outletId })
+    invalidateReadCache('tables', { outletId })
   } catch (error) {
     console.error('Error deleting order:', error)
     throw error
@@ -234,9 +231,13 @@ export const updateOrder = async (
 ): Promise<void> => {
   try {
     const idToken = await getIdToken()
-
-    console.log(`[ORDER_SERVICE] 📤 Updating order ${orderId} for outlet ${outletId}...`);
-    console.log(`[ORDER_SERVICE] Payload:`, JSON.stringify(updates, null, 2));
+    const { orderStatus, ...canonicalUpdates } = updates as Partial<Omit<Order, 'id' | 'outletId'>> & {
+      orderStatus?: Order['status']
+    }
+    const payloadUpdates = {
+      ...canonicalUpdates,
+      ...(canonicalUpdates.status || orderStatus ? { status: canonicalUpdates.status || orderStatus } : {}),
+    }
 
     const response = await fetch(buildCloudFunctionsUrl('billingOrdersUpdate'), {
       method: 'PUT',
@@ -247,7 +248,7 @@ export const updateOrder = async (
       body: JSON.stringify({
         outletId,
         orderId,
-        ...updates,
+        ...payloadUpdates,
       }),
     })
 
@@ -256,8 +257,9 @@ export const updateOrder = async (
       console.error(`[ORDER_SERVICE] ❌ Update failed with status ${response.status}:`, errorData);
       throw new Error(errorData.message || 'Failed to update order')
     }
-    
-    console.log(`[ORDER_SERVICE] ✅ Update request sent successfully`);
+
+    invalidateReadCache('orders', { outletId })
+    invalidateReadCache('tables', { outletId })
   } catch (error) {
     console.error('Error updating order:', error)
     throw error
@@ -276,8 +278,6 @@ export const removeOrderItem = async (
     if (!outletId || !orderId || !itemId) throw new Error('Outlet ID, Order ID and Item ID are required')
 
     const idToken = await getIdToken()
-
-    console.log('📤 Removing order item:', { outletId, orderId, itemId })
 
     const response = await fetch(buildCloudFunctionsUrl('customerOrdersRemoveItem'), {
       method: 'POST',
@@ -299,7 +299,8 @@ export const removeOrderItem = async (
     }
 
     const data = await parseJsonOrFallback(response)
-    console.log('✅ removeOrderItem response:', data)
+    invalidateReadCache('orders', { outletId })
+    invalidateReadCache('tables', { outletId })
     return data
   } catch (error) {
     console.error('Error in removeOrderItem:', error)
@@ -320,8 +321,6 @@ export const cancelEntireOrder = async (
     if (!orderId || !password || !reason) throw new Error('Order ID, password, and cancellation reason are required')
 
     const idToken = await getIdToken()
-
-    console.log('📤 Cancelling entire order:', { orderId, reason })
 
     const response = await fetch(buildCloudFunctionsUrl('customerOrdersCancelEntire'), {
       method: 'POST',
@@ -344,7 +343,8 @@ export const cancelEntireOrder = async (
     }
 
     const data = await parseJsonOrFallback(response)
-    console.log('✅ cancelEntireOrder response:', data)
+    invalidateReadCache('orders')
+    invalidateReadCache('tables')
     return data
   } catch (error) {
     console.error('Error in cancelEntireOrder:', error)
@@ -362,8 +362,6 @@ export const updateCancellationPassword = async (
     if (!newPassword) throw new Error('New password is required')
 
     const idToken = await getIdToken()
-
-    console.log('📤 Updating cancellation password...')
 
     const response = await fetch(buildCloudFunctionsUrl('adminUpdateCancellationPassword'), {
       method: 'POST',
@@ -383,7 +381,6 @@ export const updateCancellationPassword = async (
     }
 
     const data = await parseJsonOrFallback(response)
-    console.log('✅ updateCancellationPassword response:', data)
     return data
   } catch (error) {
     console.error('Error in updateCancellationPassword:', error)

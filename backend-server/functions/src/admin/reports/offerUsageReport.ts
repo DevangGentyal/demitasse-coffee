@@ -11,6 +11,7 @@ import {
 	resolveRestaurantName,
 	fetchDocById,
 } from "./helpers";
+import { getOfferDocs } from "../../shared/utilities/firestoreCatalog";
 
 const db = admin.firestore();
 
@@ -30,14 +31,6 @@ export const getOfferUsageReport = functions.https.onRequest(async (req: Request
 		const startTimestamp = parseDateInput(startDate, "start");
 		const endTimestamp = parseDateInput(endDate, "end");
 
-		// Fetch all offers for name mapping
-		const offersSnap = await db.collection("offers").get();
-		const offersMap = new Map<string, string>();
-		offersSnap.docs.forEach((doc) => {
-			const data = doc.data();
-			offersMap.set(doc.id, readString(data.title || data.name || doc.id));
-		});
-
 		let query: admin.firestore.Query = db.collection("ordersHistory");
 		if (startTimestamp) {
 			query = query.where("archivedAt", ">=", startTimestamp);
@@ -53,6 +46,24 @@ export const getOfferUsageReport = functions.https.onRequest(async (req: Request
 		const successOrders = orders.filter((order) => {
 			if (outletId && order.outletId !== outletId) return false;
 			return resolveLifecycleStatus(order) === "success";
+		});
+
+		const offerIds = new Set<string>();
+		for (const order of successOrders) {
+			if (order.offerId) offerIds.add(readString(order.offerId));
+			if (Array.isArray(order.appliedOffers)) {
+				for (const applied of order.appliedOffers) {
+					if (applied?.offerId) offerIds.add(readString(applied.offerId));
+				}
+			}
+			for (const item of Array.isArray(order.items) ? order.items : []) {
+				if (item?.offerId) offerIds.add(readString(item.offerId));
+			}
+		}
+		const offerDocs = await getOfferDocs(offerIds);
+		const offersMap = new Map<string, string>();
+		offerDocs.forEach((doc, id) => {
+			offersMap.set(id, readString(doc.title || doc.name || id));
 		});
 
 		// Grouping key: `${offerId}__${outletId}`

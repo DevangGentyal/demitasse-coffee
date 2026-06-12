@@ -30,6 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("Auth state changed:", firebaseUser?.email || "No user");
       setUser(firebaseUser);
       setIsLoggedIn(!!firebaseUser);
+      setIsLoading(true);
       
       if (firebaseUser) {
         // Try to get outlet ID from custom claims
@@ -40,9 +41,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Fetch role from backend users profile
         try {
           const profile = await getCurrentUserProfile();
-          setRole((profile?.role as string) || null);
+          const nextRole = (profile?.role as string) || null;
+          setRole(nextRole);
+          if (nextRole !== 'admin') {
+            console.warn('Non-admin user detected in admin app, signing out.')
+            await firebaseLogOut()
+            setUser(null)
+            setIsLoggedIn(false)
+            setOutletId(null)
+            setRole(null)
+          }
         } catch (error) {
-          console.error("Error fetching user role from backend:", error);
+          console.warn("Failed to resolve admin profile, signing out:", error);
+          await firebaseLogOut()
+          setUser(null)
+          setIsLoggedIn(false)
+          setOutletId(null)
+          setRole(null)
         }
       } else {
         setOutletId(null);
@@ -58,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       await firebaseLogOut();
+      document.cookie = 'admin_keep_signed_in=; path=/; max-age=0'
       setUser(null);
       setIsLoggedIn(false);
       setOutletId(null);

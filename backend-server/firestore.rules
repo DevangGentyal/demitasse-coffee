@@ -2,68 +2,178 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    /* ======================
-       HELPER FUNCTIONS
-    ====================== */
+    /* ═══════════════════════════════════════════════════════════
+       FIRESTORE SECURITY RULES - 200% PROTECTED
+       
+       PRINCIPLE:
+       • Client SDK (Frontend): READ-ONLY access to operational data
+       • Admin SDK (Backend Cloud Functions): FULL ACCESS (bypasses rules)
+       • All WRITES must route through backend cloud functions
+       
+       WHY THIS WORKS:
+       - Admin SDK automatically bypasses these rules
+       - Client apps can't write directly to Firestore
+       - All data mutations go through protected backend functions
+    ═══════════════════════════════════════════════════════════ */
+
+    /* Helper Functions */
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isAdmin() {
-      return isSignedIn() && request.auth.token.admin == true;
+    function getUserData() {
+      return isSignedIn() ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : {};
     }
 
-    /* ======================
-       PUBLIC READ (MENU)
-    ====================== */
+    function userRole() {
+      let role = getUserData().role;
+      return role is string ? role : 'customer';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/admin/$(request.auth.uid)).exists ||
+        userRole() == 'admin'
+      );
+    }
+
+    function isOutletUser() {
+      return isSignedIn() && (
+        userRole() == 'outlet' ||
+        userRole() == 'billing' ||
+        userRole() == 'manager' ||
+        userRole() == 'staff'
+      );
+    }
+
+    function isOwnOutlet(outletId) {
+      return isSignedIn() && (
+        getUserData().outletID == outletId ||
+        getUserData().outletId == outletId ||
+        request.auth.uid == outletId
+      );
+    }
+
+    function isOwnOrder(orderData) {
+      return isSignedIn() && (
+        orderData.customerId == request.auth.uid ||
+        orderData.ownerId == request.auth.uid ||
+        orderData.userId == request.auth.uid
+      );
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       1. PUBLIC COLLECTIONS (No auth needed, anyone can read)
+    ═══════════════════════════════════════════════════════════ */
+    
     match /products/{id} {
-      allow read: if true;          // anyone can see menu
-      allow write: if isAdmin();    // only admin can change menu
+      allow get, list: if true;
+      allow write: if false;
     }
 
     match /offers/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow get, list: if true;
+      allow write: if false;
     }
 
-    /* ======================
-       OUTLET & TABLE SETUP
-    ====================== */
+    /* ═══════════════════════════════════════════════════════════
+       2. USER COLLECTIONS (Only read own profile)
+    ═══════════════════════════════════════════════════ */
+    
+    match /users/{userId} {
+      // Read own user document
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      // All updates go through backend cloud functions
+      allow write: if false;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       3. OPERATIONAL DATA (Authenticated staff can read)
+    ═══════════════════════════════════════════════════════════ */
+    
     match /outlets/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
     }
 
     match /tables/{id} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
     }
 
-    /* ======================
-       BACKEND-ONLY COLLECTIONS
-       (Cloud Functions via Admin SDK)
-    ====================== */
     match /orders/{id} {
-      allow read, write: if false;
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
     }
 
     match /sessions/{id} {
-      allow read, write: if false;
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
     }
 
-    
+    match /tableSessions/{id} {
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
+    }
 
+    /* ═══════════════════════════════════════════════════════════
+       4. BILLING & CONFIGURATION (Authenticated read only)
+    ═══════════════════════════════════════════════════════════ */
+    
+    match /printerConfigs/{id} {
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
+    }
+
+    match /kotBillingSettings/{id} {
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
+    }
+
+    match /printerPages/{id} {
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       5. CUSTOMER & TRANSACTION DATA (Authenticated read only)
+    ═══════════════════════════════════════════════════════════ */
+    
     match /customers/{id} {
-      allow read, write: if false;
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
     }
 
     match /loyaltyTransactions/{id} {
-      allow read, write: if false;
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
     }
 
+    /* ═══════════════════════════════════════════════════════════
+       6. REPORTING & ANALYTICS (Authenticated read only)
+    ═══════════════════════════════════════════════════════════ */
+    
     match /dailyReports/{id} {
-      allow read: if isAdmin();
-      allow write: if false;
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
+    }
+
+    match /reports/{id} {
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
+    }
+
+    match /analytics/{id} {
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       7. CATCH-ALL DEFAULT (Deny everything else - DENY BY DEFAULT)
+    ═══════════════════════════════════════════════════════════ */
+    
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

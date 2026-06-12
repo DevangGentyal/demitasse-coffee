@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
 import { Request, Response } from "express";
+import { resolveOrderStatus } from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -51,13 +52,12 @@ export const verifyAdminToken = async (req: Request, res: Response): Promise<adm
 };
 
 export const resolveLifecycleStatus = (order: FirebaseFirestore.DocumentData): "success" | "canceled" => {
-	const candidates = [order.status, order.orderStatus, order.orderLifecycleStatus, order.paymentStatus];
-	for (const candidate of candidates) {
-		const status = readString(candidate).toLowerCase();
-		if (!status) continue;
-		if (status.includes("cancel")) return "canceled";
-		if (status.includes("success") || status.includes("complete") || status.includes("close") || status.includes("final") || status.includes("paid")) return "success";
-	}
+	const status = resolveOrderStatus(order);
+	if (status.includes("CANCEL")) return "canceled";
+	if (status.includes("SUCCESS") || status.includes("COMPLETE") || status.includes("CLOSE") || status.includes("FINAL") || status.includes("PAID")) return "success";
+	const paymentStatus = readString(order.paymentStatus).toLowerCase();
+	if (paymentStatus.includes("cancel")) return "canceled";
+	if (paymentStatus.includes("success") || paymentStatus.includes("complete") || paymentStatus.includes("close") || paymentStatus.includes("final") || paymentStatus.includes("paid")) return "success";
 	return "success";
 };
 

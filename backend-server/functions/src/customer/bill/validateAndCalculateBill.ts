@@ -1,16 +1,14 @@
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
 import { Request, Response } from 'express';
 import { applyOffer } from '../../shared/utilities/offers/applyOffer';
 import { applyTax } from '../../shared/utilities/billing/tax';
 import { handleCustomerPreflight } from '../../shared/utilities/security/cors';
+import { getOfferDocs, getProductDocs } from '../../shared/utilities/firestoreCatalog';
 import {
 	NormalisedOrderItem,
 	applyOfferPricingByGroup,
 	buildPricingSummaryFromItems,
 } from '../../shared/utilities/offers/orderPricing';
-
-const db = admin.firestore();
 
 const readNumber = (value: unknown, fallback = 0): number => {
 	const numeric = Number(value);
@@ -189,25 +187,7 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 		};
 
 		const uniqueProductIds = Array.from(getUniqueProductIds(items));
-		const productDataMap = new Map<string, { category: string; subcategory: string; name?: string }>();
-
-		if (uniqueProductIds.length > 0) {
-			await Promise.all(uniqueProductIds.map(async (pid) => {
-				try {
-					const snap = await db.collection('products').doc(pid).get();
-					if (snap.exists) {
-						const data = snap.data() || {};
-						productDataMap.set(pid, {
-							category: String(data.category || '').trim(),
-							subcategory: String(data.subcategory || '').trim(),
-							name: String(data.name || '').trim(),
-						});
-					}
-				} catch (err) {
-					console.warn(`Failed to fetch product metadata for ${pid}`, err);
-				}
-			}));
-		}
+		const productDataMap = await getProductDocs(uniqueProductIds);
 
 		const enrichItemsTree = (itemsList: NormalisedOrderItem[]) => {
 			for (const item of itemsList) {
@@ -233,13 +213,7 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			const offerId = String(item.offerId || '').trim();
 			if (offerId) uniqueOfferIds.add(offerId);
 		}
-		const offerDocsById = new Map<string, FirebaseFirestore.DocumentData>();
-		await Promise.all(Array.from(uniqueOfferIds).map(async (offerId) => {
-			const offerSnap = await db.collection('offers').doc(offerId).get();
-			if (offerSnap.exists) {
-				offerDocsById.set(offerId, { id: offerSnap.id, ...(offerSnap.data() || {}) });
-			}
-		}));
+		const offerDocsById = await getOfferDocs(uniqueOfferIds);
 		const orderType = offerDocsById.size > 0 ? 'MIXED' : 'BASIC';
 		let subtotal = Math.round(items.reduce((sum, item) => sum + readNumber(item.totalPrice, 0), 0));
 		const offerResult = applyOffer(

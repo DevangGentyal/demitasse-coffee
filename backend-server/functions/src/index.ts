@@ -27,11 +27,12 @@ import { getPaymentReport as adminReportPaymentFn } from "./admin/reports/paymen
 import { getOfferUsageReport as adminReportOfferUsageFn } from "./admin/reports/offerUsageReport";
 import { getCashCardPaymentReport as adminReportCashCardPaymentFn } from "./admin/reports/cashCardPaymentReport";
 import { updateCancellationPassword as adminUpdateCancellationPasswordFn } from "./admin/security/updateCancellationPassword";
+import { updateOutletRegistrationPassword as adminUpdateOutletRegistrationPasswordFn, upsertSecurityPassword as adminUpsertSecurityPasswordFn, getSecurityPasswordMeta as adminGetSecurityPasswordMetaFn, verifySecurityPassword as adminVerifySecurityPasswordFn } from "./admin/security/securityPasswords";
 import { createOffer as adminCreateOfferFn } from "./admin/offers/create";
 import { updateOffer as adminUpdateOfferFn } from "./admin/offers/update";
 import { adminDashboardStats as adminDashboardStatsFn } from "./admin/dashboard/dashboardStats";
 import { readAppData as sharedReadAppDataFn } from "./shared/data/readAppData";
-import { registerOutletOwner as sharedRegisterOutletOwnerFn, upsertUserProfile as sharedUpsertUserProfileFn } from "./shared/data/userProfile";
+import { registerOutletOwner as sharedRegisterOutletOwnerFn, upsertUserProfile as sharedUpsertUserProfileFn, registerOutletPending as registerOutletPendingFn, updateOutletStatus as updateOutletStatusFn } from "./shared/data/userProfile";
 import { claimTableOwner as sharedClaimTableOwnerFn } from "./shared/data/claimTableOwner";
 
 import { openSession as customerOpenSessionFn } from "./customer/sessions/openSession";
@@ -57,6 +58,10 @@ import { closeSession as billingCloseSessionFn } from "./billing/sessions/closeS
 import { saveFloorMap as billingSaveFloorMapFn } from "./billing/floorMap/saveFloorMap";
 import { createOffer as billingCreateOfferFn } from "./billing/offers/create";
 import { updateOffer as billingUpdateOfferFn } from "./billing/offers/update";
+import { customerUpdateUserProfile as customerUpdateUserProfileFn } from "./customer/profile/updateUserProfile";
+import { billingPrinterConfigCreate as billingPrinterConfigCreateFn, billingPrinterConfigUpdate as billingPrinterConfigUpdateFn, billingPrinterConfigDelete as billingPrinterConfigDeleteFn } from "./billing/printer/printerConfig";
+import { billingKotSettingsSave as billingKotSettingsSaveFn } from "./billing/settings/kotSettings";
+import { billingUpdateTableState as billingUpdateTableStateFn } from "./billing/tables/updateTableState";
 
 // Backward-compatible exports
 export const openSession = adminOpenSessionFn;
@@ -103,12 +108,22 @@ export const adminReportOfferUsage = adminReportOfferUsageFn;
 export const adminReportCashCardPayment = adminReportCashCardPaymentFn;
 export const adminReportPayment = adminReportPaymentFn;
 export const adminUpdateCancellationPassword = adminUpdateCancellationPasswordFn;
+export const adminUpdateOutletRegistrationPassword = adminUpdateOutletRegistrationPasswordFn;
+export const adminUpsertSecurityPassword = adminUpsertSecurityPasswordFn;
+export const adminGetSecurityPasswordMeta = adminGetSecurityPasswordMetaFn;
+export const adminVerifySecurityPassword = adminVerifySecurityPasswordFn;
 export const adminCreateOffer = adminCreateOfferFn;
 export const adminUpdateOffer = adminUpdateOfferFn;
 export const adminDashboardStats = adminDashboardStatsFn;
 export const readAppData = sharedReadAppDataFn;
 export const registerOutletOwner = sharedRegisterOutletOwnerFn;
 export const upsertUserProfile = sharedUpsertUserProfileFn;
+export const registerOutletPending = registerOutletPendingFn;
+export const updateOutletRegistrationPassword = adminUpdateOutletRegistrationPasswordFn;
+export const upsertSecurityPassword = adminUpsertSecurityPasswordFn;
+export const getSecurityPasswordMeta = adminGetSecurityPasswordMetaFn;
+export const verifySecurityPassword = adminVerifySecurityPasswordFn;
+export const updateOutletStatus = updateOutletStatusFn;
 export const claimTableOwner = sharedClaimTableOwnerFn;
 
 export const customerSessionOpen = customerOpenSessionFn;
@@ -139,3 +154,12 @@ export const offerUpdate = adminUpdateOfferFn;
 export const loyaltyCheckRewards = customerCheckRewardsFn;
 export const loyaltyRedeemReward = customerRedeemRewardFn;
 
+// New customer profile functions
+export const customerUpdateUserProfile = customerUpdateUserProfileFn;
+
+// New billing functions
+export const billingPrinterConfigCreate = billingPrinterConfigCreateFn;
+export const billingPrinterConfigUpdate = billingPrinterConfigUpdateFn;
+export const billingPrinterConfigDelete = billingPrinterConfigDeleteFn;
+export const billingKotSettingsSave = billingKotSettingsSaveFn;
+export const billingUpdateTableState = billingUpdateTableStateFn;

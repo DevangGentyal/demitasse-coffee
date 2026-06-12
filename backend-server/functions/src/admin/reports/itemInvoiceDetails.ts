@@ -1,6 +1,8 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { Request, Response } from "express";
+import { getOfferDocs, getProductDocs } from "../../shared/utilities/firestoreCatalog";
+import { resolveOrderStatus } from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -100,7 +102,7 @@ const parseDateInput = (value?: string, edge: "start" | "end" = "start"): Date |
 	if (Number.isNaN(parsed.getTime())) return null;
 	return parsed;
 };
-const resolveLifecycleStatus = (order: FirebaseFirestore.DocumentData): ReportStatusFilter => { const candidates = [order.status, order.orderStatus, order.orderLifecycleStatus]; for (const candidate of candidates) { const status = readString(candidate).toLowerCase(); if (!status) continue; if (status.includes("cancel")) return "canceled"; if (status.includes("success") || status.includes("complete") || status.includes("close") || status.includes("final") || status.includes("paid")) return "success"; } return "success"; };
+const resolveLifecycleStatus = (order: FirebaseFirestore.DocumentData): ReportStatusFilter => { const status = resolveOrderStatus(order); if (status.includes("CANCEL")) return "canceled"; if (status.includes("SUCCESS") || status.includes("COMPLETE") || status.includes("CLOSE") || status.includes("FINAL") || status.includes("PAID")) return "success"; return "success"; };
 const resolveOrderTimestamp = (order: FirebaseFirestore.DocumentData): Date | null => toDateSafe(order.archivedAt) || toDateSafe(order.finalizedAt) || toDateSafe(order.closedAt) || toDateSafe(order.updatedAt) || toDateSafe(order.createdAt) || toDateSafe(order.timeOfOrder);
 const resolveOutletName = (outlet: FirebaseFirestore.DocumentData | null, outletId: string): string => readString(outlet?.name) || outletId || "All Outlets";
 const resolveRestaurantName = (outlet: FirebaseFirestore.DocumentData | null, order: FirebaseFirestore.DocumentData): string => readString(order.restaurant) || readString(outlet?.name) || readString(order.outletName) || readString(order.outletId) || "Demitasse";
@@ -172,20 +174,6 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 	const startDate = parseDateInput(filters.startDate, "start");
 	const endDate = parseDateInput(filters.endDate, "end");
 
-	// Fetch all products for category mapping
-	const productsSnap = await db.collection("products").get();
-	const productsCache = new Map<string, any>();
-	productsSnap.docs.forEach((doc) => {
-		productsCache.set(doc.id, doc.data());
-	});
-
-	// Fetch all offers for combo item resolution
-	const offersSnap = await db.collection("offers").get();
-	const offersCache = new Map<string, any>();
-	offersSnap.docs.forEach((doc) => {
-		offersCache.set(doc.id, doc.data());
-	});
-
 	// Fetch all successPayments for paymentMode lookup fallback
 	const paymentsSnap = await db.collection("successPayments").get();
 	const paymentsCache = new Map<string, string>();
@@ -212,6 +200,26 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 	});
 
 	const currentOutlet = outletId ? await fetchDocById("outlets", outletId) : null;
+	const productIds = new Set<string>();
+	const offerIds = new Set<string>();
+	for (const { data } of filteredOrders) {
+		for (const item of Array.isArray(data.items) ? data.items : []) {
+			const productId = readString(item.productId || item.id);
+			const offerId = readString(item.offerId);
+			if (productId) productIds.add(productId);
+			if (offerId) offerIds.add(offerId);
+		}
+	}
+	const productDocs = await getProductDocs(productIds);
+	const productsCache = new Map<string, any>();
+	productDocs.forEach((doc) => {
+		productsCache.set(doc.id, doc.data);
+	});
+	const offerDocs = await getOfferDocs(offerIds);
+	const offersCache = new Map<string, any>();
+	offerDocs.forEach((doc, id) => {
+		offersCache.set(id, doc);
+	});
 	const rows: ReportRow[] = [];
 	let totalInvoices = 0;
 	let totalItems = 0;

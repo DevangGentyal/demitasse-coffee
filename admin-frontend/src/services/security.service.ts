@@ -1,5 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
 import { buildCloudFunctionsUrl } from '@/lib/services/cloudFunctions'
+import { parseJsonOrFallback } from '@/lib/services/httpUtils'
 
 /**
  * Update the secure cancellation password

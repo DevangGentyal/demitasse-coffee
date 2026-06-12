@@ -10,13 +10,14 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
-import { logIn } from "@/lib/firebase/auth"
+import { logIn, setAuthRememberMe } from "@/lib/firebase/auth"
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [rememberMe, setRememberMe] = useState(false)
   const router = useRouter()
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -31,7 +32,13 @@ export default function LoginPage() {
     }
 
     try {
+      await setAuthRememberMe(rememberMe)
       await logIn(email, password)
+      if (rememberMe) {
+        document.cookie = `admin_keep_signed_in=1; path=/; max-age=${60 * 60 * 24 * 30}`
+      } else {
+        document.cookie = 'admin_keep_signed_in=; path=/; max-age=0'
+      }
       router.push('/dashboard')
     } catch (err: any) {
       const errorMessage = err.message || 'Login failed'
@@ -86,6 +93,16 @@ export default function LoginPage() {
                 className="bg-input border-border"
               />
             </div>
+
+            <label className="flex items-center gap-3 text-sm text-foreground select-none">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 rounded border-border"
+              />
+              Keep me signed in for 30 days
+            </label>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 

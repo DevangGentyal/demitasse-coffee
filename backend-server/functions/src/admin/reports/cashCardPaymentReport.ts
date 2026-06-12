@@ -6,6 +6,7 @@ import {
 	verifyAdminToken,
 	readString,
 	toDateSafe,
+	resolveLifecycleStatus,
 } from "./helpers";
 
 const db = admin.firestore();
@@ -21,23 +22,6 @@ const parseDateInputLocal = (value?: string, edge: "start" | "end" = "start"): D
 };
 
 // ─── Identical to itemInvoiceDetails.ts ───────────────────────────────────────
-
-const resolveLifecycleStatus = (order: FirebaseFirestore.DocumentData): "success" | "canceled" => {
-	const candidates = [order.status, order.orderStatus, order.orderLifecycleStatus];
-	for (const candidate of candidates) {
-		const status = readString(candidate).toLowerCase();
-		if (!status) continue;
-		if (status.includes("cancel")) return "canceled";
-		if (
-			status.includes("success") ||
-			status.includes("complete") ||
-			status.includes("close") ||
-			status.includes("final") ||
-			status.includes("paid")
-		) return "success";
-	}
-	return "success";
-};
 
 const resolveOrderTimestamp = (order: FirebaseFirestore.DocumentData): Date | null =>
 	toDateSafe(order.archivedAt) ||

@@ -6,12 +6,13 @@ import { earnPoints } from "../../customer/loyalty/earnPoints";
 import { createOrGetSession } from "../../shared/session/sessionUtils";
 import { calculateSubtotal } from "../../shared/utilities/billing/pricing";
 import { applyTax } from "../../shared/utilities/billing/tax";
+import { getOfferDocs, getProductDoc } from "../../shared/utilities/firestoreCatalog";
 import {
 	normalizeOrderItemsForPricing,
 	applyOfferPricingByGroup,
 	buildPricingSummaryFromItems,
 } from "../../shared/utilities/offers/orderPricing";
-import { applyOffer, OfferDocument } from "../../shared/utilities/offers/applyOffer";
+import { applyOffer } from "../../shared/utilities/offers/applyOffer";
 
 const db = admin.firestore();
 
@@ -77,29 +78,18 @@ export const createOrder = functions.https.onRequest(
 			const resolveProductPrice = async (productId: string): Promise<number | null> => {
 				const id = readString(productId);
 				if (!id) return null;
-				try {
-					const snap = await db.collection("products").doc(id).get();
-					if (!snap.exists) return null;
-					const price = readNumber((snap.data() || {}).price, Number.NaN);
-					return Number.isFinite(price) ? price : null;
-				} catch {
-					return null;
-				}
+				const productDoc = await getProductDoc(id);
+				return productDoc && Number.isFinite(productDoc.price) ? productDoc.price : null;
 			};
 
 			const normalizedItems = await normalizeOrderItemsForPricing(items, resolveProductPrice);
 
 			for (const item of normalizedItems) {
-				try {
-					const snap = await db.collection("products").doc(item.productId).get();
-					if (!snap.exists) continue;
-					const pd = snap.data() || {};
-					item.name = readString(pd.name) || item.name;
-					item.category = readString(pd.category) || null;
-					item.subcategory = readString(pd.subcategory) || null;
-				} catch {
-					// Ignore enrichment failures; canonical pricing is already resolved.
-				}
+				const productDoc = await getProductDoc(item.productId);
+				if (!productDoc) continue;
+				item.name = productDoc.name || item.name;
+				item.category = productDoc.category || null;
+				item.subcategory = productDoc.subcategory || null;
 			}
 
 			const requestedOfferId = readString(autoAppliedOfferId) || readString(offerId) || null;
@@ -110,13 +100,7 @@ export const createOrder = functions.https.onRequest(
 				if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 			}
 
-			const offerDocsById = new Map<string, OfferDocument>();
-			await Promise.all(Array.from(uniqueOfferIds).map(async (offerDocId) => {
-				const offerSnap = await db.collection("offers").doc(offerDocId).get();
-				if (offerSnap.exists) {
-					offerDocsById.set(offerDocId, { id: offerSnap.id, ...(offerSnap.data() || {}) } as OfferDocument);
-				}
-			}));
+			const offerDocsById = await getOfferDocs(uniqueOfferIds);
 
 			const subTotal = calculateSubtotal(normalizedItems);
 			const itemsWithPricing = applyOfferPricingByGroup(normalizedItems, offerDocsById as any, applyTax);
@@ -145,7 +129,7 @@ export const createOrder = functions.https.onRequest(
 				discount: pricing.discount,
 				discountedPrice: pricing.discountedPrice,
 				tax: pricing.tax,
-				orderStatus: req.body.orderStatus || "in-progress",
+				status: req.body.status || req.body.orderStatus || "in-progress",
 				totalAmount: finalTotalAmount,
 				timeOfOrder: FieldValue.serverTimestamp(),
 				createdAt: FieldValue.serverTimestamp(),

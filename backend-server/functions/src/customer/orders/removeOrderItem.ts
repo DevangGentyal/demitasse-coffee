@@ -6,8 +6,8 @@ import { applyOffer } from "../../shared/utilities/offers/applyOffer";
 import { applyTax } from "../../shared/utilities/billing/tax";
 import { applyOfferPricingByGroup, buildPricingSummaryFromItems } from "../../shared/utilities/offers/orderPricing";
 import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
+import { isOrderActive } from "../../shared/utilities/orders/orderStatus";
 
-const isActiveOrder = (orderData: FirebaseFirestore.DocumentData): boolean => !["CANCELLED", "CLOSED", "DELETED"].includes(String(orderData.status || orderData.orderStatus || orderData.orderLifecycleStatus || "").trim().toUpperCase());
 const getItemKey = (item: any): string => String(item?.id || item?.productId || "").trim();
 const getItemTotal = (item: any): number => { const explicitTotal = Number(item?.totalPrice); if (Number.isFinite(explicitTotal) && explicitTotal > 0) return explicitTotal; const qty = Math.max(1, Number(item?.qty ?? item?.quantity ?? 1)); const price = Number(item?.finalUnitPrice ?? item?.price ?? item?.priceRaw ?? 0); return Number.isFinite(price) ? qty * price : 0; };
 const getOrderItems = (orderData: FirebaseFirestore.DocumentData): any[] => Array.isArray(orderData.items) ? orderData.items : [];
@@ -31,7 +31,7 @@ export const removeOrderItem = functions.https.onRequest(async (req: Request, re
 			if (!orderSnap.exists) throw new Error("ORDER_NOT_FOUND");
 			const orderData = orderSnap.data() || {};
 			if (orderData.outletId !== outletId) throw new Error("OUTLET_MISMATCH");
-			if (!isActiveOrder(orderData)) throw new Error("ORDER_NOT_ACTIVE");
+			if (!isOrderActive(orderData)) throw new Error("ORDER_NOT_ACTIVE");
 
 			const items = Array.isArray(orderData.items) ? orderData.items : [];
 			const itemIndex = items.findIndex((i: any) => getItemKey(i) === itemId);
@@ -44,7 +44,7 @@ export const removeOrderItem = functions.https.onRequest(async (req: Request, re
 				if (sessionId) { const sessionOrdersSnap = await tx.get(db.collection("orders").where("sessionId", "==", sessionId).where("outletId", "==", outletId).limit(50)); sessionOrdersSnap.docs.forEach((doc) => relatedOrderDocs.set(doc.id, doc)); }
 				if (tableId) { const tableOrdersSnap = await tx.get(db.collection("orders").where("tableId", "==", tableId).where("outletId", "==", outletId).limit(50)); tableOrdersSnap.docs.forEach((doc) => relatedOrderDocs.set(doc.id, doc)); }
 				if (relatedOrderDocs.size === 0) relatedOrderDocs.set(orderSnap.id, orderSnap as FirebaseFirestore.QueryDocumentSnapshot);
-				const activeTableItemCount = Array.from(relatedOrderDocs.values()).reduce((count, doc) => count + (isActiveOrder(doc.data()) ? getOrderItems(doc.data()).length : 0), 0);
+				const activeTableItemCount = Array.from(relatedOrderDocs.values()).reduce((count, doc) => count + (isOrderActive(doc.data()) ? getOrderItems(doc.data()).length : 0), 0);
 				if (activeTableItemCount <= 1) throw new Error("CANNOT_REMOVE_LAST_ITEM");
 				tx.delete(orderRef);
 				return { id: orderId, deleted: true, items: [], updatedAt: new Date().toISOString() };
