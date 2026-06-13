@@ -88,7 +88,7 @@ export const createOffer = async (outletId: string, data: any): Promise<string> 
 }
 
 // 🔥 UPDATE OFFER
-export const updateOffer = async (offerId: string, updates: any) => {
+export const updateOffer = async (offerId: string, outletId: string, updates: any) => {
   const token = await auth.currentUser?.getIdToken()
 
   const res = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/billingOffersUpdate`, {
@@ -99,6 +99,7 @@ export const updateOffer = async (offerId: string, updates: any) => {
     },
     body: JSON.stringify({
       offerId,
+      outletId,
       ...updates,
     }),
   })

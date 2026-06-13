@@ -40,13 +40,22 @@ export const claimTableOwner = functions.https.onRequest(async (req: Request, re
       return
     }
 
-    const tableRef = db.collection('tables').doc(tableId)
+    let tableRef = null;
+    let ownerId = decoded.uid;
+    let assigned = false;
 
-    let assigned = false
-    let ownerId = decoded.uid
+    const tableQuery = await db.collectionGroup('tables').where('id', '==', tableId).limit(1).get();
+    if (!tableQuery.empty) {
+      tableRef = tableQuery.docs[0].ref;
+    }
+
+    if (!tableRef) {
+      res.status(404).json({ success: false, message: 'Table not found' })
+      return
+    }
 
     await db.runTransaction(async (tx) => {
-      const snap = await tx.get(tableRef)
+      const snap = await tx.get(tableRef!)
       if (!snap.exists) {
         throw new Error('Table not found')
       }
@@ -58,7 +67,7 @@ export const claimTableOwner = functions.https.onRequest(async (req: Request, re
         return
       }
 
-      tx.update(tableRef, {
+      tx.update(tableRef!, {
         owner: decoded.uid,
         ownerAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),

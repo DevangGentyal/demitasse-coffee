@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 const db = admin.firestore();
 
 export const getActiveMenuItems = async (outletId: string): Promise<number> => {
-	const snap = await db.collection("products").where("outletId", "==", outletId).get();
+	const snap = await db.collection("outlets").doc(outletId).collection("products").get();
 	let activeCount = 0;
 
 	snap.docs.forEach((doc) => {

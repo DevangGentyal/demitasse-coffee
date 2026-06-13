@@ -34,7 +34,7 @@ export const createOrGetSession = async (
 	openedBy?: UserBrief
 ): Promise<{ sessionId: string; created: boolean; ownerId: string; participants: string[] }> => {
 	const debugPrefix = `[sessionUtils:createOrGetSession table=${String(tableId)} outlet=${String(outletId)}]`;
-	const tableRef = db.collection('tables').doc(String(tableId));
+	const tableRef = db.collection('outlets').doc(outletId).collection('tables').doc(String(tableId));
 	const tableSnap = await tableRef.get();
 	console.info(debugPrefix, 'table lookup', { exists: tableSnap.exists });
 	const participantId = cleanString(openedBy?.uid);
@@ -48,7 +48,7 @@ export const createOrGetSession = async (
 			tableOutletId: String(tableData.outletId || '').trim() || null,
 		});
 		if (active) {
-			const sessionSnap = await db.collection('sessions').doc(String(active)).get();
+			const sessionSnap = await db.collection('outlets').doc(outletId).collection('sessions').doc(String(active)).get();
 			if (sessionSnap.exists) {
 				const sessionData = sessionSnap.data() || {};
 				const ownerId = resolveOwnerId(tableData, sessionData, participantId);
@@ -82,7 +82,7 @@ export const createOrGetSession = async (
 		}
 	}
 
-	const sessionRef = db.collection('sessions').doc();
+	const sessionRef = db.collection('outlets').doc(outletId).collection('sessions').doc();
 	const tableData = tableSnap.data() || {};
 	const ownerId = participantId || cleanString((tableData as Record<string, any>).owner);
 	const participants = uniqueStrings([ownerId]);
@@ -127,15 +127,18 @@ export const closeSession = async (sessionId: string, closedBy?: UserBrief) => {
 	if (!sessionId) return;
 	console.info('[sessionUtils:closeSession]', { sessionId, closedBy: closedBy || null });
 
-	const sessionRef = db.collection('sessions').doc(String(sessionId));
-	const sessionSnap = await sessionRef.get();
-	if (!sessionSnap.exists) return;
+	const querySnap = await db.collectionGroup('sessions').where('sessionId', '==', sessionId).limit(1).get();
+	if (querySnap.empty) return;
 
+	const sessionSnap = querySnap.docs[0];
+	const sessionRef = sessionSnap.ref;
 	const sessionData = sessionSnap.data() || {};
+	const outletId = sessionData.outletId;
+	if (!outletId) return;
 	const tableId = sessionData.tableId;
 
 	await db.runTransaction(async (tx) => {
-		const historyRef = db.collection('sessionsHistory').doc();
+		const historyRef = db.collection('outlets').doc(outletId).collection('sessionsHistory').doc();
 		const closedAt = FieldValue.serverTimestamp();
 
 		tx.set(historyRef, {
@@ -152,7 +155,7 @@ export const closeSession = async (sessionId: string, closedBy?: UserBrief) => {
 		tx.delete(sessionRef);
 
 		if (tableId) {
-			const tableRef = db.collection('tables').doc(String(tableId));
+			const tableRef = db.collection('outlets').doc(outletId).collection('tables').doc(String(tableId));
 			tx.set(tableRef, { occupied: false, activeSessionId: null }, { merge: true });
 		}
 	});

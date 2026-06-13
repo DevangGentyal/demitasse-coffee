@@ -20,7 +20,7 @@ export const earnPoints = async (
 			}
 		}
 
-		const customerRef = db.collection("customers").doc(customerId);
+		const customerRef = db.collection("users").doc(customerId);
 
 		await db.runTransaction(async (transaction) => {
 			const customerDoc = await transaction.get(customerRef);
@@ -33,7 +33,7 @@ export const earnPoints = async (
 					totalOrders: 1,
 					coffeeCount: coffeeCountIncrement,
 					lastVisitDate: FieldValue.serverTimestamp(),
-				});
+				}, { merge: true });
 
 				if (Math.floor(coffeeCountIncrement / 5) > 0) {
 					const numNewPizzas = Math.floor(coffeeCountIncrement / 5);

@@ -163,19 +163,20 @@ export const createOffer = async (outletId: string, data: any): Promise<string> 
 }
 
 // 🔥 UPDATE OFFER
-export const updateOffer = async (offerId: string, updates: any) => {
+export const updateOffer = async (offerId: string, outletId: string, updates: any) => {
   const token = await auth.currentUser?.getIdToken()
 
   const res = await fetch(buildCloudFunctionsUrl('adminUpdateOffer'), {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      offerId,
-      ...updates,
-    }),
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        offerId,
+        outletId,
+        ...updates
+      })
   })
 
   const result = await res.json().catch(async () => {

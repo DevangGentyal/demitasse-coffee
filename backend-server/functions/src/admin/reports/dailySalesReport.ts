@@ -31,7 +31,12 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 		const startTimestamp = parseDateInput(startDate, "start");
 		const endTimestamp = parseDateInput(endDate, "end");
 
-		let query: admin.firestore.Query = db.collection("ordersHistory");
+		let query: admin.firestore.Query;
+		if (outletId) {
+			query = db.collection("outlets").doc(outletId).collection("orderHistory");
+		} else {
+			query = db.collectionGroup("orderHistory");
+		}
 
 		const snap = await query.get();
 		const orders = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as any));

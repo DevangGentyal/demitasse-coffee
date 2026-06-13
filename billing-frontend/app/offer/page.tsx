@@ -50,7 +50,7 @@ export default function OfferPage() {
 
   // TOGGLE ACTIVE
   const toggleActive = async (offer: Offer) => {
-    await updateOffer(offer.id, { isActive: !offer.isActive })
+    await updateOffer(offer.id, outletId, { isActive: !offer.isActive })
 
     setOffers(prev =>
       prev.map(o =>
@@ -119,7 +119,7 @@ export default function OfferPage() {
 
                 <div className="p-2 text-[10px] leading-tight">
                   <p className="font-medium">
-                    {new Date(o.startDate?.toDate ? o.startDate.toDate() : o.startDate).toLocaleDateString()} - 
+                    {new Date(o.startDate?.toDate ? o.startDate.toDate() : o.startDate).toLocaleDateString()} -
                     {new Date(o.endDate?.toDate ? o.endDate.toDate() : o.endDate).toLocaleDateString()}
                   </p>
                   <p className="mt-1 text-gray-500">Min Order: ₹{o.minOrderValue ?? 0}</p>

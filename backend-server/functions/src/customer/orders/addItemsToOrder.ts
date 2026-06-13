@@ -81,7 +81,7 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 
 		const transactionResult = await db.runTransaction(async (tx) => {
 			// ── Fetch the order ───────────────────────────────────────────────
-			const orderQuery = db.collection("orders").where("sessionId", "==", sessionId).limit(1);
+			const orderQuery = db.collectionGroup("orders").where("sessionId", "==", sessionId).limit(1);
 			const orderQuerySnap = await tx.get(orderQuery);
 			if (orderQuerySnap.empty) throw new Error("ORDER_NOT_FOUND");
 
@@ -89,6 +89,9 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const orderRef = orderDoc.ref;
 			const orderData = orderDoc.data();
 			if (orderData.status !== "ACTIVE") throw new Error("ORDER_NOT_ACTIVE");
+
+			const outletId = orderData.outletId;
+			if (!outletId) throw new Error("OUTLET_ID_NOT_FOUND_ON_ORDER");
 
 			// The effective offerId: incoming request overrides, then fall back to what's already on the order
 			const effectiveOfferId: string | null =
@@ -98,7 +101,7 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const resolveProductPrice = async (productId: string): Promise<number | null> => {
 				const id = readString(productId);
 				if (!id) return null;
-				const productDoc = await getProductDoc(id);
+				const productDoc = await getProductDoc(id, outletId);
 				return productDoc && Number.isFinite(productDoc.price) ? productDoc.price : null;
 			};
 
@@ -119,7 +122,7 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 						unitPrice: normalised.unitPrice,
 						totalPrice: normalised.totalPrice,
 					});
-					const productDoc = await getProductDoc(normalised.productId);
+					const productDoc = await getProductDoc(normalised.productId, outletId);
 					if (productDoc) {
 						normalised.name = productDoc.name || normalised.name;
 						normalised.category = productDoc.category || null;
@@ -150,7 +153,7 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 				const itemOfferId = readString(item.offerId);
 				if (itemOfferId) offerIds.add(itemOfferId);
 			}
-			const offerDocsById = await getOfferDocs(offerIds);
+			const offerDocsById = await getOfferDocs(offerIds, outletId);
 
 			// ── subTotal ──────────────────────────────────────────────────────
 			const subTotal = calculateSubtotal(mergedItems);
@@ -162,9 +165,6 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const { orderType } = applyOffer({ subTotal, items: itemsWithPricing }, effectiveOfferId ? (offerDocsById.get(effectiveOfferId) || null) : null);
 
 			// ── Grand total ───────────────────────────────────────────────────
-			// discountedPrice = sum of all items' discountedPrice
-			// tax             = sum of all items' tax
-			// grandTotal      = discountedPrice + tax
 			const pricing = buildPricingSummaryFromItems(itemsWithPricing);
 
 			const existingUsageCounts = getAppliedOfferUsageCounts(orderData.consumedOfferUsages);
@@ -182,7 +182,7 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 				const userData = userSnap.data() || {};
 				const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
 				for (const usage of deltaOfferUsages) {
-					const offerSnap = await tx.get(db.collection("offers").doc(usage.offerId));
+					const offerSnap = await tx.get(db.collection("outlets").doc(outletId).collection("offers").doc(usage.offerId));
 					offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
 				}
 				const violation = findUsageLimitViolation(

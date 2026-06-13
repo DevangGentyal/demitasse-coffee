@@ -15,7 +15,7 @@ export const deleteOrder = functions.https.onRequest(async (req: Request, res: R
 		const { outletId, orderId } = req.body;
 		if (!outletId || !orderId) { res.status(400).json({ success: false, message: "outletId and orderId are required" }); return; }
 
-		const orderRef = db.collection("orders").doc(orderId);
+		const orderRef = db.collection("outlets").doc(outletId).collection("orders").doc(orderId);
 		const orderSnap = await orderRef.get();
 		if (!orderSnap.exists) { res.status(404).json({ success: false, message: "Order not found" }); return; }
 		const orderData = orderSnap.data();

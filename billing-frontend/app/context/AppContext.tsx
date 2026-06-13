@@ -102,7 +102,7 @@ export interface Order {
 const AppContext = createContext<any>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const { outletId, isLoggedIn } = useAuth()
+  const { outletId, isLoggedIn, accountStatus } = useAuth()
   const [tables, setTables] = useState<Table[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [isLayoutEditing, setIsLayoutEditing] = useState(false)
@@ -114,7 +114,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false
 
     const loadPrintSettings = async () => {
-      if (!isLoggedIn) return
+      if (!isLoggedIn || accountStatus !== 'approved') return
 
       try {
         const snap = await getDoc(doc(db, 'kotBillingSettings', 'defaultSettings'))
@@ -146,7 +146,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [isLoggedIn])
+  }, [isLoggedIn, accountStatus])
 
   const showPaymentToast = (table: Table) => {
     const toastId = toast(
@@ -235,14 +235,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    if (!isLoggedIn || !outletId) {
+    if (!isLoggedIn || !outletId || accountStatus !== 'approved') {
       setTables([])
       setOrders([])
       return
     }
 
     // Subscribe to tables for this outlet
-    const tablesQuery = query(collection(db, 'tables'), where('outletId', '==', outletId))
+    const tablesQuery = collection(db, 'outlets', outletId, 'tables')
     const unsubscribeTables = onSnapshot(tablesQuery, (snapshot) => {
       const tablesList = snapshot.docs
         .filter(doc => {
@@ -265,7 +265,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })
 
     // Subscribe to orders for this outlet
-    const ordersQuery = query(collection(db, 'orders'), where('outletId', '==', outletId))
+    const ordersQuery = collection(db, 'outlets', outletId, 'orders')
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       const ordersList = snapshot.docs.map(doc => {
         const data = doc.data()
@@ -300,7 +300,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       unsubscribeTables()
       unsubscribeOrders()
     }
-  }, [isLayoutEditing, isLoggedIn, outletId])
+  }, [isLayoutEditing, isLoggedIn, outletId, accountStatus])
 
   useEffect(() => {
     const prevFlags = prevPaymentFlagRef.current

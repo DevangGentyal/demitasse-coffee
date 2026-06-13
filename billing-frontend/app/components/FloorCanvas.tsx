@@ -1417,6 +1417,7 @@ export function FloorCanvas() {
       if (tablesToUpdate.length > 0) {
         await Promise.all(
           tablesToUpdate.map( (table: any) => floorMapService.updateTable(table.id, {
+            outletId,
             x: toFiniteNumber(table.x, 100),
             y: toFiniteNumber(table.y, 100),
             name: table.name,
@@ -1427,7 +1428,7 @@ export function FloorCanvas() {
       }
 
       if (tablesToDelete.length > 0) {
-        await Promise.all(tablesToDelete.map((table) => floorMapService.deleteTable(table.id)))
+        await Promise.all(tablesToDelete.map((table: any) => floorMapService.deleteTable(table.id, outletId)))
       }
 
       const tablePositions = tables.map((table: any) => ({

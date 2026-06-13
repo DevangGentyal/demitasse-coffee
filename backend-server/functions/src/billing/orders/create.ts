@@ -78,14 +78,14 @@ export const createOrder = functions.https.onRequest(
 			const resolveProductPrice = async (productId: string): Promise<number | null> => {
 				const id = readString(productId);
 				if (!id) return null;
-				const productDoc = await getProductDoc(id);
+				const productDoc = await getProductDoc(id, outletId);
 				return productDoc && Number.isFinite(productDoc.price) ? productDoc.price : null;
 			};
 
 			const normalizedItems = await normalizeOrderItemsForPricing(items, resolveProductPrice);
 
 			for (const item of normalizedItems) {
-				const productDoc = await getProductDoc(item.productId);
+				const productDoc = await getProductDoc(item.productId, outletId);
 				if (!productDoc) continue;
 				item.name = productDoc.name || item.name;
 				item.category = productDoc.category || null;
@@ -100,7 +100,7 @@ export const createOrder = functions.https.onRequest(
 				if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 			}
 
-			const offerDocsById = await getOfferDocs(uniqueOfferIds);
+			const offerDocsById = await getOfferDocs(uniqueOfferIds, outletId);
 
 			const subTotal = calculateSubtotal(normalizedItems);
 			const itemsWithPricing = applyOfferPricingByGroup(normalizedItems, offerDocsById as any, applyTax);
@@ -111,7 +111,7 @@ export const createOrder = functions.https.onRequest(
 			const computedTotalAmount = readNumber(totalAmount, Number.NaN);
 			const finalTotalAmount = Number.isFinite(computedTotalAmount) ? computedTotalAmount : pricing.grandTotal;
 
-			const orderRef = db.collection("orders").doc();
+			const orderRef = db.collection("outlets").doc(outletId).collection("orders").doc();
 
 			const orderData = {
 				outletId,

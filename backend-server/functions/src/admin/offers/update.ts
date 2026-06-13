@@ -160,7 +160,21 @@ export const updateOffer = functions.https.onRequest(async (req, res) => {
 		const data = body;
 		if (!data.offerId) { res.status(400).json({ success: false, message: "offerId is required" }); return; }
 
-		const offerRef = db.collection("offers").doc(data.offerId);
+		let offerRef = null;
+		const outletId = data.outletId || "";
+		if (outletId) {
+			offerRef = db.collection("outlets").doc(outletId).collection("offers").doc(data.offerId);
+		} else {
+			const querySnap = await db.collectionGroup("offers").where(admin.firestore.FieldPath.documentId(), "==", data.offerId).limit(1).get();
+			if (!querySnap.empty) {
+				offerRef = querySnap.docs[0].ref;
+			}
+		}
+
+		if (!offerRef) {
+			res.status(404).json({ success: false, message: "Offer not found" });
+			return;
+		}
 		const offerSnap = await offerRef.get();
 		if (!offerSnap.exists) { res.status(404).json({ success: false, message: "Offer not found" }); return; }
 

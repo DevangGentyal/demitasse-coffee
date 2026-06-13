@@ -174,7 +174,7 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 		if (startDate >= endDate) { res.status(400).json({ success: false, message: "startDate must be before endDate" }); return; }
 
 		const normalizedConfig = normalizeOfferConfig(offerType, data.config);
-		const offerRef = db.collection("offers").doc();
+		const offerRef = db.collection("outlets").doc(data.outletId).collection("offers").doc();
 		const category = offerType === "DISCOUNT"
 			? readString(data.category || data.applicableCategory) || null
 			: null;
@@ -187,6 +187,7 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 		}
 
 		await offerRef.set({
+			id: offerRef.id,
 			title: readString(data.title),
 			description: readString(data.description),
 			offerType,

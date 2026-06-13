@@ -43,7 +43,7 @@ export const openSession = functions.https.onRequest(async (req: Request, res: R
       name: userId ? 'customer' : 'guest',
     });
 
-    const tableRef = db.collection('tables').doc(resolvedTableId);
+    const tableRef = db.collection('outlets').doc(resolvedOutletId).collection('tables').doc(resolvedTableId);
     const tableSnap = await tableRef.get();
 
     if (!tableSnap.exists) {

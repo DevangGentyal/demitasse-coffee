@@ -32,7 +32,12 @@ export const getProductSalesReport = functions.https.onRequest(async (req: Reque
 		const startTimestamp = parseDateInput(startDate, "start");
 		const endTimestamp = parseDateInput(endDate, "end");
 
-		let query: admin.firestore.Query = db.collection("ordersHistory");
+		let query: admin.firestore.Query;
+		if (outletId) {
+			query = db.collection("outlets").doc(outletId).collection("orderHistory");
+		} else {
+			query = db.collectionGroup("orderHistory");
+		}
 		if (startTimestamp) {
 			query = query.where("archivedAt", ">=", startTimestamp);
 		}

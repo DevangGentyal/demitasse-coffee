@@ -43,9 +43,16 @@ export const getOutletById = async (outletId) => readResource('outletById', { ou
 
 export const getProductsByOutletId = async (outletId) => readResource('products', { outletId })
 
-export const getProductById = async (productId) => readResource('productById', { productId })
+export const getProductById = async (productId, outletId) => {
+  return readResource('productById', {
+    productId,
+    outletId,
+  });
+};
 
 export const getOffers = async () => readResource('offers')
+
+export const getOffersByOutletId = async (outletId) => readResource('offers', { outletId })
 
 export const getOfferById = async (offerId) => readResource('offerById', { offerId })
 

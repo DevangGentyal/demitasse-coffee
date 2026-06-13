@@ -121,6 +121,7 @@ export const updateProduct = async (
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
+        outletId,
         productId,
         ...updates,
       }),
@@ -193,6 +194,7 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
+        outletId,
         productId,
       }),
     })

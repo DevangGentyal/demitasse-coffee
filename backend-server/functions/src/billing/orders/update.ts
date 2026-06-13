@@ -40,7 +40,7 @@ export const updateOrder = functions.https.onRequest(async (req: Request, res: R
 			return;
 		}
 
-		const orderRef = db.collection("orders").doc(orderId);
+		const orderRef = db.collection("outlets").doc(outletId).collection("orders").doc(orderId);
 		const orderSnap = await orderRef.get();
 		if (!orderSnap.exists) { res.status(404).json({ success: false, message: "Order not found" }); return; }
 		const orderData = orderSnap.data() || {};
@@ -59,14 +59,14 @@ export const updateOrder = functions.https.onRequest(async (req: Request, res: R
 			const resolveProductPrice = async (productId: string): Promise<number | null> => {
 				const id = readString(productId);
 				if (!id) return null;
-				const productDoc = await getProductDoc(id);
+				const productDoc = await getProductDoc(id, outletId);
 				return productDoc && Number.isFinite(productDoc.price) ? productDoc.price : null;
 			};
 
 			const normalizedItems = await normalizeOrderItemsForPricing(items, resolveProductPrice);
 
 			for (const item of normalizedItems) {
-				const productDoc = await getProductDoc(item.productId);
+				const productDoc = await getProductDoc(item.productId, outletId);
 				if (!productDoc) continue;
 				item.name = productDoc.name || item.name;
 				item.category = productDoc.category || null;
@@ -87,7 +87,7 @@ export const updateOrder = functions.https.onRequest(async (req: Request, res: R
 				if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 			}
 
-			const offerDocsById = await getOfferDocs(uniqueOfferIds);
+			const offerDocsById = await getOfferDocs(uniqueOfferIds, outletId);
 
 			const subTotal = calculateSubtotal(normalizedItems);
 			const itemsWithPricing = applyOfferPricingByGroup(normalizedItems, offerDocsById as any, applyTax);

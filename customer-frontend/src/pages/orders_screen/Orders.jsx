@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { db } from "../../lib/firebase";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { useLocationContext } from "../../context/LocationContext";
 import { useAuth } from "../../context/AuthContext";
@@ -26,7 +26,61 @@ const orderTimeFormat = new Intl.DateTimeFormat("en-IN", {
   hour12: true,
 });
 
-// ─── Pure helpers (no price calculations — backend owns all numbers) ──────────
+// ─── Pricing helpers ────────────────────────────────────────────────────────
+// IMPORTANT: these mirror shared/utilities/billing/pricing.ts used by the
+// generateBill Cloud Function exactly, so the Orders page "Live total" and
+// the Final Bill "Grand Total" always agree (before tax). If you create the
+// shared module, replace this block with:
+//   import { getOrderTotal, getItemTotal, readNumber } from "shared/utilities/billing/pricing";
+
+const readNumber = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+/**
+ * Item-level price. Mirrors backend getItemTotal:
+ *  - trusts discountedPrice/totalPrice/totalAmount/itemTotal only if > 0
+ *  - if that value is 0 (or missing) but nested `items` exist (combo
+ *    container), recursively sums the nested items instead of returning 0
+ */
+const getItemTotal = (item) => {
+  const direct = readNumber(
+    item?.discountedPrice ?? item?.totalPrice ?? item?.totalAmount ?? item?.itemTotal,
+    NaN
+  );
+  const nested = Array.isArray(item?.items) ? item.items : [];
+
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  if (nested.length > 0) return nested.reduce((sum, child) => sum + getItemTotal(child), 0);
+  return Number.isFinite(direct) ? direct : 0;
+};
+
+/**
+ * Order-level price. Mirrors backend getOrderTotal:
+ *  - pricing.total is the single source of truth (already reflects all
+ *    offers/combos/discounts, pre-tax)
+ *  - legacy fallback to old top-level fields / item sums only if pricing.total
+ *    is missing
+ */
+const getOrderTotal = (orderData) => {
+  const pricing = orderData?.pricing;
+  const pricingTotal = readNumber(pricing?.total, NaN);
+  if (Number.isFinite(pricingTotal) && pricingTotal >= 0) return pricingTotal;
+
+  const direct = readNumber(
+    orderData?.discountedPrice ?? orderData?.grandTotal ?? orderData?.subTotal ??
+    orderData?.totalAmount ?? orderData?.itemTotal,
+    NaN
+  );
+  if (Number.isFinite(direct) && direct >= 0) return direct;
+
+  const items = Array.isArray(orderData?.items) ? orderData.items : [];
+  if (items.length > 0) return items.reduce((sum, item) => sum + getItemTotal(item), 0);
+  return 0;
+};
+
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 const toDate = (value) => {
   if (!value) return new Date(0);
@@ -57,14 +111,14 @@ const resolveStatusLabel = (order) => {
   return "In Progress";
 };
 
-// ─── OrderCard — renders one order using backend-supplied totals ──────────────
+// ─── OrderCard — renders one order using single-source-of-truth totals ────────
 
 function OrderCard({ order }) {
   const [expandedRows, setExpandedRows] = useState({});
 
   const allItems = Array.isArray(order.items) ? order.items : [];
-  // Backend sends item.totalPrice already computed correctly
-  const orderTotal = Number(order.totalPrice ?? order.discountedPrice ?? order.grandTotal ?? order.subTotal ?? 0);
+  // Order-level total: pricing.total (already reflects offers/combos/discounts)
+  const orderTotal = getOrderTotal(order);
   const placedAt = toDate(order.createdAt || order.timeOfOrder || order.updatedAt);
   const statusLabel = resolveStatusLabel(order);
   const itemCount = allItems.reduce((s, i) => s + (Number(i.quantity ?? i.qty ?? 1) || 1), 0);
@@ -96,8 +150,9 @@ function OrderCard({ order }) {
 
   const renderItemRow = (item, key) => {
     const qty = Number(item.quantity ?? item.qty ?? 1) || 1;
-    // Use backend-supplied totalPrice — no recalculation
-    const totalPrice = Number(item.totalPrice ?? 0);
+    // Use getItemTotal — correctly recurses into combo containers whose
+    // own totalPrice is stored as 0 (Issue 7 fix)
+    const totalPrice = getItemTotal(item);
     const addOns = Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [];
     const nestedItems = Array.isArray(item.items) ? item.items : [];
     const hasDetails = addOns.length > 0 || nestedItems.length > 0;
@@ -135,7 +190,7 @@ function OrderCard({ order }) {
                 <div key={`${key}-nested-${subIdx}`} className="rounded-md bg-white px-2.5 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-gray-800">{sub.name || "Item"}</span>
-                    <span className="font-semibold text-gray-900">{currency.format(Number(sub.totalPrice ?? 0))}</span>
+                    <span className="font-semibold text-gray-900">{currency.format(getItemTotal(sub))}</span>
                   </div>
                   {subAddOns.length > 0 && (
                     <div className="mt-1 space-y-0.5 pl-2 text-[11px] text-amber-700">
@@ -181,8 +236,9 @@ function OrderCard({ order }) {
 
       <div className="mt-3 space-y-2">
         {Array.from(offerBuckets.values()).map((bucket, bIdx) => {
-          // Bucket price = sum of backend-supplied item.totalPrice inside this bucket
-          const bucketTotal = bucket.rows.reduce((s, { item }) => s + Number(item.totalPrice ?? 0), 0);
+          // Bucket price = sum of getItemTotal across items in this bucket
+          // (correctly handles combo containers via recursion)
+          const bucketTotal = bucket.rows.reduce((s, { item }) => s + getItemTotal(item), 0);
           return (
             <div key={`offer-${order.id}-${bucket.offerId}-${bIdx}`} className="rounded-xl border border-blue-200 bg-blue-50/60 p-2.5">
               <div className="mb-2 flex items-center justify-between">
@@ -364,46 +420,46 @@ function BillModal({ billData, tableName, onClose }) {
                         <div className="space-y-2 px-3 py-2">
                           {/* COMBO: render nested items from the first item's .items array */}
                           {group.offerType === "COMBO" &&
-                          Array.isArray(group.items) &&
-                          group.items[0] &&
-                          Array.isArray(group.items[0].items) &&
-                          group.items[0].items.length > 0
+                            Array.isArray(group.items) &&
+                            group.items[0] &&
+                            Array.isArray(group.items[0].items) &&
+                            group.items[0].items.length > 0
                             ? group.items[0].items.map((nestedItem, ni) => {
-                                const nestedAddOns = Array.isArray(nestedItem.addOns) ? nestedItem.addOns : [];
-                                return (
-                                  <div key={`${groupKey}-nested-${ni}`} className="rounded-lg bg-white px-3 py-2 text-sm">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="min-w-0 flex-1">
-                                        <p className="flex items-center gap-1.5 truncate font-medium text-gray-900">
-                                          <span>{nestedItem.name || "Item"}</span>
-                                          {nestedItem.isFree && (
-                                            <span className="text-[10px] font-semibold text-emerald-700">(FREE)</span>
-                                          )}
-                                        </p>
-                                        {nestedAddOns.length > 0 && (
-                                          <p className="mt-0.5 text-[11px] font-medium text-amber-700">Add-ons included</p>
+                              const nestedAddOns = Array.isArray(nestedItem.addOns) ? nestedItem.addOns : [];
+                              return (
+                                <div key={`${groupKey}-nested-${ni}`} className="rounded-lg bg-white px-3 py-2 text-sm">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="flex items-center gap-1.5 truncate font-medium text-gray-900">
+                                        <span>{nestedItem.name || "Item"}</span>
+                                        {nestedItem.isFree && (
+                                          <span className="text-[10px] font-semibold text-emerald-700">(FREE)</span>
                                         )}
-                                      </div>
-                                      <span className="shrink-0 font-semibold text-gray-900">
-                                        {currency.format(Number(nestedItem.totalPrice ?? 0))}
-                                      </span>
+                                      </p>
+                                      {nestedAddOns.length > 0 && (
+                                        <p className="mt-0.5 text-[11px] font-medium text-amber-700">Add-ons included</p>
+                                      )}
                                     </div>
-                                    {nestedAddOns.length > 0 && (
-                                      <div className="mt-2 space-y-0.5 pl-2 text-[11px] text-amber-700">
-                                        {nestedAddOns.map((addon, ai) => (
-                                          <div key={`${groupKey}-nested-${ni}-addon-${ai}`}>
-                                            + {addon.name}{addon.price ? ` (+₹${addon.price})` : ""}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
+                                    <span className="shrink-0 font-semibold text-gray-900">
+                                      {currency.format(Number(nestedItem.totalPrice ?? 0))}
+                                    </span>
                                   </div>
-                                );
-                              })
+                                  {nestedAddOns.length > 0 && (
+                                    <div className="mt-2 space-y-0.5 pl-2 text-[11px] text-amber-700">
+                                      {nestedAddOns.map((addon, ai) => (
+                                        <div key={`${groupKey}-nested-${ni}-addon-${ai}`}>
+                                          + {addon.name}{addon.price ? ` (+₹${addon.price})` : ""}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
                             : Array.isArray(group.items) &&
-                              group.items.map((item, itemIdx) =>
-                                renderBillRow(item, itemIdx, `offer-${groupKey}`, true)
-                              )}
+                            group.items.map((item, itemIdx) =>
+                              renderBillRow(item, itemIdx, `offer-${groupKey}`, true)
+                            )}
                         </div>
                       )}
                     </div>
@@ -462,8 +518,8 @@ const Orders = () => {
   } = useLocationContext();
 
   // All order + bill data comes from the single backend endpoint
-  const [billData, setBillData] = useState(null);          // full response from generateBill
-  const [isLoading, setIsLoading] = useState(false);        // polling indicator
+  const [billData, setBillData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingBill, setIsGeneratingBill] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
   const [isClosingSession, setIsClosingSession] = useState(false);
@@ -471,51 +527,51 @@ const Orders = () => {
   const [showPayOverlay, setShowPayOverlay] = useState(false);
   const [overlayCountdown, setOverlayCountdown] = useState(10);
   const [isResetting, setIsResetting] = useState(false);
+  const [orderGroups, setOrderGroups] = useState([]);
 
   const resolvedTableName = selectedTableName || tableNumber || "Current Table";
   const viewerId = String(user?.uid || selectedTableOwnerId || "");
   const currentSessionId = String(selectedSessionId || "").trim();
 
-  // ── Fetch bill data from backend (used for both Ongoing + Bill Summary) ──────
-  const fetchBillData = useCallback(async () => {
-    if (!selectedSessionId && !selectedTableId) return;
-    try {
-      const response = await fetch(`${API_BASE}/customerBillingGenerateBill`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: selectedSessionId || undefined,
-          tableId: selectedTableId || undefined,
-        }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (response.ok && result?.success) {
-        setBillData(result);
-      }
-      // If no orders exist yet (404), billData stays null — that's expected
-    } catch (err) {
-      console.error("[Orders] fetchBillData error:", err);
-    }
-  }, [selectedSessionId, selectedTableId]);
-
-  // Poll every 5 seconds — same interval as before
+  // ── Fetch orders from Firestore using sessionId ────────────────────────────────
   useEffect(() => {
-    if (!selectedTableId && !selectedSessionId) {
-      setBillData(null);
+    if (!selectedOutlet || !selectedSessionId) {
+      setOrderGroups([]);
       return undefined;
     }
-    let cancelled = false;
+
     setIsLoading(true);
+    const q = query(
+      collection(db, `outlets/${selectedOutlet}/orders`),
+      where("sessionId", "==", selectedSessionId)
+    );
 
-    const run = async () => {
-      await fetchBillData();
-      if (!cancelled) setIsLoading(false);
-    };
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const orders = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          orders.push({
+            id: docSnap.id,
+            ...data,
+          });
+        });
 
-    run();
-    const id = setInterval(fetchBillData, 5000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [fetchBillData, selectedTableId, selectedSessionId]);
+        // Sort orders locally by creation time
+        orders.sort((a, b) => toDate(a.createdAt) - toDate(b.createdAt));
+
+        setOrderGroups(orders);
+        setIsLoading(false);
+      },
+      (err) => {
+        console.error("[Orders] Error listening to orders:", err);
+        setIsLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [selectedOutlet, selectedSessionId]);
 
   // Reset bill modal when table changes
   useEffect(() => {
@@ -523,76 +579,13 @@ const Orders = () => {
     setBillData(null);
   }, [selectedTableId]);
 
-  // ── Derived state from backend data (no local calculations) ──────────────────
-
-  // Keep a small realtime cache of per-order status values coming from Firestore.
-  const [orderStatuses, setOrderStatuses] = useState({});
-
-  useEffect(() => {
-    if (!billData) return undefined;
-    const items = Array.isArray(billData.items) ? billData.items : [];
-    const orderIds = Array.from(new Set(items.map((it) => String(it.orderId || "")).filter(Boolean)));
-    if (orderIds.length === 0) return undefined;
-
-    // Expose a global fallback used by the memoized group builder below.
-    // This keeps changes minimal (only 'status' handling) as requested.
-    window.__orderStatuses = window.__orderStatuses || {};
-
-    const unsubscribes = orderIds.map((orderId) => {
-      const d = doc(db, "orders", orderId);
-      return onSnapshot(d, (snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data() || {};
-        const s = data.status || data.orderStatus || "";
-        window.__orderStatuses[orderId] = s;
-        setOrderStatuses((prev) => ({ ...prev, [orderId]: s }));
-      });
-    });
-
-    return () => unsubscribes.forEach((u) => typeof u === "function" && u());
-  }, [billData]);
-
-  // Backend returns per-order items grouped inside billData.items with orderId tag.
-  // We reconstruct per-order display groups by grouping on orderId.
-  const orderGroups = useMemo(() => {
-    if (!billData) return [];
-    const items = Array.isArray(billData.items) ? billData.items : [];
-    const map = new Map();
-    items.forEach((item) => {
-      const oid = String(item.orderId || "unknown");
-      if (!map.has(oid)) {
-        map.set(oid, {
-          id: oid,
-          items: [],
-          // Carry through order-level fields that the backend annotates onto each item
-          orderStatus: item.orderStatus || billData.orderStatus || "in-progress",
-          // Prefer realtime-updated status from Firestore when available
-          status: (typeof window !== 'undefined' && window.__orderStatuses && window.__orderStatuses[oid])
-            ? window.__orderStatuses[oid]
-            : (item.status || billData.status || "in-progress"),
-          createdAt: item.createdAt || billData.createdAt,
-          // Use per-order totals annotated by backend
-          totalPrice: 0,
-          discountedPrice: 0,
-          subTotal: item.orderSubTotal || 0,
-          discount: item.orderDiscount || 0,
-        });
-      }
-      map.get(oid).items.push(item);
-    });
-    // Sum totalPrice per order from item-level totals (backend-supplied)
-    map.forEach((order) => {
-      order.totalPrice = order.items.reduce((s, i) => s + Number(i.totalPrice ?? 0), 0);
-    });
-    return Array.from(map.values());
-  }, [billData, orderStatuses]);
-
-  // Ongoing total = sum of all item.totalPrice from backend
+  // Ongoing total = sum of pricing.total across all orders (single source of
+  // truth, already reflects offers/combos/discounts, pre-tax). This is
+  // exactly what generateBill returns as pricing.discountedPrice, so the
+  // "Live total" shown here always matches the Final Bill's "Grand Total".
   const ongoingTotal = useMemo(() => {
-    if (!billData) return 0;
-    const items = Array.isArray(billData.items) ? billData.items : [];
-    return items.reduce((s, i) => s + Number(i.totalPrice ?? 0), 0);
-  }, [billData]);
+    return orderGroups.reduce((s, o) => s + getOrderTotal(o), 0);
+  }, [orderGroups]);
 
   const hasOrders = orderGroups.length > 0;
 
@@ -620,9 +613,10 @@ const Orders = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId: selectedSessionId || undefined,
-          tableId: selectedTableId || undefined,
-        }),
+          outletId: selectedOutlet,
+          sessionId: selectedSessionId,
+          tableId: selectedTableId,
+        })
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result?.success) {
@@ -765,11 +759,10 @@ const Orders = () => {
         {/* Banner */}
         {banner && (
           <div
-            className={`rounded-2xl border px-4 py-3 text-sm ${
-              banner.type === "success"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                : "border-red-200 bg-red-50 text-red-700"
-            }`}
+            className={`rounded-2xl border px-4 py-3 text-sm ${banner.type === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-red-200 bg-red-50 text-red-700"
+              }`}
           >
             <div className="flex items-center justify-between gap-3">
               <p>{banner.text}</p>
@@ -795,7 +788,8 @@ const Orders = () => {
                 <h2 className="text-base font-bold text-gray-900 uppercase tracking-wide">Ongoing Orders</h2>
                 <div className="text-right">
                   <p className="text-xs text-emerald-700">Live total</p>
-                  {/* ongoingTotal comes from backend item.totalPrice sums — identical to what Bill Summary will show */}
+                  {/* ongoingTotal = sum(pricing.total) — matches generateBill's
+                      pricing.discountedPrice exactly (before tax) */}
                   <p className="text-lg font-bold text-gray-900">{currency.format(ongoingTotal)}</p>
                 </div>
               </div>

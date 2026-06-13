@@ -187,7 +187,7 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 		};
 
 		const uniqueProductIds = Array.from(getUniqueProductIds(items));
-		const productDataMap = await getProductDocs(uniqueProductIds);
+		const productDataMap = await getProductDocs(uniqueProductIds, String(outletId || ''));
 
 		const enrichItemsTree = (itemsList: NormalisedOrderItem[]) => {
 			for (const item of itemsList) {
@@ -213,7 +213,7 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			const offerId = String(item.offerId || '').trim();
 			if (offerId) uniqueOfferIds.add(offerId);
 		}
-		const offerDocsById = await getOfferDocs(uniqueOfferIds);
+		const offerDocsById = await getOfferDocs(uniqueOfferIds, String(outletId || ''));
 		const orderType = offerDocsById.size > 0 ? 'MIXED' : 'BASIC';
 		let subtotal = Math.round(items.reduce((sum, item) => sum + readNumber(item.totalPrice, 0), 0));
 		const offerResult = applyOffer(

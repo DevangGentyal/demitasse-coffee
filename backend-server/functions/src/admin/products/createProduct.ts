@@ -48,8 +48,9 @@ export const createProduct = functions.https.onRequest(
 				return;
 			}
 
-			const productRef = db.collection("products").doc();
+			const productRef = db.collection("outlets").doc(data.outletId).collection("products").doc();
 			await productRef.set({
+				id: productRef.id,
 				outletId: data.outletId,
 				name: data.name.trim(),
 				category: data.category,

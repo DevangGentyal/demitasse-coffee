@@ -93,11 +93,20 @@ export const registerOutletOwner = functions.https.onRequest(async (req: Request
 			return
 		}
 
-		const outletRef = db.collection('outlets').doc()
-		const outletId = outletRef.id
-		await outletRef.set({
+		const outletDetailsRef = db.collection('outletDetails').doc()
+		const outletId = outletDetailsRef.id
+		await outletDetailsRef.set({
 			...outlet,
 			id: outletId,
+			status: 'approved',
+			createdAt: FieldValue.serverTimestamp(),
+			updatedAt: FieldValue.serverTimestamp(),
+		})
+
+		// Create the outlets container document
+		await db.collection('outlets').doc(outletId).set({
+			id: outletId,
+			status: 'approved',
 			createdAt: FieldValue.serverTimestamp(),
 			updatedAt: FieldValue.serverTimestamp(),
 		})
@@ -160,8 +169,16 @@ export const registerOutletPending = functions.https.onRequest(async (req: Reque
 			return
 		}
 
-		await db.collection('outlets').doc(decoded.uid).set({
+		// Write pending details to outletDetails
+		await db.collection('outletDetails').doc(decoded.uid).set({
 			...outlet,
+			id: decoded.uid,
+			status: 'pending',
+			createdAt: FieldValue.serverTimestamp(),
+			updatedAt: FieldValue.serverTimestamp(),
+		})
+
+		await db.collection('outlets').doc(decoded.uid).set({
 			id: decoded.uid,
 			status: 'pending',
 			createdAt: FieldValue.serverTimestamp(),
@@ -211,6 +228,16 @@ export const updateOutletStatus = functions.https.onRequest(async (req: Request,
 		}
 
 		await db.collection('outlets').doc(outletId).set({
+			status,
+			updatedAt: FieldValue.serverTimestamp(),
+		}, { merge: true })
+
+		await db.collection('outletDetails').doc(outletId).set({
+			status,
+			updatedAt: FieldValue.serverTimestamp(),
+		}, { merge: true })
+
+		await db.collection('users').doc(outletId).set({
 			status,
 			updatedAt: FieldValue.serverTimestamp(),
 		}, { merge: true })

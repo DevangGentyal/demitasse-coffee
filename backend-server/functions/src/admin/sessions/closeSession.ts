@@ -99,23 +99,46 @@ export const closeSession = functions.https.onRequest(
 				res.status(400).json({ success: false, message: "paymentMode is required when marking payment status" });
 				return;
 			}
-			const sessionRef = resolvedSessionId ? db.collection("sessions").doc(resolvedSessionId) : null;
-			const sessionSnap = sessionRef ? await sessionRef.get() : null;
+
+			let outletId = readString((req.body as any).outletId);
+			let sessionSnap = null;
+			let sessionRef = null;
+
+			if (resolvedSessionId) {
+				const sessionQuery = await db.collectionGroup("sessions").where("sessionId", "==", resolvedSessionId).limit(1).get();
+				if (!sessionQuery.empty) {
+					sessionSnap = sessionQuery.docs[0];
+					sessionRef = sessionSnap.ref;
+					if (!outletId) outletId = readString(sessionSnap.data()?.outletId);
+				}
+			}
+
+			if (!outletId && resolvedTableId) {
+				const tableQuery = await db.collectionGroup("tables").where("id", "==", resolvedTableId).limit(1).get();
+				if (!tableQuery.empty) {
+					outletId = readString(tableQuery.docs[0].data()?.outletId);
+				}
+			}
+
+			if (!outletId) {
+				res.status(400).json({ success: false, message: "outletId could not be resolved" });
+				return;
+			}
 
 			const sessionData = sessionSnap?.data() || {};
 			const resolvedSessionTableId = readString(sessionData?.tableId);
-			const tableRef = db.collection("tables").doc(resolvedTableId || resolvedSessionTableId);
+			const tableRef = db.collection("outlets").doc(outletId).collection("tables").doc(resolvedTableId || resolvedSessionTableId);
+			
 			const orderSnap = resolvedSessionId
-				? await db.collection("orders").where("sessionId", "==", resolvedSessionId).get()
-				: await db.collection("orders").where("tableId", "==", resolvedTableId).limit(50).get();
+				? await db.collection("outlets").doc(outletId).collection("orders").where("sessionId", "==", resolvedSessionId).get()
+				: await db.collection("outlets").doc(outletId).collection("orders").where("tableId", "==", resolvedTableId).limit(50).get();
+			
 			const candidateOrderDocs = orderSnap.docs;
 			const allItems: any[] = [];
-			let outletId = readString(sessionData?.outletId);
 			let primaryOrderDoc = candidateOrderDocs[0];
 
 			for (const doc of candidateOrderDocs) {
 				const data = doc.data();
-				if (!outletId) outletId = String(data.outletId || "");
 				const docItems = Array.isArray(data.items) ? data.items : [];
 				allItems.push(...docItems);
 				if (!primaryOrderDoc) primaryOrderDoc = doc;
@@ -147,7 +170,7 @@ export const closeSession = functions.https.onRequest(
 				}
 
 				if (!isPaymentSuccessful) {
-					const failedPaymentRef = db.collection("failedPayments").doc();
+					const failedPaymentRef = db.collection("outlets").doc(outletId).collection("failedPayments").doc();
 					tx.set(failedPaymentRef, {
 						paymentId: failedPaymentRef.id,
 						orderId: primaryOrderDoc?.id || null,
@@ -166,7 +189,7 @@ export const closeSession = functions.https.onRequest(
 					});
 
 					for (const doc of candidateOrderDocs) {
-						tx.set(db.collection("ordersHistory").doc(doc.id), { ...doc.data(), closedAt: archiveTimestamp, archivedAt: archiveTimestamp, source: "admin.closeSession.failed" }, { merge: true });
+						tx.set(db.collection("outlets").doc(outletId).collection("orderHistory").doc(doc.id), { ...doc.data(), closedAt: archiveTimestamp, archivedAt: archiveTimestamp, source: "admin.closeSession.failed" }, { merge: true });
 						tx.delete(doc.ref);
 					}
 
@@ -193,7 +216,7 @@ export const closeSession = functions.https.onRequest(
 					return { status: resolvedStatus, sessionStatus: "CLOSED" };
 				}
 
-				const successPaymentRef = db.collection("successPayments").doc();
+				const successPaymentRef = db.collection("outlets").doc(outletId).collection("successPayments").doc();
 				tx.set(successPaymentRef, {
 					paymentId: successPaymentRef.id,
 					orderId: primaryOrderDoc?.id || null,
@@ -212,7 +235,7 @@ export const closeSession = functions.https.onRequest(
 				});
 
 				for (const doc of candidateOrderDocs) {
-					tx.set(db.collection("ordersHistory").doc(doc.id), { ...doc.data(), closedAt: archiveTimestamp, archivedAt: archiveTimestamp, source: "admin.closeSession" }, { merge: true });
+					tx.set(db.collection("outlets").doc(outletId).collection("orderHistory").doc(doc.id), { ...doc.data(), closedAt: archiveTimestamp, archivedAt: archiveTimestamp, source: "admin.closeSession" }, { merge: true });
 					tx.delete(doc.ref);
 				}
 

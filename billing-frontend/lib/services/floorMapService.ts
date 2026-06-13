@@ -74,7 +74,7 @@ export const floorMapService = {
     return parseJsonOrFallback(response)
   },
 
-  async deleteTable(tableId: string) {
+  async deleteTable(tableId: string, outletId?: string) {
     const idToken = await getIdToken()
     const response = await fetch(buildCloudFunctionsUrl('billingTablesDelete'), {
       method: 'DELETE',
@@ -82,7 +82,7 @@ export const floorMapService = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ tableId }),
+      body: JSON.stringify({ tableId, outletId }),
     })
     if (!response.ok) throw new Error('Failed to delete table')
     return parseJsonOrFallback(response)

@@ -34,6 +34,8 @@ export const billingKotSettingsSave = onCall(
 
 		try {
 			const docRef = db
+				.collection("outlets")
+				.doc(outletId)
 				.collection("kotBillingSettings")
 				.doc("defaultSettings");
 

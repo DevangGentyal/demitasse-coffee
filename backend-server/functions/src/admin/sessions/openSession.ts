@@ -28,7 +28,7 @@ export const openSession = functions.https.onRequest(async (req: Request, res: R
 			return;
 		}
 
-		const tableRef = db.collection('tables').doc(tableId);
+		const tableRef = db.collection('outlets').doc(outletId).collection('tables').doc(tableId);
 		const tableSnap = await tableRef.get();
 		if (!tableSnap.exists) {
 			res.status(404).json({ success: false, message: 'Table not found' });

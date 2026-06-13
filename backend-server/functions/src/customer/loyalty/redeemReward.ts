@@ -67,15 +67,17 @@ export const redeemReward = functions.https.onRequest(
 				return;
 			}
 
-			const productRef = db.collection("products").doc(productId);
-			const productDoc = await productRef.get();
-
-			if (!productDoc.exists) {
-				res.status(404).json({ success: false, message: "Product not found" });
-				return;
+			let productDoc = null;
+			if (productId) {
+				const productQuery = await db.collectionGroup("products").where(admin.firestore.FieldPath.documentId(), "==", productId).limit(1).get();
+				if (productQuery.empty) {
+					res.status(404).json({ success: false, message: "Product not found" });
+					return;
+				}
+				productDoc = productQuery.docs[0];
 			}
 
-			const product = productDoc.data();
+			const product = productDoc?.data();
 			const price = product?.price || 0;
 			const pointsRequired = Math.floor(price * 1.5);
 
@@ -84,7 +86,7 @@ export const redeemReward = functions.https.onRequest(
 				return;
 			}
 
-			const customerRef = db.collection("customers").doc(customerId);
+			const customerRef = db.collection("users").doc(customerId);
 			const customerDoc = await customerRef.get();
 
 			if (!customerDoc.exists) {

@@ -1,7 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 
-interface DeleteProductRequest { productId: string; }
+interface DeleteProductRequest { productId: string; outletId?: string; }
 
 export const deleteProduct = functions.https.onRequest(
 	async (req, res): Promise<void> => {
@@ -27,7 +27,21 @@ export const deleteProduct = functions.https.onRequest(
 				return;
 			}
 
-			const productRef = db.collection("products").doc(data.productId);
+			let productRef = null;
+			const outletId = data.outletId || "";
+			if (outletId) {
+				productRef = db.collection("outlets").doc(outletId).collection("products").doc(data.productId);
+			} else {
+				const querySnap = await db.collectionGroup("products").where(admin.firestore.FieldPath.documentId(), "==", data.productId).limit(1).get();
+				if (!querySnap.empty) {
+					productRef = querySnap.docs[0].ref;
+				}
+			}
+
+			if (!productRef) {
+				res.status(404).json({ success: false, message: "Product not found" });
+				return;
+			}
 			const productSnap = await productRef.get();
 			if (!productSnap.exists) {
 				res.status(404).json({ success: false, message: "Product not found" });

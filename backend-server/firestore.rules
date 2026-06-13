@@ -96,12 +96,12 @@ service cloud.firestore {
       allow write: if false;  // All writes via backend only
     }
 
-    match /tables/{id} {
+    match /{path=**}/tables/{id} {
       allow read: if isSignedIn();
       allow write: if false;  // All writes via backend only
     }
 
-    match /orders/{id} {
+    match /{path=**}/orders/{id} {
       allow read: if isSignedIn();
       allow write: if false;  // All writes via backend only
     }

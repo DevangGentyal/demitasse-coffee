@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin'
 import * as functions from 'firebase-functions'
 import { Request, Response } from 'express'
+import { FieldPath } from 'firebase-admin/firestore'   // ← add this import
 
 const db = admin.firestore()
 
@@ -44,79 +45,120 @@ const listCollection = async (collectionName: string, fieldName?: string, fieldV
 const readResource = async (resource: string, params: URLSearchParams, uid: string) => {
 	switch (resource) {
 		case 'outlets':
-			return listCollection('outlets')
+			return listCollection('outletDetails')
 		case 'outletById': {
 			const outletId = readString(params.get('outletId'))
 			if (!outletId) throw new Error('outletId is required')
-			const snap = await db.collection('outlets').doc(outletId).get()
+			const snap = await db.collection('outletDetails').doc(outletId).get()
 			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
 		}
 		case 'products': {
 			const outletId = readString(params.get('outletId'))
 			if (!outletId) throw new Error('outletId is required')
-			return listCollection('products', 'outletId', outletId)
+			const snapshot = await db.collection('outlets').doc(outletId).collection('products').get()
+			return snapshot.docs.map(mapDoc)
 		}
 		case 'productById': {
 			const productId = readString(params.get('productId'))
 			if (!productId) throw new Error('productId is required')
-			const snap = await db.collection('products').doc(productId).get()
-			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			const outletId = readString(params.get('outletId'))
+			if (outletId) {
+				const snap = await db.collection('outlets').doc(outletId).collection('products').doc(productId).get()
+				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			} else {
+				const querySnap = await db.collectionGroup('products').where(FieldPath.documentId(), '==', productId).limit(1).get()
+				return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
+			}
 		}
 		case 'offers': {
 			const outletId = readString(params.get('outletId'))
-			return outletId ? listCollection('offers', 'outletId', outletId) : listCollection('offers')
+			if (outletId) {
+				const snapshot = await db.collection('outlets').doc(outletId).collection('offers').get()
+				return snapshot.docs.map(mapDoc)
+			}
+			const querySnap = await db.collectionGroup('offers').get()
+			return querySnap.docs.map(mapDoc)
 		}
 		case 'offerById': {
 			const offerId = readString(params.get('offerId'))
 			if (!offerId) throw new Error('offerId is required')
-			const snap = await db.collection('offers').doc(offerId).get()
-			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			const outletId = readString(params.get('outletId'))
+			if (outletId) {
+				const snap = await db.collection('outlets').doc(outletId).collection('offers').doc(offerId).get()
+				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			} else {
+				const querySnap = await db.collectionGroup('offers').where(FieldPath.documentId(), '==', offerId).limit(1).get()
+				return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
+			}
 		}
 		case 'tables': {
 			const outletId = readString(params.get('outletId'))
 			if (!outletId) throw new Error('outletId is required')
-			return listCollection('tables', 'outletId', outletId)
+			const snapshot = await db.collection('outlets').doc(outletId).collection('tables').get()
+			return snapshot.docs.map(mapDoc)
 		}
 		case 'tableById': {
 			const tableId = readString(params.get('tableId'))
 			if (!tableId) throw new Error('tableId is required')
-			const snap = await db.collection('tables').doc(tableId).get()
-			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			const outletId = readString(params.get('outletId'))
+			if (outletId) {
+				const snap = await db.collection('outlets').doc(outletId).collection('tables').doc(tableId).get()
+				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			}
+			const querySnap = await db.collectionGroup('tables').where(FieldPath.documentId(), '==', tableId).limit(1).get()
+			return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
 		}
 		case 'orders': {
 			const outletId = readString(params.get('outletId'))
 			if (!outletId) throw new Error('outletId is required')
-			return listCollection('orders', 'outletId', outletId)
+			const snapshot = await db.collection('outlets').doc(outletId).collection('orders').get()
+			return snapshot.docs.map(mapDoc)
 		}
 		case 'orderById': {
 			const orderId = readString(params.get('orderId'))
 			if (!orderId) throw new Error('orderId is required')
-			const snap = await db.collection('orders').doc(orderId).get()
-			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			const outletId = readString(params.get('outletId'))
+			if (outletId) {
+				const snap = await db.collection('outlets').doc(outletId).collection('orders').doc(orderId).get()
+				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			}
+			const querySnap = await db.collectionGroup('orders').where(FieldPath.documentId(), '==', orderId).limit(1).get()
+			return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
 		}
 		case 'ordersHistory': {
 			const ownerId = readString(params.get('ownerId'))
 			if (!ownerId) throw new Error('ownerId is required')
-			return listCollection('ordersHistory', 'ownerId', ownerId)
+			const querySnap = await db.collectionGroup('orderHistory').where('ownerId', '==', ownerId).get()
+			return querySnap.docs.map(mapDoc)
 		}
 		case 'failedPayments': {
 			const userId = readString(params.get('userId'))
-			return userId ? listCollection('failedPayments', 'userId', userId) : listCollection('failedPayments')
+			if (userId) {
+				const querySnap = await db.collectionGroup('failedPayments').where('userId', '==', userId).get()
+				return querySnap.docs.map(mapDoc)
+			}
+			const querySnap = await db.collectionGroup('failedPayments').get()
+			return querySnap.docs.map(mapDoc)
 		}
 		case 'successPayments': {
 			const userId = readString(params.get('userId'))
-			return userId ? listCollection('successPayments', 'userId', userId) : listCollection('successPayments')
+			if (userId) {
+				const querySnap = await db.collectionGroup('successPayments').where('userId', '==', userId).get()
+				return querySnap.docs.map(mapDoc)
+			}
+			const querySnap = await db.collectionGroup('successPayments').get()
+			return querySnap.docs.map(mapDoc)
 		}
 		case 'sessionById': {
 			const sessionId = readString(params.get('sessionId'))
 			if (!sessionId) throw new Error('sessionId is required')
-			const snap = await db.collection('sessions').doc(sessionId).get()
-			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			const querySnap = await db.collectionGroup('sessions').where(FieldPath.documentId(), '==', sessionId).limit(1).get()
+			return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
 		}
 		case 'floorMap': {
 			const outletId = readString(params.get('outletId'))
 			if (!outletId) throw new Error('outletId is required')
-			const snap = await db.collection('floorMap').doc(outletId).get()
+			const snap = await db.collection('outlets').doc(outletId).collection('floorMap').doc('layout').get()
 			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
 		}
 		case 'currentUser': {
@@ -124,18 +166,20 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			if (snap.exists) {
 				return [{ id: snap.id, role: 'admin', ...snap.data() }]
 			}
+			snap = await db.collection('users').doc(uid).get()
+			if (snap.exists) {
+				const data = snap.data() || {}
+				const resolvedOutletId = data.outletId || data.outletID || ''
+				return [{ id: snap.id, ...data, outletId: resolvedOutletId, outletID: resolvedOutletId }]
+			}
 			snap = await db.collection('outlets').doc(uid).get()
 			if (snap.exists) {
 				return [{ id: snap.id, role: 'outlet', outletID: snap.id, outletId: snap.id, ...snap.data() }]
 			}
-			snap = await db.collection('users').doc(uid).get()
-			if (snap.exists) {
-				return [{ id: snap.id, role: 'customer', ...snap.data() }]
-			}
 			return []
 		}
 		case 'pendingOutlets': {
-			const snapshot = await db.collection('outlets').get()
+			const snapshot = await db.collection('outletDetails').get()
 			return snapshot.docs
 				.map(mapDoc)
 				.filter((outlet) => normalizeStatus(outlet.status) === 'pending')

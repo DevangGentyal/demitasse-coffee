@@ -106,10 +106,9 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 		const resolveProductPrice = async (productId: string): Promise<number | null> => {
 			const id = readString(productId);
 			if (!id) return null;
-			const productDoc = await getProductDoc(id);
+			const productDoc = await getProductDoc(id, String(outletId));
 			if (!productDoc || !Number.isFinite(productDoc.price)) return null;
 			return productDoc.price;
-			return null;
 		};
 
 		// ── Normalise items → canonical shape with correct unitPrice/totalPrice
@@ -117,7 +116,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 
 		// Enrich category / subcategory / name from products collection
 		for (const item of normalisedItems) {
-			const productDoc = await getProductDoc(item.productId);
+			const productDoc = await getProductDoc(item.productId, String(outletId));
 			if (!productDoc) continue;
 			item.name = productDoc.name || item.name;
 			item.category = productDoc.category || null;
@@ -135,7 +134,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			const itemOfferId = readString(item.offerId);
 			if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 		}
-		const offerDocsById = await getOfferDocs(uniqueOfferIds);
+		const offerDocsById = await getOfferDocs(uniqueOfferIds, String(outletId));
 
 		// ── Apply offer to each item individually ──────────────────────────
 		const itemsWithPricing = applyOfferPricingByGroup(normalisedItems, offerDocsById as any, applyTax);
@@ -143,8 +142,6 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 		const { orderType: appliedOrderType } = applyOffer({ subTotal, items: itemsWithPricing }, primaryOfferDoc);
 		const resolvedOrderType = readString(requestedOrderType).toUpperCase() || appliedOrderType;
 		// ── Grand total ───────────────────────────────────────────────────
-		// discountedPrice = sum of all items' discountedPrice
-		// tax             = sum of all items' tax
 		// grandTotal      = discountedPrice + tax
 		const pricing = buildPricingSummaryFromItems(itemsWithPricing);
 
@@ -178,11 +175,11 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			return true;
 		};
 
-		let orderRef = db.collection('orders').doc();
+		let orderRef = db.collection('outlets').doc(String(outletId)).collection('orders').doc();
 		try {
 			if (activeSessionId) {
 				const tenSecondsAgo = admin.firestore.Timestamp.fromMillis(Date.now() - 10_000);
-				const recentSnap = await db.collection('orders')
+				const recentSnap = await db.collection('outlets').doc(String(outletId)).collection('orders')
 					.where('sessionId', '==', activeSessionId)
 					.orderBy('timeOfOrder', 'desc')
 					.limit(5)
@@ -215,7 +212,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				const userData = userSnap.data() || {};
 				const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
 				for (const usage of consumedOfferUsages) {
-					const offerSnap = await tx.get(db.collection('offers').doc(usage.offerId));
+					const offerSnap = await tx.get(db.collection('outlets').doc(String(outletId)).collection('offers').doc(usage.offerId));
 					offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
 				}
 				const violation = findUsageLimitViolation(

@@ -151,11 +151,11 @@ const Cart = () => {
   // ✅ AUTO REGISTRATION OFFER DISCOUNT (Calculates ONLY on normal items)
   let autoDiscount = 0;
   if (autoAppliedOffer) {
-      const eligibleTotal = cart
-        .filter(item => !item.isFree && !item.isCombo && !item.isManualB1G1 && !item.isDiscount && !item.isBirthday)
-        .reduce((sum, item) => sum + item.price * item.qty, 0);
-      // Always treat discountValue as a percentage
-      autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
+    const eligibleTotal = cart
+      .filter(item => !item.isFree && !item.isCombo && !item.isManualB1G1 && !item.isDiscount && !item.isBirthday)
+      .reduce((sum, item) => sum + item.price * item.qty, 0);
+    // Always treat discountValue as a percentage
+    autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
   }
 
   const totalDiscount = autoDiscount;
@@ -181,13 +181,13 @@ const Cart = () => {
       const participantFields = auth.currentUser?.uid
         ? { userId: auth.currentUser.uid }
         : (() => {
-            let guestId = localStorage.getItem("guestId");
-            if (!guestId) {
-              guestId = "guest_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-              localStorage.setItem("guestId", guestId);
-            }
-            return { guestId };
-          })();
+          let guestId = localStorage.getItem("guestId");
+          if (!guestId) {
+            guestId = "guest_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            localStorage.setItem("guestId", guestId);
+          }
+          return { guestId };
+        })();
 
       let activeSessionId = selectedSessionId || null;
       console.info('[customer/cart] place order start', {
@@ -253,15 +253,15 @@ const Cart = () => {
       const userType = localStorage.getItem("userType");
       const userObj = fullUser || { userType: userType === "guest" ? "guest" : "registered" };
       const couponCodes = appliedOffers.map(o => o.couponCode).filter(Boolean);
-      
+
       const { validAppliedOffers, cleanCart } = revalidateCart(cart, offers, userObj, couponCodes);
 
       const stateFreeItems = cart.filter(i => i.isFree && !i.isManualB1G1).length;
-      const validFreeItems = (cart.length - cleanCart.filter(i => !i.isManualB1G1).length); 
+      const validFreeItems = (cart.length - cleanCart.filter(i => !i.isManualB1G1).length);
 
       if (stateFreeItems > validFreeItems) {
-         setValidationError("Cart validation failed. Some offers are no longer valid. Please check your cart.");
-         return;
+        setValidationError("Cart validation failed. Some offers are no longer valid. Please check your cart.");
+        return;
       }
 
       const comboItems = cart.filter(i => i.isCombo);
@@ -290,13 +290,13 @@ const Cart = () => {
         for (const freeSub of freeSubs) {
           const freeProductId = String(freeSub.productId || "");
           if (!freeProductId) continue;
-          const freeItems = await getProductById(freeProductId)
+          const freeItems = await getProductById(freeProductId, selectedOutlet)
           const freeProd = freeItems[0]
 
           for (const paidSub of paidSubs) {
             const paidProductId = String(paidSub.productId || "");
             if (!paidProductId) continue;
-            const paidItems = await getProductById(paidProductId)
+            const paidItems = await getProductById(paidProductId, selectedOutlet)
             const paidProd = paidItems[0]
 
             if (freeProd && paidProd) {
@@ -366,11 +366,11 @@ const Cart = () => {
 
       if (userType !== "guest" && auth.currentUser) {
         const updates = {};
-        
+
         if (!fullUser?.hasPlacedFirstOrder) {
           updates.hasPlacedFirstOrder = true;
         }
-        
+
         const birthdayUsed = appliedOffers.some(o => o.type === "birthday") ||
           cart.some(item => item.isBirthday);
         if (birthdayUsed) {
@@ -417,13 +417,13 @@ const Cart = () => {
       const participantFields = auth.currentUser?.uid
         ? { userId: auth.currentUser.uid }
         : (() => {
-            let guestId = localStorage.getItem("guestId");
-            if (!guestId) {
-              guestId = "guest_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-              localStorage.setItem("guestId", guestId);
-            }
-            return { guestId };
-          })();
+          let guestId = localStorage.getItem("guestId");
+          if (!guestId) {
+            guestId = "guest_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            localStorage.setItem("guestId", guestId);
+          }
+          return { guestId };
+        })();
 
       let activeSessionId = selectedSessionId || null;
       console.info('[customer/cart] view bill start', {
@@ -557,8 +557,8 @@ const Cart = () => {
               <p className="text-sm font-bold text-green-700">{autoAppliedOffer.title}</p>
               <p className="text-xs text-green-600">
                 {autoAppliedOffer.offerType === "PERCENT"
-                ? `${autoAppliedOffer.discountValue}% OFF — Auto Applied!`
-                : `${autoAppliedOffer.discountValue}% OFF — Auto Applied!`
+                  ? `${autoAppliedOffer.discountValue}% OFF — Auto Applied!`
+                  : `${autoAppliedOffer.discountValue}% OFF — Auto Applied!`
                 }
               </p>
             </div>

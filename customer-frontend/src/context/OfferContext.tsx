@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { getCurrentUserProfile, getOffers } from "../lib/backendApi";
+import { getCurrentUserProfile, getOffersByOutletId } from "../lib/backendApi";
 import { useLocationContext } from "./LocationContext";
 
 import {
@@ -60,12 +60,15 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
   const { selectedOutlet } = useLocationContext();
   const isGuestUser = localStorage.getItem("userType") === "guest";
 
-  // 🔥 FETCH ALL OFFERS ONCE
+  // 🔥 FETCH ALL OFFERS FOR SELECTED OUTLET
   useEffect(() => {
     const fetchOffers = async () => {
+      if (!selectedOutlet) {
+        setAllOffers([]);
+        return;
+      }
       try {
-        const offersData = (await getOffers()) as Offer[];
-
+        const offersData = (await getOffersByOutletId(selectedOutlet)) as Offer[];
         setAllOffers(offersData);
       } catch (err) {
         console.error("Error fetching offers:", err);
@@ -73,7 +76,7 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
     };
 
     fetchOffers();
-  }, []);
+  }, [selectedOutlet]);
 
   // 🔥 FILTER BY OUTLET — welcome offers (no outletId) are always included
   useEffect(() => {

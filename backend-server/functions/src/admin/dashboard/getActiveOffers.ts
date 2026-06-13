@@ -4,7 +4,7 @@ const db = admin.firestore();
 
 export const getActiveOffers = async (outletId: string): Promise<number> => {
 	// Read only active offers, then filter in-memory for outlet/global scope.
-	const snap = await db.collection("offers").where("isActive", "==", true).get();
+	const snap = await db.collection("outlets").doc(outletId).collection("offers").where("isActive", "==", true).get();
 	const now = new Date();
 	let activeOffersCount = 0;
 

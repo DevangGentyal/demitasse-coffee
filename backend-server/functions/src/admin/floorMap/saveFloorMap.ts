@@ -28,7 +28,7 @@ export const saveFloorMap = functions.https.onRequest(
 				return;
 			}
 
-			const floorMapRef = db.collection("floorMap").doc(outletId);
+			const floorMapRef = db.collection("outlets").doc(outletId).collection("floorMap").doc("layout");
 			await floorMapRef.set({ outletId, walls: walls || [], tablePositions: tablePositions || [], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 
 			res.status(200).json({ success: true, message: "Floor map layout saved successfully" });

@@ -27,7 +27,7 @@ export const checkRewards = functions.https.onRequest(
 				return;
 			}
 
-			const customerRef = db.collection("customers").doc(customerId);
+			const customerRef = db.collection("users").doc(customerId);
 			const customerDoc = await customerRef.get();
 
 			let pointsBalance = 0;
@@ -44,7 +44,7 @@ export const checkRewards = functions.https.onRequest(
 				remaining: 5 - (coffeeCount % 5),
 			};
 
-			const productsSnapshot = await db.collection("products").get();
+			const productsSnapshot = await db.collectionGroup("products").get();
 			const redeemableProducts: any[] = [];
 
 			productsSnapshot.forEach((doc) => {

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { Button } from '@/components/ui/button'
@@ -17,18 +17,19 @@ import {
   Offer
 } from '@/services/offers.service'
 
-import { getOutletIdForCurrentUser, getProductsByOutletId, Product } from '@/lib/services/productService'
+import { getProductsByOutletId, Product } from '@/lib/services/productService'
 
 export default function EditOfferPage() {
   const router = useRouter()
   const params = useParams()
+  const searchParams = useSearchParams()
   const offerId = params.id as string
   const { isLoggedIn, isLoading } = useAuth()
 
   const [products, setProducts] = useState<Product[]>([])
   const [dataLoading, setDataLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [outletId, setOutletId] = useState<string | null>(null)
+  const [outletId, setOutletId] = useState<string>('')
 
   const [currentStep, setCurrentStep] = useState(1)
 
@@ -69,13 +70,18 @@ export default function EditOfferPage() {
 
     const fetchData = async () => {
       try {
-        const outlet = await getOutletIdForCurrentUser()
-        setOutletId(outlet)
+        const selectedOutletId = searchParams.get('outletId')
 
-        const prods = await getProductsByOutletId(outlet)
+        if (!selectedOutletId) {
+          throw new Error('Outlet ID missing')
+        }
+
+        setOutletId(selectedOutletId)
+
+        const prods = await getProductsByOutletId(selectedOutletId)
         setProducts(prods)
 
-        const offers = await getOffersByOutletId(outlet)
+        const offers = await getOffersByOutletId(selectedOutletId)
         const offer = offers.find(o => o.id === offerId)
 
         if (offer) {
@@ -123,7 +129,7 @@ export default function EditOfferPage() {
     }
 
     fetchData()
-  }, [isLoading, isLoggedIn, router, offerId])
+  }, [isLoading, isLoggedIn, router, offerId, searchParams])
 
   if (isLoading || dataLoading) return null
   if (!isLoggedIn) return null
@@ -262,7 +268,7 @@ export default function EditOfferPage() {
         perUserLimit: formData.perUserLimit ? Number(formData.perUserLimit) : undefined,
       }
 
-      await updateOffer(offerId, payload)
+      await updateOffer(offerId, outletId, payload)
       router.push('/offers')
 
     } catch (e: any) {
@@ -381,295 +387,295 @@ export default function EditOfferPage() {
             </div>
           </div>
 
-        {error && (
-          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-            {error}
-          </div>
-        )}
+          {error && (
+            <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
+              {error}
+            </div>
+          )}
 
-        {/* ═══════════ STEP 1: Basic Info ═══════════ */}
-        {currentStep === 1 && (
-        <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
-          <Input placeholder="Title *" value={formData.title} onChange={e => handleChange("title", e.target.value)} />
-          <Input placeholder="Description" value={formData.description} onChange={e => handleChange("description", e.target.value)} />
+          {/* ═══════════ STEP 1: Basic Info ═══════════ */}
+          {currentStep === 1 && (
+            <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
+              <Input placeholder="Title *" value={formData.title} onChange={e => handleChange("title", e.target.value)} />
+              <Input placeholder="Description" value={formData.description} onChange={e => handleChange("description", e.target.value)} />
 
-          <div>
-            <Label className="text-xs text-gray-500 mb-1 block">Offer Type *</Label>
-            <Select value={formData.type} onValueChange={v => handleChange("type", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="DISCOUNT">Discount</SelectItem>
-                <SelectItem value="B1G1">Buy 1 Get 1 (B1G1)</SelectItem>
-                <SelectItem value="COMBO">Combo</SelectItem>
-                <SelectItem value="BIRTHDAY">Birthday</SelectItem>
-                <SelectItem value="NEW_USER">New User</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {formData.type === 'DISCOUNT' && (
-            <div className="space-y-3 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
-              <Input type="number" placeholder="Discount % *" value={formData.discountValue} onChange={e => handleChange("discountValue", e.target.value)} />
-              
               <div>
-                <Label className="text-xs text-gray-500 mb-1 block">Discount Mode *</Label>
-                <Select value={formData.discountScope} onValueChange={v => handleChange("discountScope", v)}>
+                <Label className="text-xs text-gray-500 mb-1 block">Offer Type *</Label>
+                <Select value={formData.type} onValueChange={v => handleChange("type", v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="PRODUCT">Product Discount</SelectItem>
-                    <SelectItem value="CATEGORY">Category Discount</SelectItem>
+                    <SelectItem value="DISCOUNT">Discount</SelectItem>
+                    <SelectItem value="B1G1">Buy 1 Get 1 (B1G1)</SelectItem>
+                    <SelectItem value="COMBO">Combo</SelectItem>
+                    <SelectItem value="BIRTHDAY">Birthday</SelectItem>
+                    <SelectItem value="NEW_USER">New User</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {formData.discountScope === 'CATEGORY' && (
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1 block">Select Category *</Label>
-                  <Select value={formData.discountCategory} onValueChange={v => handleChange("discountCategory", v)}>
-                    <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
-                    <SelectContent>
-                      {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-          )}
+              {formData.type === 'DISCOUNT' && (
+                <div className="space-y-3 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
+                  <Input type="number" placeholder="Discount % *" value={formData.discountValue} onChange={e => handleChange("discountValue", e.target.value)} />
 
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <Label className="text-xs text-gray-500">Start Date *</Label>
-              <Input type="date" value={formData.startDate} onChange={e => handleChange("startDate", e.target.value)} />
-            </div>
-            <div className="flex-1">
-              <Label className="text-xs text-gray-500">End Date *</Label>
-              <Input type="date" value={formData.endDate} onChange={e => handleChange("endDate", e.target.value)} />
-            </div>
-          </div>
+                  <div>
+                    <Label className="text-xs text-gray-500 mb-1 block">Discount Mode *</Label>
+                    <Select value={formData.discountScope} onValueChange={v => handleChange("discountScope", v)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PRODUCT">Product Discount</SelectItem>
+                        <SelectItem value="CATEGORY">Category Discount</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <Label className="text-xs text-gray-500 mb-1 block">Min Order Value</Label>
-              <Input type="number" placeholder="0" value={formData.minOrderValue} onChange={e => handleChange("minOrderValue", e.target.value)} />
-            </div>
-            <div>
-              <Label className="text-xs text-gray-500 mb-1 block">Per-user Limit (optional)</Label>
-              <Input type="number" placeholder="e.g. 1" value={formData.perUserLimit} onChange={e => handleChange("perUserLimit", e.target.value)} />
-            </div>
-            <div>
-              <Label className="text-xs text-gray-500 mb-1 block">Priority</Label>
-              <Input type="number" placeholder="0" value={formData.priority} onChange={e => handleChange("priority", e.target.value)} />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-4 pt-2">
-            <label className="flex items-center gap-1"><input type="checkbox" checked={formData.isActive} onChange={e => handleChange("isActive", e.target.checked)} /> Active</label>
-            <label className="flex items-center gap-1"><input type="checkbox" checked={formData.autoApply} onChange={e => handleChange("autoApply", e.target.checked)} /> Auto Apply</label>
-            <label className="flex items-center gap-1"><input type="checkbox" checked={formData.isStackable} onChange={e => handleChange("isStackable", e.target.checked)} /> Stackable</label>
-          </div>
-
-          
-        </div>
-        )}
-
-        {/* ═══════════ STEP 2: Product Selection (B1G1 / COMBO / DISCOUNT-PRODUCT only) ═══════════ */}
-        {currentStep === 2 && needsStep2 && (
-          <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
-
-            {/* ── DISCOUNT (PRODUCT Scope): Select applicable products ── */}
-            {formData.type === 'DISCOUNT' && formData.discountScope === 'PRODUCT' && (
-            <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
-                  <Select value={appCategory} onValueChange={setAppCategory}>
-                    <SelectTrigger><SelectValue placeholder="Choose category" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Categories</SelectItem>
-                      {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
-                  <Select onValueChange={(value) => handleChange('discountProductIds', addUniqueProductId(formData.discountProductIds, value))}>
-                    <SelectTrigger><SelectValue placeholder="Pick products" /></SelectTrigger>
-                    <SelectContent>
-                      {filteredAppProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {formData.discountProductIds.map(id => (
-                  <span key={id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
-                    {getProductLabel(id)}
-                    <button type="button" className="text-[#AE7A65]" onClick={() => handleChange('discountProductIds', removeProductId(formData.discountProductIds, id))}>×</button>
-                  </span>
-                ))}
-              </div>
-            </div>
-            )}
-
-            {/* ── B1G1 product selection ── */}
-            {formData.type === 'B1G1' && (
-            <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
-              <p className="text-xs text-[#8b6f5e]">Pick exactly two products.</p>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
-                  <Select value={appCategory} onValueChange={setAppCategory}>
-                    <SelectTrigger><SelectValue placeholder="Choose category" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Categories</SelectItem>
-                      {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
-                  <Select onValueChange={(value) => handleChange('b1g1ProductIds', addLimitedProductId(formData.b1g1ProductIds, value, 10))}>
-                    <SelectTrigger><SelectValue placeholder="Pick products" /></SelectTrigger>
-                    <SelectContent>
-                      {filteredAppProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {formData.b1g1ProductIds.map(id => (
-                  <span key={id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
-                    {getProductLabel(id)}
-                    <button type="button" className="text-[#AE7A65]" onClick={() => handleChange('b1g1ProductIds', removeProductId(formData.b1g1ProductIds, id))}>×</button>
-                  </span>
-                ))}
-              </div>
-              <p className="text-xs text-[#8b6f5e]">{formData.b1g1ProductIds.length}/10 selected</p>
-            </div>
-            )}
-
-            {/* ── COMBO product selection ── */}
-            {formData.type === 'COMBO' && (
-            <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
-              <p className="text-xs text-[#8b6f5e]">Set the combo price first, then define how many groups you want and choose a category for each group.</p>
-
-              <div>
-                <Label className="text-xs text-gray-500 mb-1 block">Combo price</Label>
-                <Input
-                  type="number"
-                  placeholder="Set price for the combo"
-                  value={formData.comboPrice}
-                  onChange={e => handleChange('comboPrice', e.target.value)}
-                />
-              </div>
-
-              <div>
-                <Label className="text-xs text-gray-500 mb-1 block">Number of groups</Label>
-                <Input type="number" min={1} placeholder="1" value={formData.comboGroupCount} onChange={e => syncComboGroups(Number(e.target.value || 1))} />
-              </div>
-
-              {formData.comboGroups.map((group, gIdx) => (
-                <div key={gIdx} className="space-y-4 rounded-2xl border border-[#ead6c2] bg-white p-4 shadow-sm">
-                  <div className="grid gap-3 md:grid-cols-3">
+                  {formData.discountScope === 'CATEGORY' && (
                     <div>
-                      <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
-                      <Select value={group.categoryName || ''} onValueChange={(value) => updateComboGroupCategory(gIdx, value)}>
-                        <SelectTrigger><SelectValue placeholder="Choose category" /></SelectTrigger>
+                      <Label className="text-xs text-gray-500 mb-1 block">Select Category *</Label>
+                      <Select value={formData.discountCategory} onValueChange={v => handleChange("discountCategory", v)}>
+                        <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
                         <SelectContent>
                           {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
-                    <div>
-                      <Label className="text-xs text-gray-500 mb-1 block">Group name</Label>
-                      <Input value={group.groupName} readOnly />
-                    </div>
-                    <div />
-                  </div>
+                  )}
+                </div>
+              )}
 
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Label className="text-xs text-gray-500">Start Date *</Label>
+                  <Input type="date" value={formData.startDate} onChange={e => handleChange("startDate", e.target.value)} />
+                </div>
+                <div className="flex-1">
+                  <Label className="text-xs text-gray-500">End Date *</Label>
+                  <Input type="date" value={formData.endDate} onChange={e => handleChange("endDate", e.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Min Order Value</Label>
+                  <Input type="number" placeholder="0" value={formData.minOrderValue} onChange={e => handleChange("minOrderValue", e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Per-user Limit (optional)</Label>
+                  <Input type="number" placeholder="e.g. 1" value={formData.perUserLimit} onChange={e => handleChange("perUserLimit", e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Priority</Label>
+                  <Input type="number" placeholder="0" value={formData.priority} onChange={e => handleChange("priority", e.target.value)} />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-4 pt-2">
+                <label className="flex items-center gap-1"><input type="checkbox" checked={formData.isActive} onChange={e => handleChange("isActive", e.target.checked)} /> Active</label>
+                <label className="flex items-center gap-1"><input type="checkbox" checked={formData.autoApply} onChange={e => handleChange("autoApply", e.target.checked)} /> Auto Apply</label>
+                <label className="flex items-center gap-1"><input type="checkbox" checked={formData.isStackable} onChange={e => handleChange("isStackable", e.target.checked)} /> Stackable</label>
+              </div>
+
+
+            </div>
+          )}
+
+          {/* ═══════════ STEP 2: Product Selection (B1G1 / COMBO / DISCOUNT-PRODUCT only) ═══════════ */}
+          {currentStep === 2 && needsStep2 && (
+            <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
+
+              {/* ── DISCOUNT (PRODUCT Scope): Select applicable products ── */}
+              {formData.type === 'DISCOUNT' && formData.discountScope === 'PRODUCT' && (
+                <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
-                      <Select value="" onValueChange={(value) => addComboProduct(gIdx, value)} disabled={!group.categoryName}>
-                        <SelectTrigger><SelectValue placeholder={group.categoryName ? 'Pick products' : 'Choose a category first'} /></SelectTrigger>
+                      <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
+                      <Select value={appCategory} onValueChange={setAppCategory}>
+                        <SelectTrigger><SelectValue placeholder="Choose category" /></SelectTrigger>
                         <SelectContent>
-                          {products.filter(p => p.category === group.categoryName).map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                          <SelectItem value="all">All Categories</SelectItem>
+                          {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
+                      <Select onValueChange={(value) => handleChange('discountProductIds', addUniqueProductId(formData.discountProductIds, value))}>
+                        <SelectTrigger><SelectValue placeholder="Pick products" /></SelectTrigger>
+                        <SelectContent>
+                          {filteredAppProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
-
                   <div className="flex flex-wrap gap-2">
-                    {group.items.map(item => (
-                      <div key={item.productId} className="inline-flex items-center gap-2 rounded-full bg-[#f9f3ec] px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
-                        <span>{getProductName(item.productId)}</span>
-                        <button type="button" className="text-[#AE7A65]" onClick={() => removeComboProduct(gIdx, item.productId)}>×</button>
-                      </div>
+                    {formData.discountProductIds.map(id => (
+                      <span key={id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
+                        {getProductLabel(id)}
+                        <button type="button" className="text-[#AE7A65]" onClick={() => handleChange('discountProductIds', removeProductId(formData.discountProductIds, id))}>×</button>
+                      </span>
                     ))}
                   </div>
                 </div>
-              ))}
-            </div>
-            )}
-          </div>
-        )}
-
-        {/* ═══════════ Summary Step ═══════════ */}
-        {((currentStep === 2 && !needsStep2) || (currentStep === 3 && needsStep2)) && (
-          <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
-            <h3 className="font-semibold">Summary</h3>
-            <div className="text-sm space-y-2 bg-gray-50 p-4 rounded border">
-              <p><strong>Title:</strong> {formData.title}</p>
-              {formData.description && <p><strong>Description:</strong> {formData.description}</p>}
-
-              {formData.type === 'DISCOUNT' && (
-                <>
-                  <p><strong>Discount:</strong> {formData.discountValue}%</p>
-                  <p><strong>Scope:</strong> {formData.discountScope}</p>
-                  {formData.discountScope === 'PRODUCT' && <p><strong>Products:</strong> {formData.discountProductIds.length} selected</p>}
-                  {formData.discountScope === 'CATEGORY' && <p><strong>Category:</strong> {formData.discountCategory}</p>}
-                </>
               )}
-              {formData.type === 'B1G1' && <p><strong>B1G1 Products:</strong> {formData.b1g1ProductIds.length} selected</p>}
+
+              {/* ── B1G1 product selection ── */}
+              {formData.type === 'B1G1' && (
+                <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
+                  <p className="text-xs text-[#8b6f5e]">Pick exactly two products.</p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
+                      <Select value={appCategory} onValueChange={setAppCategory}>
+                        <SelectTrigger><SelectValue placeholder="Choose category" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Categories</SelectItem>
+                          {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
+                      <Select onValueChange={(value) => handleChange('b1g1ProductIds', addLimitedProductId(formData.b1g1ProductIds, value, 10))}>
+                        <SelectTrigger><SelectValue placeholder="Pick products" /></SelectTrigger>
+                        <SelectContent>
+                          {filteredAppProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {formData.b1g1ProductIds.map(id => (
+                      <span key={id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
+                        {getProductLabel(id)}
+                        <button type="button" className="text-[#AE7A65]" onClick={() => handleChange('b1g1ProductIds', removeProductId(formData.b1g1ProductIds, id))}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-[#8b6f5e]">{formData.b1g1ProductIds.length}/10 selected</p>
+                </div>
+              )}
+
+              {/* ── COMBO product selection ── */}
               {formData.type === 'COMBO' && (
-                <>
-                  <p><strong>Combo Groups:</strong> {formData.comboGroups.length}</p>
-                  <p><strong>Total Items across groups:</strong> {formData.comboGroups.reduce((acc, g) => acc + g.items.length, 0)}</p>
-                  <p><strong>Combo Price:</strong> ₹{formData.comboPrice}</p>
-                </>
+                <div className="space-y-4 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
+                  <p className="text-xs text-[#8b6f5e]">Set the combo price first, then define how many groups you want and choose a category for each group.</p>
+
+                  <div>
+                    <Label className="text-xs text-gray-500 mb-1 block">Combo price</Label>
+                    <Input
+                      type="number"
+                      placeholder="Set price for the combo"
+                      value={formData.comboPrice}
+                      onChange={e => handleChange('comboPrice', e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs text-gray-500 mb-1 block">Number of groups</Label>
+                    <Input type="number" min={1} placeholder="1" value={formData.comboGroupCount} onChange={e => syncComboGroups(Number(e.target.value || 1))} />
+                  </div>
+
+                  {formData.comboGroups.map((group, gIdx) => (
+                    <div key={gIdx} className="space-y-4 rounded-2xl border border-[#ead6c2] bg-white p-4 shadow-sm">
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <div>
+                          <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
+                          <Select value={group.categoryName || ''} onValueChange={(value) => updateComboGroupCategory(gIdx, value)}>
+                            <SelectTrigger><SelectValue placeholder="Choose category" /></SelectTrigger>
+                            <SelectContent>
+                              {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-gray-500 mb-1 block">Group name</Label>
+                          <Input value={group.groupName} readOnly />
+                        </div>
+                        <div />
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <Label className="text-xs text-gray-500 mb-1 block">Add product</Label>
+                          <Select value="" onValueChange={(value) => addComboProduct(gIdx, value)} disabled={!group.categoryName}>
+                            <SelectTrigger><SelectValue placeholder={group.categoryName ? 'Pick products' : 'Choose a category first'} /></SelectTrigger>
+                            <SelectContent>
+                              {products.filter(p => p.category === group.categoryName).map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {group.items.map(item => (
+                          <div key={item.productId} className="inline-flex items-center gap-2 rounded-full bg-[#f9f3ec] px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
+                            <span>{getProductName(item.productId)}</span>
+                            <button type="button" className="text-[#AE7A65]" onClick={() => removeComboProduct(gIdx, item.productId)}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
+            </div>
+          )}
 
-              <p><strong>Dates:</strong> {formData.startDate} to {formData.endDate}</p>
-              {formData.minOrderValue && <p><strong>Min Order:</strong> ₹{formData.minOrderValue}</p>}
-              <p><strong>Priority:</strong> {formData.priority}</p>
+          {/* ═══════════ Summary Step ═══════════ */}
+          {((currentStep === 2 && !needsStep2) || (currentStep === 3 && needsStep2)) && (
+            <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
+              <h3 className="font-semibold">Summary</h3>
+              <div className="text-sm space-y-2 bg-gray-50 p-4 rounded border">
+                <p><strong>Title:</strong> {formData.title}</p>
+                {formData.description && <p><strong>Description:</strong> {formData.description}</p>}
 
-              <div className="flex gap-3 flex-wrap">
-                {formData.isActive && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Active</span>}
-                {formData.autoApply && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Auto Apply</span>}
-                {formData.isStackable && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">Stackable</span>}
+                {formData.type === 'DISCOUNT' && (
+                  <>
+                    <p><strong>Discount:</strong> {formData.discountValue}%</p>
+                    <p><strong>Scope:</strong> {formData.discountScope}</p>
+                    {formData.discountScope === 'PRODUCT' && <p><strong>Products:</strong> {formData.discountProductIds.length} selected</p>}
+                    {formData.discountScope === 'CATEGORY' && <p><strong>Category:</strong> {formData.discountCategory}</p>}
+                  </>
+                )}
+                {formData.type === 'B1G1' && <p><strong>B1G1 Products:</strong> {formData.b1g1ProductIds.length} selected</p>}
+                {formData.type === 'COMBO' && (
+                  <>
+                    <p><strong>Combo Groups:</strong> {formData.comboGroups.length}</p>
+                    <p><strong>Total Items across groups:</strong> {formData.comboGroups.reduce((acc, g) => acc + g.items.length, 0)}</p>
+                    <p><strong>Combo Price:</strong> ₹{formData.comboPrice}</p>
+                  </>
+                )}
+
+                <p><strong>Dates:</strong> {formData.startDate} to {formData.endDate}</p>
+                {formData.minOrderValue && <p><strong>Min Order:</strong> ₹{formData.minOrderValue}</p>}
+                <p><strong>Priority:</strong> {formData.priority}</p>
+
+                <div className="flex gap-3 flex-wrap">
+                  {formData.isActive && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Active</span>}
+                  {formData.autoApply && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Auto Apply</span>}
+                  {formData.isStackable && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">Stackable</span>}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ═══════════ Navigation Buttons ═══════════ */}
-        <div className="mt-6 flex justify-between pb-8">
-          <div className="flex-1">
-            {currentStep > 1 && (
-              <Button variant="outline" onClick={handleBack}>Back</Button>
-            )}
-          </div>
+          {/* ═══════════ Navigation Buttons ═══════════ */}
+          <div className="mt-6 flex justify-between pb-8">
+            <div className="flex-1">
+              {currentStep > 1 && (
+                <Button variant="outline" onClick={handleBack}>Back</Button>
+              )}
+            </div>
 
-          <div className="flex gap-2">
-            {((needsStep2 && currentStep < 3) || (!needsStep2 && currentStep < 2)) ? (
-              <Button onClick={handleNext}>Next</Button>
-            ) : (
-              <Button onClick={handleSubmit}>
-                Update Offer
-              </Button>
-            )}
+            <div className="flex gap-2">
+              {((needsStep2 && currentStep < 3) || (!needsStep2 && currentStep < 2)) ? (
+                <Button onClick={handleNext}>Next</Button>
+              ) : (
+                <Button onClick={handleSubmit}>
+                  Update Offer
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
 
         </div>
       </main>

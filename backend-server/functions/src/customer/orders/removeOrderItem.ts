@@ -26,7 +26,7 @@ export const removeOrderItem = functions.https.onRequest(async (req: Request, re
 		if (!outletId || !orderId || !itemId) { res.status(400).json({ success: false, message: "Missing required fields: outletId, orderId, and itemId" }); return; }
 
 		const transactionResult = await db.runTransaction(async (tx) => {
-			const orderRef = db.collection("orders").doc(orderId);
+			const orderRef = db.collection("outlets").doc(outletId).collection("orders").doc(orderId);
 			const orderSnap = await tx.get(orderRef);
 			if (!orderSnap.exists) throw new Error("ORDER_NOT_FOUND");
 			const orderData = orderSnap.data() || {};
@@ -41,8 +41,8 @@ export const removeOrderItem = functions.https.onRequest(async (req: Request, re
 				const relatedOrderDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
 				const sessionId = String(orderData.sessionId || "").trim();
 				const tableId = String(orderData.tableId || "").trim();
-				if (sessionId) { const sessionOrdersSnap = await tx.get(db.collection("orders").where("sessionId", "==", sessionId).where("outletId", "==", outletId).limit(50)); sessionOrdersSnap.docs.forEach((doc) => relatedOrderDocs.set(doc.id, doc)); }
-				if (tableId) { const tableOrdersSnap = await tx.get(db.collection("orders").where("tableId", "==", tableId).where("outletId", "==", outletId).limit(50)); tableOrdersSnap.docs.forEach((doc) => relatedOrderDocs.set(doc.id, doc)); }
+				if (sessionId) { const sessionOrdersSnap = await tx.get(db.collection("outlets").doc(outletId).collection("orders").where("sessionId", "==", sessionId).limit(50)); sessionOrdersSnap.docs.forEach((doc) => relatedOrderDocs.set(doc.id, doc)); }
+				if (tableId) { const tableOrdersSnap = await tx.get(db.collection("outlets").doc(outletId).collection("orders").where("tableId", "==", tableId).limit(50)); tableOrdersSnap.docs.forEach((doc) => relatedOrderDocs.set(doc.id, doc)); }
 				if (relatedOrderDocs.size === 0) relatedOrderDocs.set(orderSnap.id, orderSnap as FirebaseFirestore.QueryDocumentSnapshot);
 				const activeTableItemCount = Array.from(relatedOrderDocs.values()).reduce((count, doc) => count + (isOrderActive(doc.data()) ? getOrderItems(doc.data()).length : 0), 0);
 				if (activeTableItemCount <= 1) throw new Error("CANNOT_REMOVE_LAST_ITEM");
@@ -61,7 +61,7 @@ export const removeOrderItem = functions.https.onRequest(async (req: Request, re
 				if (offerId) offerIds.add(offerId);
 			}
 			for (const offerId of offerIds) {
-				const offerSnap = await tx.get(db.collection("offers").doc(offerId));
+				const offerSnap = await tx.get(db.collection("outlets").doc(outletId).collection("offers").doc(offerId));
 				if (offerSnap.exists) {
 					offerDocsById.set(offerId, { id: offerSnap.id, ...(offerSnap.data() || {}) });
 				}

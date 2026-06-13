@@ -34,7 +34,7 @@ export const addTable = functions.https.onRequest(
 			const { outletId, name, capacity, x, y, color, autoGenerateName } = req.body;
 			if (!outletId) { res.status(400).json({ success: false, message: "outletId is required" }); return; }
 
-			const tableRef = db.collection("tables").doc();
+			const tableRef = db.collection("outlets").doc(outletId).collection("tables").doc();
 			const sanitizedName = typeof name === "string" ? name.trim() : "";
 			const shouldAutoGenerate = Boolean(autoGenerateName) || !sanitizedName;
 
@@ -42,7 +42,7 @@ export const addTable = functions.https.onRequest(
 				let resolvedName = sanitizedName;
 
 				if (shouldAutoGenerate) {
-					const tablesSnap = await tx.get(db.collection("tables").where("outletId", "==", outletId));
+					const tablesSnap = await tx.get(db.collection("outlets").doc(outletId).collection("tables"));
 					const usedNumbers = new Set<number>();
 					tablesSnap.docs.forEach((tableDoc) => {
 						const data = tableDoc.data() || {};

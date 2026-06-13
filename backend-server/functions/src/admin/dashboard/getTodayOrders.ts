@@ -22,18 +22,16 @@ export const getTodayOrders = async (outletId: string): Promise<{ total: number;
 	const todayStartTimestamp = Timestamp.fromDate(todayStart);
 
 	const [historySnap, cancelSnap] = await Promise.all([
-		db.collection("ordersHistory").where("archivedAt", ">=", todayStartTimestamp).get(),
-		db.collection("orderCancel").where("cancelledAt", ">=", todayStartTimestamp).get()
+		db.collection("outlets").doc(outletId).collection("orderHistory").where("archivedAt", ">=", todayStartTimestamp).get(),
+		db.collection("outlets").doc(outletId).collection("orderCancel").where("cancelledAt", ">=", todayStartTimestamp).get()
 	]);
 
 	const total = historySnap.docs.filter((doc) => {
 		const data = doc.data();
-		return data.outletId === outletId && resolveLifecycleStatus(data) === "success";
+		return resolveLifecycleStatus(data) === "success";
 	}).length;
 
-	const cancelled = cancelSnap.docs.filter((doc) => {
-		return doc.data().outletId === outletId;
-	}).length;
+	const cancelled = cancelSnap.docs.length;
 
 	return { total, cancelled };
 };

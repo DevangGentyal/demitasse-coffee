@@ -70,7 +70,7 @@ export const createProduct = async (
 ): Promise<string> => {
   try {
     const idToken = await getIdToken()
-    
+
     console.log('📥 CREATE PRODUCT - Request:', { outletId, name: productData.name, price: productData.price })
 
     const response = await fetch(buildCloudFunctionsUrl('adminCreateProduct'), {
@@ -110,7 +110,7 @@ export const updateProduct = async (
 ): Promise<void> => {
   try {
     const idToken = await getIdToken()
-    
+
     console.log('📥 UPDATE PRODUCT - Request:', { outletId, productId, updates: Object.keys(updates) })
 
     const response = await fetch(buildCloudFunctionsUrl('adminUpdateProduct'), {
@@ -121,6 +121,7 @@ export const updateProduct = async (
       },
       body: JSON.stringify({
         productId,
+        outletId,
         ...updates,
       }),
     })
@@ -149,7 +150,7 @@ export const updateProductAvailability = async (
 ): Promise<void> => {
   try {
     const idToken = await getIdToken()
-    
+
     console.log('📥 UPDATE AVAILABILITY - Request:', { outletId, productId, available })
 
     const response = await fetch(buildCloudFunctionsUrl('adminUpdateProduct'), {
@@ -184,7 +185,7 @@ export const updateProductAvailability = async (
 export const deleteProduct = async (outletId: string, productId: string): Promise<void> => {
   try {
     const idToken = await getIdToken()
-    
+
     console.log('📥 DELETE PRODUCT - Request:', { outletId, productId })
 
     const response = await fetch(buildCloudFunctionsUrl('adminDeleteProduct'), {

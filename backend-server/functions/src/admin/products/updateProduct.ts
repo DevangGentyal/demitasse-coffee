@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 
 interface UpdateProductRequest {
 	productId: string;
+	outletId?: string;
 	name?: string;
 	category?: string;
 	subcategory?: string;
@@ -22,6 +23,8 @@ export const updateProduct = functions.https.onRequest(
 		res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE");
 		res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
+
+
 		if (req.method === "OPTIONS") {
 			res.status(200).send("");
 			return;
@@ -31,13 +34,36 @@ export const updateProduct = functions.https.onRequest(
 			const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 			const data: UpdateProductRequest = body;
 
+			console.log(
+				"[updateProduct] body",
+				JSON.stringify(data, null, 2)
+			);
+			console.log(
+				"[updateProduct] outletId",
+				data.outletId
+			);
+
 			if (!data || !data.productId) {
 				res.status(400).json({ success: false, message: "productId is required" });
 				return;
 			}
 
 			const db = admin.firestore();
-			const productRef = db.collection("products").doc(data.productId);
+			let productRef = null;
+			const outletId = data.outletId || "";
+			if (outletId) {
+				productRef = db.collection("outlets").doc(outletId).collection("products").doc(data.productId);
+			} else {
+				const querySnap = await db.collectionGroup("products").where(admin.firestore.FieldPath.documentId(), "==", data.productId).limit(1).get();
+				if (!querySnap.empty) {
+					productRef = querySnap.docs[0].ref;
+				}
+			}
+
+			if (!productRef) {
+				res.status(404).json({ success: false, message: "Product not found" });
+				return;
+			}
 			const productSnap = await productRef.get();
 
 			if (!productSnap.exists) {

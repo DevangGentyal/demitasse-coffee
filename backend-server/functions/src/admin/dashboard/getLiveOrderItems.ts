@@ -7,7 +7,7 @@ export const getLiveOrderItems = async (outletId: string): Promise<{ inProgress:
 	let inProgress = 0;
 	let completed = 0;
 
-	const snap = await db.collection("orders").where("outletId", "==", outletId).get();
+	const snap = await db.collection("outlets").doc(outletId).collection("orders").get();
 
 	snap.docs.forEach((doc) => {
 		const orderData = doc.data();

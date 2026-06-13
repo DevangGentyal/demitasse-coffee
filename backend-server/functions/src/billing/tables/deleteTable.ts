@@ -36,7 +36,7 @@ const deleteDocRefs = async (refs: FirebaseFirestore.DocumentReference[]): Promi
 
 const renumberOutletTables = async (outletId: string): Promise<void> => {
 	if (!outletId) return;
-	const tablesSnap = await db.collection("tables").where("outletId", "==", outletId).get();
+	const tablesSnap = await db.collection("outlets").doc(outletId).collection("tables").get();
 	const numberedTables = tablesSnap.docs
 		.filter((doc) => readString(doc.data()?.name).toLowerCase() !== "counter")
 		.map((doc) => ({ ref: doc.ref, currentName: readString(doc.data()?.name), parsedNumber: extractTableNumber(doc.data()?.name) ?? Number.MAX_SAFE_INTEGER, createdAtMillis: typeof doc.data()?.createdAt?.toMillis === "function" ? doc.data().createdAt.toMillis() : 0 }))
@@ -57,23 +57,32 @@ export const deleteTable = functions.https.onRequest(async (req: Request, res: R
 
 	try {
 		if (req.method !== "DELETE") { res.status(405).json({ success: false, message: "Method not allowed" }); return; }
-		const { tableId } = req.body;
+		const { tableId, outletId: inputOutletId } = req.body;
 		if (!tableId) { res.status(400).json({ success: false, message: "tableId is required" }); return; }
 
-		const tableRef = db.collection("tables").doc(tableId);
-		const tableSnap = await tableRef.get();
-		if (!tableSnap.exists) { res.status(404).json({ success: false, message: "Table not found" }); return; }
+		let tableRef = null;
+		let outletId = inputOutletId || "";
+		if (outletId) {
+			tableRef = db.collection("outlets").doc(outletId).collection("tables").doc(tableId);
+		} else {
+			const querySnap = await db.collectionGroup("tables").where("id", "==", tableId).limit(1).get();
+			if (!querySnap.empty) {
+				tableRef = querySnap.docs[0].ref;
+				outletId = querySnap.docs[0].data()?.outletId || "";
+			}
+		}
 
-		const outletId = readString(tableSnap.data()?.outletId);
-		const sessionsSnap = await db.collection("sessions").where("tableId", "==", tableId).get();
+		if (!tableRef) { res.status(404).json({ success: false, message: "Table not found" }); return; }
+
+		const sessionsSnap = await db.collection("outlets").doc(outletId).collection("sessions").where("tableId", "==", tableId).get();
 		const sessionRefs = sessionsSnap.docs.map((doc) => doc.ref);
 		const sessionIds = sessionsSnap.docs.map((doc) => doc.id);
 
-		const ordersByTableSnap = await db.collection("orders").where("tableId", "==", tableId).get();
+		const ordersByTableSnap = await db.collection("outlets").doc(outletId).collection("orders").where("tableId", "==", tableId).get();
 		const orderRefMap = new Map<string, FirebaseFirestore.DocumentReference>();
 		ordersByTableSnap.docs.forEach((doc) => orderRefMap.set(doc.id, doc.ref));
 		for (const idsBatch of chunk(sessionIds, 10)) {
-			const ordersBySessionSnap = await db.collection("orders").where("sessionId", "in", idsBatch).get();
+			const ordersBySessionSnap = await db.collection("outlets").doc(outletId).collection("orders").where("sessionId", "in", idsBatch).get();
 			ordersBySessionSnap.docs.forEach((doc) => orderRefMap.set(doc.id, doc.ref));
 		}
 

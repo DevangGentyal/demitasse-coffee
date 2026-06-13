@@ -35,11 +35,14 @@ export const billingPrinterConfigCreate = onCall(
 
 		try {
 			const docRef = db
-				.collection("printerConfigs")
+				.collection("outlets")
+				.doc(outletId)
+				.collection("printerSettings")
 				.doc();
 
 			const data: PrinterConfig = {
 				...printerConfig,
+				id: docRef.id,
 				enabled: printerConfig.enabled ?? true,
 				createdAt: admin.firestore.FieldValue.serverTimestamp(),
 				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -65,7 +68,7 @@ export const billingPrinterConfigCreate = onCall(
 export const billingPrinterConfigUpdate = onCall(
 	{ enforceAppCheck: false, cors: true },
 	async (request) => {
-		const { printerId, updates } = request.data;
+		const { printerId, updates, outletId: inputOutletId } = request.data;
 
 		if (!request.auth || !request.auth.uid) {
 			throw new HttpsError("unauthenticated", "User must be authenticated");
@@ -79,9 +82,20 @@ export const billingPrinterConfigUpdate = onCall(
 		}
 
 		try {
-			const docRef = db
-				.collection("printerConfigs")
-				.doc(printerId);
+			let docRef = null;
+			const outletId = inputOutletId || "";
+			if (outletId) {
+				docRef = db.collection("outlets").doc(outletId).collection("printerSettings").doc(printerId);
+			} else {
+				const querySnap = await db.collectionGroup("printerSettings").where("id", "==", printerId).limit(1).get();
+				if (!querySnap.empty) {
+					docRef = querySnap.docs[0].ref;
+				}
+			}
+
+			if (!docRef) {
+				throw new HttpsError("not-found", "Printer config not found");
+			}
 
 			const updateData = {
 				...updates,
@@ -100,6 +114,7 @@ export const billingPrinterConfigUpdate = onCall(
 			};
 		} catch (error: any) {
 			console.error("[billingPrinterConfigUpdate] Error:", error);
+			if (error instanceof HttpsError) throw error;
 			throw new HttpsError("internal", "Failed to update printer config");
 		}
 	}
@@ -108,7 +123,7 @@ export const billingPrinterConfigUpdate = onCall(
 export const billingPrinterConfigDelete = onCall(
 	{ enforceAppCheck: false, cors: true },
 	async (request) => {
-		const { printerId } = request.data;
+		const { printerId, outletId: inputOutletId } = request.data;
 
 		if (!request.auth || !request.auth.uid) {
 			throw new HttpsError("unauthenticated", "User must be authenticated");
@@ -119,10 +134,22 @@ export const billingPrinterConfigDelete = onCall(
 		}
 
 		try {
-			await db
-				.collection("printerConfigs")
-				.doc(printerId)
-				.delete();
+			let docRef = null;
+			const outletId = inputOutletId || "";
+			if (outletId) {
+				docRef = db.collection("outlets").doc(outletId).collection("printerSettings").doc(printerId);
+			} else {
+				const querySnap = await db.collectionGroup("printerSettings").where("id", "==", printerId).limit(1).get();
+				if (!querySnap.empty) {
+					docRef = querySnap.docs[0].ref;
+				}
+			}
+
+			if (!docRef) {
+				throw new HttpsError("not-found", "Printer config not found");
+			}
+
+			await docRef.delete();
 
 			return {
 				success: true,
@@ -130,6 +157,7 @@ export const billingPrinterConfigDelete = onCall(
 			};
 		} catch (error: any) {
 			console.error("[billingPrinterConfigDelete] Error:", error);
+			if (error instanceof HttpsError) throw error;
 			throw new HttpsError("internal", "Failed to delete printer config");
 		}
 	}
