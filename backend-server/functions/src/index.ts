@@ -30,6 +30,7 @@ import { updateCancellationPassword as adminUpdateCancellationPasswordFn } from 
 import { updateOutletRegistrationPassword as adminUpdateOutletRegistrationPasswordFn, upsertSecurityPassword as adminUpsertSecurityPasswordFn, getSecurityPasswordMeta as adminGetSecurityPasswordMetaFn, verifySecurityPassword as adminVerifySecurityPasswordFn } from "./admin/security/securityPasswords";
 import { createOffer as adminCreateOfferFn } from "./admin/offers/create";
 import { updateOffer as adminUpdateOfferFn } from "./admin/offers/update";
+import { deleteOffer as adminDeleteOfferFn } from "./admin/offers/delete";
 import { adminDashboardStats as adminDashboardStatsFn } from "./admin/dashboard/dashboardStats";
 import { readAppData as sharedReadAppDataFn } from "./shared/data/readAppData";
 import { registerOutletOwner as sharedRegisterOutletOwnerFn, upsertUserProfile as sharedUpsertUserProfileFn, registerOutletPending as registerOutletPendingFn, updateOutletStatus as updateOutletStatusFn } from "./shared/data/userProfile";
@@ -82,6 +83,7 @@ export const checkRewards = customerCheckRewardsFn;
 export const redeemReward = customerRedeemRewardFn;
 export const createOffer = adminCreateOfferFn;
 export const updateOffer = adminUpdateOfferFn;
+export const deleteOffer = adminDeleteOfferFn;
 export const addTable = billingAddTableFn;
 export const updateTable = billingUpdateTableFn;
 export const deleteTable = billingDeleteTableFn;
@@ -114,6 +116,7 @@ export const adminGetSecurityPasswordMeta = adminGetSecurityPasswordMetaFn;
 export const adminVerifySecurityPassword = adminVerifySecurityPasswordFn;
 export const adminCreateOffer = adminCreateOfferFn;
 export const adminUpdateOffer = adminUpdateOfferFn;
+export const adminDeleteOffer = adminDeleteOfferFn;
 export const adminDashboardStats = adminDashboardStatsFn;
 export const readAppData = sharedReadAppDataFn;
 export const registerOutletOwner = sharedRegisterOutletOwnerFn;
@@ -151,6 +154,7 @@ export const billingOffersUpdate = billingUpdateOfferFn;
 
 export const offerCreate = adminCreateOfferFn;
 export const offerUpdate = adminUpdateOfferFn;
+export const offerDelete = adminDeleteOfferFn;
 export const loyaltyCheckRewards = customerCheckRewardsFn;
 export const loyaltyRedeemReward = customerRedeemRewardFn;
 

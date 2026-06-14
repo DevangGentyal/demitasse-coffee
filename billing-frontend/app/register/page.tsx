@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { signUp } from '@/lib/firebase/auth'
 import { registerOutletPending, verifySecurityPassword } from '@/lib/services/backendApi'
-import { Lock, Cafe, KeyRound, MapPin, Mail, Phone, Calendar, Eye, EyeOff } from 'lucide-react'
+import { Lock, KeyRound, MapPin, Mail, Phone, Calendar, Eye, EyeOff } from 'lucide-react'
 
 type OpeningHour = { day: string; open: string; close: string }
 

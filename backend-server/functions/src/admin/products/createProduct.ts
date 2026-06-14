@@ -7,10 +7,11 @@ interface CreateProductRequest {
 	category: string;
 	subcategory?: string;
 	price: number;
-	taxPercent: number;
+	taxPercent?: number | null;
 	isVeg?: boolean;
 	imageUrl?: string;
 	customizations?: any[];
+	variations?: any[];
 	sortOrder?: number;
 }
 
@@ -33,7 +34,7 @@ export const createProduct = functions.https.onRequest(
 			}
 
 			const data: CreateProductRequest = req.body;
-			if (!data.outletId || !data.name || !data.category || data.price === undefined || data.taxPercent === undefined) {
+			if (!data.outletId || !data.name || !data.category || data.price === undefined) {
 				res.status(400).json({ success: false, message: "Missing required fields" });
 				return;
 			}
@@ -43,13 +44,15 @@ export const createProduct = functions.https.onRequest(
 				return;
 			}
 
-			if (typeof data.taxPercent !== "number" || data.taxPercent < 0 || data.taxPercent > 100) {
-				res.status(400).json({ success: false, message: "Invalid taxPercent" });
-				return;
+			if (data.taxPercent !== undefined && data.taxPercent !== null) {
+				if (typeof data.taxPercent !== "number" || data.taxPercent < 0 || data.taxPercent > 100) {
+					res.status(400).json({ success: false, message: "Invalid taxPercent" });
+					return;
+				}
 			}
 
 			const productRef = db.collection("outlets").doc(data.outletId).collection("products").doc();
-			await productRef.set({
+			const productDoc: any = {
 				id: productRef.id,
 				outletId: data.outletId,
 				name: data.name.trim(),
@@ -61,10 +64,20 @@ export const createProduct = functions.https.onRequest(
 				isAvailable: true,
 				imageUrl: data.imageUrl || "",
 				customizations: Array.isArray(data.customizations) ? data.customizations : [],
+				variations: Array.isArray(data.variations) ? data.variations : [],
 				sortOrder: data.sortOrder ?? 0,
 				createdAt: new Date(),
 				updatedAt: new Date(),
+			};
+
+			// Remove any keys that have null or undefined values
+			Object.keys(productDoc).forEach(key => {
+				if (productDoc[key] === null || productDoc[key] === undefined) {
+					delete productDoc[key];
+				}
 			});
+
+			await productRef.set(productDoc);
 
 			res.status(201).json({ success: true, message: "Product created successfully", data: { productId: productRef.id } });
 			return;

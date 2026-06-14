@@ -189,3 +189,30 @@ export const updateOffer = async (offerId: string, outletId: string, updates: an
     throw new Error(errorMsg)
   }
 }
+
+// 🔥 DELETE OFFER
+export const deleteOffer = async (offerId: string, outletId: string) => {
+  const token = await auth.currentUser?.getIdToken()
+
+  const res = await fetch(buildCloudFunctionsUrl('adminDeleteOffer'), {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        offerId,
+        outletId,
+      })
+  })
+
+  const result = await res.json().catch(async () => {
+    const text = await res.text().catch(() => '<unreadable>')
+    return { success: false, message: text }
+  })
+
+  if (!res.ok || !result.success) {
+    const errorMsg = result.error ? `${result.message}: ${result.error}` : (result.message || "Failed to delete offer")
+    throw new Error(errorMsg)
+  }
+}

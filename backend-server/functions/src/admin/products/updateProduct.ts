@@ -13,6 +13,7 @@ interface UpdateProductRequest {
 	isVeg?: boolean;
 	imageUrl?: string;
 	customizations?: any[];
+	variations?: any[];
 	sortOrder?: number;
 	isAvailable?: boolean;
 }
@@ -94,6 +95,7 @@ export const updateProduct = functions.https.onRequest(
 			if (data.isVeg !== undefined) updateData.isVeg = !!data.isVeg;
 			if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
 			if (data.customizations !== undefined) updateData.customizations = data.customizations;
+			if (data.variations !== undefined) updateData.variations = data.variations;
 			if (data.sortOrder !== undefined) updateData.sortOrder = Number(data.sortOrder);
 			if (data.isAvailable !== undefined) updateData.isAvailable = String(data.isAvailable) === "true" || data.isAvailable === true;
 

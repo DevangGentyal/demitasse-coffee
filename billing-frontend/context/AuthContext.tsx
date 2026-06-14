@@ -31,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoggedIn(!!firebaseUser);
       
         if (firebaseUser) {
-        let outlet = null;
+        let outlet: string | null = null;
         let status = 'approved';
 
         try {

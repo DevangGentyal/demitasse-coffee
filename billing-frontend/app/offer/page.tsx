@@ -7,7 +7,6 @@ import { Sidebar } from '@/app/components/Sidebar'
 
 import {
   getOffersByOutletId,
-  updateOffer,
   Offer
 } from '@/lib/services/offerService'
 
@@ -48,16 +47,7 @@ export default function OfferPage() {
   if (!isLoggedIn) return null
   if (!outletId) return null
 
-  // TOGGLE ACTIVE
-  const toggleActive = async (offer: Offer) => {
-    await updateOffer(offer.id, outletId, { isActive: !offer.isActive })
 
-    setOffers(prev =>
-      prev.map(o =>
-        o.id === offer.id ? { ...o, isActive: !o.isActive } : o
-      )
-    )
-  }
 
   return (
     <div className="flex h-screen">
@@ -75,13 +65,12 @@ export default function OfferPage() {
         {/* TABLE */}
         <div className="border mt-4 rounded overflow-hidden">
 
-          <div className="grid grid-cols-6 bg-black text-white text-sm font-medium">
+          <div className="grid grid-cols-5 bg-black text-white text-sm font-medium">
             <div className="p-2">Title & Description</div>
             <div className="p-2">Type (Priority)</div>
             <div className="p-2">Offer Value</div>
             <div className="p-2">Badge / Highlight</div>
             <div className="p-2">Dates & Min Order</div>
-            <div className="p-2">Active</div>
           </div>
 
           {offers.map(o => {
@@ -96,7 +85,7 @@ export default function OfferPage() {
             }
 
             return (
-              <div key={o.id} className="grid grid-cols-6 border-t items-center min-h-[60px]">
+              <div key={o.id} className="grid grid-cols-5 border-t items-center min-h-[60px]">
 
                 <div className="p-2">
                   <p className="font-medium text-sm">{o.title}</p>
@@ -123,15 +112,6 @@ export default function OfferPage() {
                     {new Date(o.endDate?.toDate ? o.endDate.toDate() : o.endDate).toLocaleDateString()}
                   </p>
                   <p className="mt-1 text-gray-500">Min Order: ₹{o.minOrderValue ?? 0}</p>
-                </div>
-
-                <div className="p-2">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 cursor-pointer"
-                    checked={o.isActive}
-                    onChange={() => toggleActive(o)}
-                  />
                 </div>
 
               </div>

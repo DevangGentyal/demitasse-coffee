@@ -20,6 +20,18 @@ export interface CustomizationGroup {
   options: CustomizationOption[]
 }
 
+export interface VariationOption {
+  name: string
+  price: number
+}
+
+export interface Variation {
+  label: string
+  min: number
+  max: number
+  options: VariationOption[]
+}
+
 export interface Product {
   id: string
   outletId: string
@@ -28,12 +40,12 @@ export interface Product {
   subcategory?: string
   description?: string
   price: number
-  taxPercent: number
+  taxPercent?: number
   isVeg?: boolean
   imageUrl?: string
   isAvailable: boolean
   customizations?: CustomizationGroup[]
-  variations?: any[]
+  variations?: Variation[]
   sortOrder?: number
   createdAt?: Timestamp
   updatedAt?: Timestamp
@@ -92,8 +104,9 @@ export const createProduct = async (
 
     const data = await parseJsonOrFallback(response)
     invalidateReadCache('products', { outletId })
-    console.log('✅ Product created successfully:', data.id)
-    return data.id
+    const createdId = data.data?.productId || data.id
+    console.log('✅ Product created successfully:', createdId)
+    return createdId
   } catch (error) {
     console.error('❌ Error creating product:', error)
     throw error
@@ -195,6 +208,7 @@ export const deleteProduct = async (outletId: string, productId: string): Promis
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
+        outletId,
         productId,
       }),
     })

@@ -5,11 +5,12 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { Button } from '@/components/ui/button'
-import { Edit2 } from 'lucide-react'
+import { Edit2, Trash2 } from 'lucide-react'
 
 import {
   getOffersByOutletId,
   updateOffer,
+  deleteOffer,
   Offer
 } from '@/services/offers.service'
 
@@ -132,6 +133,22 @@ export default function OffersPage() {
       )
     } catch (error: any) {
       setError(error.message)
+    }
+  }
+
+  const handleDeleteOffer = async (offerId: string) => {
+    if (!window.confirm("Are you sure you want to delete this offer?")) {
+      return
+    }
+
+    try {
+      setDataLoading(true)
+      await deleteOffer(offerId, selectedOutletId)
+      setOffers(prev => prev.filter(o => o.id !== offerId))
+    } catch (error: any) {
+      setError(error.message)
+    } finally {
+      setDataLoading(false)
     }
   }
 
@@ -285,7 +302,7 @@ export default function OffersPage() {
                 />
               </div>
 
-              <div className="p-2">
+              <div className="p-2 flex gap-2">
                 <Button
                   size="sm"
                   onClick={() =>
@@ -295,6 +312,13 @@ export default function OffersPage() {
                   }
                 >
                   <Edit2 size={16} />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => handleDeleteOffer(o.id)}
+                >
+                  <Trash2 size={16} />
                 </Button>
               </div>
             </div>

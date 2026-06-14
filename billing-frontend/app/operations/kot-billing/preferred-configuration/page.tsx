@@ -11,6 +11,8 @@ import { ArrowLeft, Check } from 'lucide-react'
 import { db } from '@/lib/firebase/app'
 import { doc, getDoc, Timestamp } from 'firebase/firestore'
 import { saveKotBillingSettings } from '@/lib/services/kotSettingsService'
+import { auth } from '@/lib/firebase/auth'
+
 
 // ── Types ──────────────────────────────────────────────────────────
 interface KotBillingSettings {

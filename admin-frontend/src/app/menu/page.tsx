@@ -29,9 +29,9 @@ import {
   deleteProduct,
   updateProductAvailability,
   Product,
-  getOutletIdForCurrentUser,
 } from '@/lib/services/productService'
 import { auth } from '@/lib/firebase/auth'
+import { getAllOutlets, AdminOutlet } from '@/services/adminOutlet.service'
 
 const CATEGORIES = ['Appetizers', 'Main Course', 'Desserts', 'Beverages', 'Sides']
 const SUB_CATEGORIES: Record<string, string[]> = {
@@ -52,7 +52,8 @@ export default function MenuPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
-  const [outletId, setOutletId] = useState<string | null>(null)
+  const [selectedOutletId, setSelectedOutletId] = useState<string>('')
+  const [outlets, setOutlets] = useState<AdminOutlet[]>([])
 
   // Modal states
   const [isItemModalOpen, setIsItemModalOpen] = useState(false)
@@ -69,44 +70,54 @@ export default function MenuPage() {
     isVeg: true,
   })
 
-  // Fetch data on mount
+  // Fetch outlets on mount
   useEffect(() => {
-    if (isLoading || !isLoggedIn) {
-      if (isLoading === false && !isLoggedIn) {
-        setDataLoading(false)
-      }
+    if (isLoading) return
+
+    if (!isLoggedIn) {
+      router.push('/login')
       return
     }
 
-    const fetchData = async () => {
+    const fetchOutlets = async () => {
       try {
         setDataLoading(true)
-        
-        // Get current user - should be available since isLoading is false
-        const user = auth.currentUser
-        if (!user) {
-          throw new Error('User not authenticated')
+        const allOutlets = await getAllOutlets()
+        setOutlets(allOutlets)
+        if (allOutlets.length > 0) {
+          setSelectedOutletId(allOutlets[0].id)
+        } else {
+          setDataLoading(false)
         }
+      } catch (error: any) {
+        setEditError(error.message || 'Failed to load outlets.')
+        setDataLoading(false)
+      }
+    }
 
-        // Fetch outlet ID from user document using service function
-        const fetchedOutletId = await getOutletIdForCurrentUser()
-        setOutletId(fetchedOutletId)
-        console.log("OUTLET ID: ", fetchedOutletId);
+    fetchOutlets()
+  }, [isLoading, isLoggedIn, router])
 
-        // Fetch products
-        const fetchedProducts = await getProductsByOutletId(fetchedOutletId)
+  // Fetch products whenever selectedOutletId changes
+  useEffect(() => {
+    if (!selectedOutletId) return
+
+    const loadProducts = async () => {
+      try {
+        setDataLoading(true)
+        const fetchedProducts = await getProductsByOutletId(selectedOutletId)
         setProducts(fetchedProducts)
         setEditError(null)
-      } catch (error) {
-        console.error('Failed to fetch data:', error)
-        setEditError(error instanceof Error ? error.message : 'Failed to load data. Please try again.')
+      } catch (error: any) {
+        console.error('Failed to fetch products:', error)
+        setEditError(error.message || 'Failed to load products. Please try again.')
       } finally {
         setDataLoading(false)
       }
     }
 
-    fetchData()
-  }, [isLoading, isLoggedIn])
+    loadProducts()
+  }, [selectedOutletId])
 
   // Filter products based on search
   const filteredProducts = useMemo(() => {
@@ -147,7 +158,7 @@ export default function MenuPage() {
     )
   }
 
-  if (!outletId) {
+  if (!selectedOutletId) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <p className="text-muted-foreground">Outlet not found</p>
@@ -165,7 +176,7 @@ export default function MenuPage() {
         category: product.category,
         subcategory: product.subcategory || '',
         price: product.price.toString(),
-        taxPercent: product.taxPercent.toString(),
+        taxPercent: (product.taxPercent ?? 0).toString(),
         isAvailable: product.isAvailable,
         imageUrl: product.imageUrl || '',
         isVeg: product.isVeg ?? true,
@@ -202,34 +213,37 @@ export default function MenuPage() {
     }
 
     const priceValue = parseFloat(formData.price)
-    const taxValue = parseFloat(formData.taxPercent)
+    const taxValue = isEditing ? parseFloat(formData.taxPercent) : undefined
 
     if (isNaN(priceValue) || priceValue < 0) {
       setEditError('Please enter a valid price')
       return
     }
 
-    if (isNaN(taxValue) || taxValue < 0) {
+    if (isEditing && (isNaN(taxValue as number) || (taxValue as number) < 0)) {
       setEditError('Please enter a valid tax percentage')
       return
     }
 
     setIsSaving(true)
     try {
-      const productData = {
+      const productData: any = {
         name: formData.name.trim(),
         category: formData.category,
         subcategory: formData.subcategory, // can be empty string
         price: priceValue,
-        taxPercent: taxValue,
         isAvailable: formData.isAvailable,
         imageUrl: formData.imageUrl,
         isVeg: formData.isVeg,
       }
 
+      if (isEditing) {
+        productData.taxPercent = taxValue
+      }
+
       if (isEditing && editingItemId) {
         console.log('📥 Updating product:', { productId: editingItemId, ...productData })
-        await updateProduct(outletId, editingItemId, productData)
+        await updateProduct(selectedOutletId, editingItemId, productData)
         console.log('✅ Product updated successfully')
         setProducts(prev =>
           prev.map(p =>
@@ -240,9 +254,9 @@ export default function MenuPage() {
         )
       } else {
         console.log('📥 Creating new product:', productData)
-        const newId = await createProduct(outletId, productData)
+        const newId = await createProduct(selectedOutletId, productData)
         console.log('✅ Product created successfully:', newId)
-        setProducts(prev => [...prev, { id: newId, outletId, ...productData } as Product])
+        setProducts(prev => [...prev, { id: newId, outletId: selectedOutletId, ...productData } as Product])
       }
 
       setIsItemModalOpen(false)
@@ -259,7 +273,7 @@ export default function MenuPage() {
   const handleAvailabilityChange = async (productId: string, available: boolean) => {
     try {
       console.log('📥 Toggling product availability:', { productId, available })
-      await updateProductAvailability(outletId, productId, available)
+      await updateProductAvailability(selectedOutletId, productId, available)
       console.log('✅ Availability toggle successful')
       setProducts(prev =>
         prev.map(p =>
@@ -279,7 +293,7 @@ export default function MenuPage() {
 
     try {
       console.log('📥 Deleting product:', { productId })
-      await deleteProduct(outletId, productId)
+      await deleteProduct(selectedOutletId, productId)
       console.log('✅ Product deleted successfully')
       setProducts(prev => prev.filter(p => p.id !== productId))
       setEditError(null)
@@ -302,6 +316,24 @@ export default function MenuPage() {
 
           {/* Main Content Card */}
           <div className="border border-border rounded-lg p-6">
+            {/* Select Outlet Dropdown */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium mb-2">
+                Select Outlet
+              </label>
+              <select
+                className="border rounded px-3 py-2 w-full max-w-md bg-background text-foreground"
+                value={selectedOutletId}
+                onChange={(e) => setSelectedOutletId(e.target.value)}
+              >
+                {outlets.map((outlet) => (
+                  <option key={outlet.id} value={outlet.id}>
+                    {outlet.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Error Message */}
             {editError && (
               <div className="mb-4 p-3 bg-destructive/10 border border-destructive text-destructive rounded">
@@ -374,7 +406,7 @@ export default function MenuPage() {
 
                       {/* Tax % */}
                       <div className="p-3 border-r border-border text-foreground text-sm">
-                        {product.taxPercent}%
+                        {product.taxPercent ?? 0}%
                       </div>
 
                       {/* Availability */}
@@ -437,7 +469,7 @@ export default function MenuPage() {
 
       {/* Add/Edit Item Modal */}
       <Dialog open={isItemModalOpen} onOpenChange={setIsItemModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>
               {isEditing ? 'Edit Item' : 'Add New Item'}
@@ -513,17 +545,19 @@ export default function MenuPage() {
             </div>
 
             {/* Tax Percent */}
-            <div className="space-y-2">
-              <Label htmlFor="taxPercent">Tax Percentage</Label>
-              <Input
-                id="taxPercent"
-                type="number"
-                value={formData.taxPercent}
-                onChange={e => handleFormChange('taxPercent', e.target.value)}
-                placeholder="Enter tax percentage"
-                min="0"
-              />
-            </div>
+            {isEditing && (
+              <div className="space-y-2">
+                <Label htmlFor="taxPercent">Tax Percentage</Label>
+                <Input
+                  id="taxPercent"
+                  type="number"
+                  value={formData.taxPercent}
+                  onChange={e => handleFormChange('taxPercent', e.target.value)}
+                  placeholder="Enter tax percentage"
+                  min="0"
+                />
+              </div>
+            )}
 
             {/* Availability */}
             <div className="space-y-2">

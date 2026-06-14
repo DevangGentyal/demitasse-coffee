@@ -31,6 +31,8 @@ import {
   Product,
   CustomizationGroup,
   CustomizationOption,
+  Variation,
+  VariationOption,
 } from '@/lib/services/productService'
 import { Plus, Trash2 } from 'lucide-react'
 import { getOutletIdForCurrentUser } from '@/lib/services/orderService'
@@ -71,6 +73,7 @@ export default function MenuPage() {
     imageUrl: '',
     isVeg: true,
     description: '',
+    variations: [] as Variation[],
   })
 
   // Customization Modal states
@@ -174,11 +177,12 @@ export default function MenuPage() {
         category: product.category,
         subcategory: product.subcategory || '',
         price: product.price.toString(),
-        taxPercent: product.taxPercent.toString(),
+        taxPercent: (product.taxPercent ?? 0).toString(),
         isAvailable: product.isAvailable,
         imageUrl: product.imageUrl || '',
         isVeg: product.isVeg ?? true,
         description: product.description || '',
+        variations: product.variations ? JSON.parse(JSON.stringify(product.variations)) : [],
       })
     } else {
       setIsEditing(false)
@@ -193,6 +197,7 @@ export default function MenuPage() {
         imageUrl: '',
         isVeg: true,
         description: '',
+        variations: [],
       })
     }
     setIsItemModalOpen(true)
@@ -213,30 +218,34 @@ export default function MenuPage() {
     }
 
     const priceValue = parseFloat(formData.price)
-    const taxValue = parseFloat(formData.taxPercent)
+    const taxValue = isEditing ? parseFloat(formData.taxPercent) : undefined
 
     if (isNaN(priceValue) || priceValue < 0) {
       setEditError('Please enter a valid price')
       return
     }
 
-    if (isNaN(taxValue) || taxValue < 0) {
+    if (isEditing && (isNaN(taxValue as number) || (taxValue as number) < 0)) {
       setEditError('Please enter a valid tax percentage')
       return
     }
 
     setIsSaving(true)
     try {
-      const productData = {
+      const productData: any = {
         name: formData.name.trim(),
         category: formData.category,
         subcategory: formData.subcategory, // can be empty string
         price: priceValue,
-        taxPercent: taxValue,
         isAvailable: formData.isAvailable,
         imageUrl: formData.imageUrl,
         isVeg: formData.isVeg,
         description: formData.description,
+        variations: formData.variations,
+      }
+
+      if (isEditing) {
+        productData.taxPercent = taxValue
       }
 
       if (isEditing && editingItemId) {
@@ -424,7 +433,7 @@ export default function MenuPage() {
             {/* Menu Table */}
             <div className="border border-border rounded overflow-hidden">
               {/* Table Header */}
-              <div className="grid grid-cols-8 bg-foreground text-background font-medium text-xs sm:text-sm">
+              <div className="grid grid-cols-9 bg-foreground text-background font-medium text-xs sm:text-sm">
                 <div className="p-3 border-r border-muted-foreground/30">Item Name</div>
                 <div className="p-3 border-r border-muted-foreground/30">Category</div>
                 <div className="p-3 border-r border-muted-foreground/30">Sub-Category</div>
@@ -432,6 +441,7 @@ export default function MenuPage() {
                 <div className="p-3 border-r border-muted-foreground/30 text-center">Tax %</div>
                 <div className="p-3 border-r border-muted-foreground/30 text-center">Available</div>
                 <div className="p-3 border-r border-muted-foreground/30 text-center">Customizations</div>
+                <div className="p-3 border-r border-muted-foreground/30 text-center">Variations</div>
                 <div className="p-3 text-center">Actions</div>
               </div>
 
@@ -441,7 +451,7 @@ export default function MenuPage() {
                   filteredProducts.map(product => (
                     <div
                       key={product.id}
-                      className="grid grid-cols-8 items-center min-h-[60px] hover:bg-muted/30 transition-colors"
+                      className="grid grid-cols-9 items-center min-h-[60px] hover:bg-muted/30 transition-colors"
                     >
                       {/* Item Name */}
                       <div className="p-3 border-r border-border">
@@ -467,7 +477,7 @@ export default function MenuPage() {
 
                       {/* Tax % */}
                       <div className="p-3 border-r border-border text-foreground text-sm text-center">
-                        {product.taxPercent}%
+                        {product.taxPercent ?? 0}%
                       </div>
 
                       {/* Availability */}
@@ -515,6 +525,15 @@ export default function MenuPage() {
                         </div>
                       </div>
 
+                      {/* Variations */}
+                      <div className="p-3 border-r border-border text-center text-foreground text-sm">
+                        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight block mb-1">
+                          {!product.variations || product.variations.length === 0 
+                            ? "No variations" 
+                            : `${product.variations.length} group${product.variations.length > 1 ? 's' : ''}`}
+                        </span>
+                      </div>
+
                       {/* Actions */}
                       <div className="p-3 flex gap-3 justify-center">
                         <button
@@ -549,7 +568,7 @@ export default function MenuPage() {
 
       {/* Add/Edit Item Modal */}
       <Dialog open={isItemModalOpen} onOpenChange={setIsItemModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>
               {isEditing ? 'Edit Item' : 'Add New Item'}
@@ -640,17 +659,19 @@ export default function MenuPage() {
               </div>
 
               {/* Tax Percent */}
-              <div className="space-y-2">
-                <Label htmlFor="taxPercent">Tax %</Label>
-                <Input
-                  id="taxPercent"
-                  type="number"
-                  value={formData.taxPercent}
-                  onChange={e => handleFormChange('taxPercent', e.target.value)}
-                  placeholder="0"
-                  min="0"
-                />
-              </div>
+              {isEditing && (
+                <div className="space-y-2">
+                  <Label htmlFor="taxPercent">Tax %</Label>
+                  <Input
+                    id="taxPercent"
+                    type="number"
+                    value={formData.taxPercent}
+                    onChange={e => handleFormChange('taxPercent', e.target.value)}
+                    placeholder="0"
+                    min="0"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Availability */}
@@ -721,6 +742,151 @@ export default function MenuPage() {
                 * Will support multiple images soon
               </p>
             </div>
+
+            {/* Variations Section */}
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex justify-between items-center">
+                <Label className="font-semibold text-sm">Product Variations</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const newVariations = [...formData.variations, { label: '', min: 1, max: 1, options: [] }]
+                    handleFormChange('variations', newVariations)
+                  }}
+                  className="h-8 text-xs"
+                >
+                  + Add Variation Group
+                </Button>
+              </div>
+
+              <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1">
+                {formData.variations.map((group, gIdx) => (
+                  <div key={gIdx} className="p-3 bg-muted/30 rounded-lg border border-border space-y-3 relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newVariations = formData.variations.filter((_, i) => i !== gIdx)
+                        handleFormChange('variations', newVariations)
+                      }}
+                      className="absolute right-2 top-2 text-destructive hover:text-destructive/70 text-xs"
+                    >
+                      Remove Group
+                    </button>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Group Label (e.g. Bread Type)</Label>
+                      <Input
+                        type="text"
+                        value={group.label}
+                        onChange={e => {
+                          const updated = [...formData.variations]
+                          updated[gIdx].label = e.target.value
+                          handleFormChange('variations', updated)
+                        }}
+                        placeholder="Variation Label"
+                        className="h-8 text-xs"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] font-semibold">Min Selection</Label>
+                        <Input
+                          type="number"
+                          value={group.min}
+                          onChange={e => {
+                            const updated = [...formData.variations]
+                            updated[gIdx].min = parseInt(e.target.value) || 0
+                            handleFormChange('variations', updated)
+                          }}
+                          min="0"
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] font-semibold">Max Selection</Label>
+                        <Input
+                          type="number"
+                          value={group.max}
+                          onChange={e => {
+                            const updated = [...formData.variations]
+                            updated[gIdx].max = parseInt(e.target.value) || 1
+                            handleFormChange('variations', updated)
+                          }}
+                          min="1"
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Options list inside group */}
+                    <div className="space-y-2 pt-2 border-t">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase">Options</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const updated = [...formData.variations]
+                            updated[gIdx].options.push({ name: '', price: 0 })
+                            handleFormChange('variations', updated)
+                          }}
+                          className="h-6 px-2 text-[10px]"
+                        >
+                          + Add Option
+                        </Button>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {group.options.map((opt, oIdx) => (
+                          <div key={oIdx} className="flex gap-2 items-center">
+                            <Input
+                              type="text"
+                              value={opt.name}
+                              onChange={e => {
+                                const updated = [...formData.variations]
+                                updated[gIdx].options[oIdx].name = e.target.value
+                                handleFormChange('variations', updated)
+                              }}
+                              placeholder="Option Name (e.g. Sourdough)"
+                              className="h-8 text-xs flex-1"
+                            />
+                            <div className="relative w-20">
+                              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">₹</span>
+                              <Input
+                                type="number"
+                                value={opt.price}
+                                onChange={e => {
+                                  const updated = [...formData.variations]
+                                  updated[gIdx].options[oIdx].price = parseFloat(e.target.value) || 0
+                                  handleFormChange('variations', updated)
+                                }}
+                                placeholder="0"
+                                className="h-8 pl-4 pr-1 text-xs text-right w-full"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [...formData.variations]
+                                updated[gIdx].options = updated[gIdx].options.filter((_, i) => i !== oIdx)
+                                handleFormChange('variations', updated)
+                              }}
+                              className="text-destructive text-xs hover:text-destructive/70 px-1"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsItemModalOpen(false)}>
@@ -737,7 +903,7 @@ export default function MenuPage() {
         </DialogContent>
       </Dialog>
       <Dialog open={isCustModalOpen} onOpenChange={setIsCustModalOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden flex flex-col" aria-describedby={undefined}>
           <DialogHeader className="px-6 pt-6 mb-2">
             <DialogTitle className="text-xl flex items-center gap-2">
               <span className="text-muted-foreground font-normal">Customizations:</span> 

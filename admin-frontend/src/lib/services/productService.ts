@@ -10,7 +10,7 @@ export interface Product {
   category: string
   subcategory?: string
   price: number
-  taxPercent: number
+  taxPercent?: number
   isVeg?: boolean
   imageUrl?: string
   isAvailable: boolean
@@ -93,8 +93,9 @@ export const createProduct = async (
     }
 
     const data = await parseJsonOrFallback(response)
-    console.log('✅ Product created successfully:', data.id)
-    return data.id
+    const createdId = data.data?.productId || data.id
+    console.log('✅ Product created successfully:', createdId)
+    return createdId
   } catch (error) {
     console.error('❌ Error creating product:', error)
     throw error

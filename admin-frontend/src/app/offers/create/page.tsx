@@ -85,6 +85,21 @@ export default function CreateOfferPage() {
     fetchData()
   }, [isLoading, isLoggedIn, router, searchParams])
 
+  // Auto-sync combo groups if empty when COMBO type is selected
+  useEffect(() => {
+    if (formData.type === 'COMBO' && formData.comboGroups.length === 0) {
+      const count = Number(formData.comboGroupCount) || 1
+      const nextGroups = Array.from({ length: count }, (_, index) => ({
+        categoryName: '',
+        groupName: `Group ${index + 1}`,
+        isFree: false,
+        selectionType: 'ONE' as const,
+        items: [],
+      }))
+      setFormData(prev => ({ ...prev, comboGroups: nextGroups }))
+    }
+  }, [formData.type, formData.comboGroupCount, formData.comboGroups.length])
+
   if (isLoading || dataLoading) return null
   if (!isLoggedIn) return null
   if (!outletId) return null
@@ -156,6 +171,16 @@ export default function CreateOfferPage() {
         }
         if (formData.comboPrice === '' || Number(formData.comboPrice) < 0) {
           setError("Combo Price is required and must be >= 0")
+          return
+        }
+        let totalTrueValue = 0
+        for (const group of formData.comboGroups) {
+          for (const item of group.items) {
+            totalTrueValue += getProductPrice(item.productId)
+          }
+        }
+        if (Number(formData.comboPrice) > totalTrueValue) {
+          setError(`Combo Price (₹${formData.comboPrice}) cannot be greater than the total value of the products (₹${totalTrueValue})`)
           return
         }
       }
@@ -243,6 +268,11 @@ export default function CreateOfferPage() {
   const getProductName = (productId: string) => {
     const product = products.find(p => p.id === productId)
     return product ? product.name : productId
+  }
+
+  const getProductPrice = (productId: string) => {
+    const product = products.find(p => p.id === productId)
+    return product ? product.price : 0
   }
 
   const addUniqueProductId = (list: string[], productId: string) => (
@@ -559,7 +589,7 @@ export default function CreateOfferPage() {
                             </SelectTrigger>
                             <SelectContent>
                               {products.filter(p => p.category === group.categoryName).map(p => (
-                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                <SelectItem key={p.id} value={p.id}>{p.name} (₹{p.price})</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -569,7 +599,7 @@ export default function CreateOfferPage() {
                       <div className="flex flex-wrap gap-2">
                         {group.items.map(item => (
                           <div key={item.productId} className="inline-flex items-center gap-2 rounded-full bg-[#f9f3ec] px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]">
-                            <span>{getProductName(item.productId)}</span>
+                            <span>{getProductName(item.productId)} (₹{getProductPrice(item.productId)})</span>
                             <button type="button" className="text-[#AE7A65]" onClick={() => removeComboProduct(gIdx, item.productId)}>×</button>
                           </div>
                         ))}
