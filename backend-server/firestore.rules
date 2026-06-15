@@ -100,6 +100,10 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if false;
     }
+    match /outlets/{outletId}/offers/{offerId} {
+      allow read: if isSignedIn();
+      allow write: if false;  // All writes via backend only
+    }
 
     match /{path=**}/tables/{id} {
       allow read: if isSignedIn();

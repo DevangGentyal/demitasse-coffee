@@ -69,56 +69,58 @@ export default function UpdatePasswordModal({ onClose, onSuccess }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[420px] bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl"
+        className="w-full max-w-sm bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         style={{ animation: "slideUp 0.3s ease-out" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5 sm:hidden" />
+        {/* Scrollable content */}
+        <div className="overflow-y-auto px-6 py-6 flex-1">
+          <h2 className="text-lg font-bold text-[#3e2723] text-center mb-1">
+            Update Password
+          </h2>
+          <p className="text-sm text-gray-500 text-center mb-5">
+            Enter your current and new password
+          </p>
 
-        <h2 className="text-lg font-bold text-[#3e2723] text-center mb-1">
-          Update Password
-        </h2>
-        <p className="text-sm text-gray-500 text-center mb-5">
-          Enter your current and new password
-        </p>
+          {error && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">
+              <span className="text-base leading-none mt-0.5">⚠️</span>
+              <span className="flex-1">{error}</span>
+            </div>
+          )}
 
-        {error && (
-          <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">
-            <span className="text-base leading-none mt-0.5">⚠️</span>
-            <span className="flex-1">{error}</span>
+          <div className="space-y-3 mb-5">
+            <input
+              type="password"
+              value={currentPw}
+              onChange={(e) => { setCurrentPw(e.target.value); setError(""); }}
+              placeholder="Current password"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513] bg-[#faf6f1]"
+            />
+            <input
+              type="password"
+              value={newPw}
+              onChange={(e) => { setNewPw(e.target.value); setError(""); }}
+              placeholder="New password (min 6 chars)"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513] bg-[#faf6f1]"
+            />
+            <input
+              type="password"
+              value={confirmPw}
+              onChange={(e) => { setConfirmPw(e.target.value); setError(""); }}
+              placeholder="Confirm new password"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513] bg-[#faf6f1]"
+            />
           </div>
-        )}
-
-        <div className="space-y-3 mb-5">
-          <input
-            type="password"
-            value={currentPw}
-            onChange={(e) => { setCurrentPw(e.target.value); setError(""); }}
-            placeholder="Current password"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513] bg-[#faf6f1]"
-          />
-          <input
-            type="password"
-            value={newPw}
-            onChange={(e) => { setNewPw(e.target.value); setError(""); }}
-            placeholder="New password (min 6 chars)"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513] bg-[#faf6f1]"
-          />
-          <input
-            type="password"
-            value={confirmPw}
-            onChange={(e) => { setConfirmPw(e.target.value); setError(""); }}
-            placeholder="Confirm new password"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513] bg-[#faf6f1]"
-          />
         </div>
 
-        <div className="flex gap-3">
+        {/* Buttons at bottom */}
+        <div className="border-t border-gray-100 px-6 py-6 flex gap-3 bg-white">
           <button
             onClick={onClose}
             disabled={loading}

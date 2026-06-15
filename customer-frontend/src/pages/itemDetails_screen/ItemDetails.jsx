@@ -148,7 +148,7 @@ export default function ItemDetails() {
 
       <ItemImage image={product.image} />
 
-      <div className="mx-4 mt-2 bg-white rounded-2xl p-4 max-h-[52vh] overflow-y-auto">
+      <div className="mx-4 mt-6 bg-white rounded-2xl p-4 max-h-[52vh] overflow-y-auto">
 
         <div className="flex justify-between items-start">
 
