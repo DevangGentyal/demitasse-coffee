@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getAuth } from "firebase-admin/auth";
+import { FieldValue } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
 
 const db = admin.firestore();
@@ -33,7 +34,7 @@ export const customerUpdateUserProfile = onCall(
 			const userRef = db.collection("users").doc(uid);
 			const updatePayload: any = {
 				...updates,
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: FieldValue.serverTimestamp(),
 			};
 
 			// Add displayName to Firestore if provided

@@ -89,23 +89,39 @@ export function CartProvider({ children }) {
     }
 
     // ✅ NEW: Check for auto-applied registration offer ONLY over normal items
+    console.log("[OFFERS] User Passed To Registration Offer:", user);
+    console.log("[TRACE] allOffers passed to getAutoRegistrationOffer:", offers);
     const regOffer = getAutoRegistrationOffer(offers, user);
     
     // Check if normal (non-combo, non-B1G1, non-free) items exist in cart
     const normalItemsCount = finalItems.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1).length;
     
-    if (regOffer && normalItemsCount > 0 && !user.hasPlacedFirstOrder) {
+    console.log("[CART] Normal Items Count:", normalItemsCount);
+    console.log("[CART] User hasPlacedFirstOrder:", user?.hasPlacedFirstOrder);
+    console.log("[CART] Registration Offer Available:", !!regOffer);
+
+    if (regOffer && normalItemsCount > 0 && user?.hasPlacedFirstOrder === false) {
+      console.log("[CART] Auto Applying Offer:", regOffer);
+      // discountValue is nested at config.discount.discountValue in Firestore;
+      // fall back to root-level fields as a safety net
+      const resolvedDiscountValue =
+        regOffer.config?.discount?.discountValue ??
+        regOffer.config?.discountValue ??
+        regOffer.discountValue ??
+        0;
       setAutoAppliedOffer({
         offerId: regOffer.id,
         offerType: regOffer.discountType || "PERCENT",
-        discountValue: regOffer.discountValue || 0,
+        discountValue: Number(resolvedDiscountValue) || 0,
         autoApplied: true,
         title: regOffer.title || "First Order Offer"
       });
     } else {
+      console.log("[CART] NOT applying auto offer. Conditions failed.");
       setAutoAppliedOffer(null);
     }
   }, [cart, couponCodes, offers, fullUser, products, appliedOffers, revalidate]);
+
 
   // ✅ ADD TO CART
   const addToCart = (product) => {

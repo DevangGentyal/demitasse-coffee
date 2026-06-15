@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";   // ✅ ADD THIS
 import { getFirestore } from "firebase/firestore";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -16,3 +17,10 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
+export const functions = getFunctions(app);
+
+// Connect to the Functions emulator when running locally (dev mode).
+// This must happen once at module load, before any httpsCallable is invoked.
+if (import.meta.env.DEV) {
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+}

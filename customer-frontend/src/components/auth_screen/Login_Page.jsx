@@ -183,10 +183,24 @@ const Login_Page = ({ setShowOutletPopup }) => {
     } catch (error) {
       console.error(error);
       // If the account was created with Google, guide them
-      if (error.code === "auth/invalid-credential" || error.code === "auth/user-not-found") {
+      if (
+        error.code === "auth/invalid-credential" ||
+        error.code === "auth/user-not-found" ||
+        error.code === "auth/wrong-password"
+      ) {
         try {
           const methods = await fetchSignInMethodsForEmail(auth, formData.email);
           if (methods.includes("google.com")) {
+            setErrorMsg("This email is linked to Google. Please use 'Continue with Google' to login.");
+            setLoading(false);
+            return;
+          }
+        } catch (_) { /* ignore */ }
+
+        try {
+          const response = await fetch(`${API_BASE}/readAppData?resource=checkGoogleUser&email=${encodeURIComponent(formData.email)}`);
+          const result = await response.json().catch(() => ({}));
+          if (result?.success && result?.data?.[0]?.isGoogle) {
             setErrorMsg("This email is linked to Google. Please use 'Continue with Google' to login.");
             setLoading(false);
             return;

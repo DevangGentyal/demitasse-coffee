@@ -135,6 +135,10 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 		}
 		const offerDocsById = await getOfferDocs(uniqueOfferIds, String(outletId));
+		if (decoded && decoded.uid) {
+			const { validateRegistrationEligibility } = await import('../../shared/utilities/firestoreCatalog.js');
+			await validateRegistrationEligibility(decoded.uid, offerDocsById);
+		}
 
 		// ── Apply offer to each item individually ──────────────────────────
 		const itemsWithPricing = applyOfferPricingByGroup(normalisedItems, offerDocsById as any, applyTax);
@@ -206,26 +210,36 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			const existingData = existingSnap.data() || {};
 			const alreadyCounted = existingSnap.exists && existingData.offerUsageCounted === true;
 
-			if (consumedOfferUsages.length > 0 && !alreadyCounted) {
+			if (!alreadyCounted) {
 				const userRef = db.collection('users').doc(decoded.uid);
 				const userSnap = await tx.get(userRef);
 				const userData = userSnap.data() || {};
-				const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
-				for (const usage of consumedOfferUsages) {
-					const offerSnap = await tx.get(db.collection('outlets').doc(String(outletId)).collection('offers').doc(usage.offerId));
-					offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
-				}
-				const violation = findUsageLimitViolation(
-					consumedOfferUsages,
-					getAppliedOfferUsageCounts(userData.appliedOffers),
-					offersById,
-				);
-				if (violation) throw new Error('OFFER_USAGE_LIMIT_REACHED');
+				const userUpdates: Record<string, any> = {};
 
-				tx.set(userRef, {
-					appliedOffers: mergeAppliedOfferUsages(userData.appliedOffers, consumedOfferUsages),
-					updatedAt: FieldValue.serverTimestamp(),
-				}, { merge: true });
+				if (userData.hasPlacedFirstOrder === false) {
+					userUpdates.hasPlacedFirstOrder = true;
+				}
+
+				if (consumedOfferUsages.length > 0) {
+					const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
+					for (const usage of consumedOfferUsages) {
+						const offerSnap = await tx.get(db.collection('outlets').doc(String(outletId)).collection('offers').doc(usage.offerId));
+						offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
+					}
+					const violation = findUsageLimitViolation(
+						consumedOfferUsages,
+						getAppliedOfferUsageCounts(userData.appliedOffers),
+						offersById,
+					);
+					if (violation) throw new Error('OFFER_USAGE_LIMIT_REACHED');
+
+					userUpdates.appliedOffers = mergeAppliedOfferUsages(userData.appliedOffers, consumedOfferUsages);
+				}
+
+				if (Object.keys(userUpdates).length > 0) {
+					userUpdates.updatedAt = FieldValue.serverTimestamp();
+					tx.set(userRef, userUpdates, { merge: true });
+				}
 			}
 
 			tx.set(orderRef, {

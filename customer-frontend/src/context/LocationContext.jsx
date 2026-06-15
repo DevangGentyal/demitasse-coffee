@@ -118,7 +118,7 @@ export function LocationProvider({ children }) {
             }
 
             try {
-                const tableDocs = await getTableById(storedTableId);
+                const tableDocs = await getTableById(storedTableId, storedOutletId);
                 const tableData = tableDocs[0] || null;
                 if (cancelled) return;
 
@@ -207,14 +207,14 @@ export function LocationProvider({ children }) {
     // (clears `activeSessionId` or marks `occupied=false`), clear the client's stored
     // outlet/table/session so they must re-select.
     useEffect(() => {
-        if (!selectedTableId) return undefined;
+        if (!selectedTableId || !selectedSessionId) return undefined;
         const pollToken = ++sessionPollTokenRef.current;
         let clearTimer = null;
         let cancelled = false;
 
         const pollTable = async () => {
             try {
-                const tableDocs = await getTableById(selectedTableId);
+                const tableDocs = await getTableById(selectedTableId, selectedOutlet);
                 if (cancelled || pollToken !== sessionPollTokenRef.current) return;
 
                 const data = tableDocs[0] || null;

@@ -4,6 +4,7 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { useLocationContext } from "../../context/LocationContext";
 import { useAuth } from "../../context/AuthContext";
+import { getOrdersBySession } from "../../lib/backendApi";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -533,45 +534,67 @@ const Orders = () => {
   const viewerId = String(user?.uid || selectedTableOwnerId || "");
   const currentSessionId = String(selectedSessionId || "").trim();
 
-  // ── Fetch orders from Firestore using sessionId ────────────────────────────────
+  // ── Fetch orders from Firestore or backend depending on guest status ───────────
   useEffect(() => {
     if (!selectedOutlet || !selectedSessionId) {
       setOrderGroups([]);
       return undefined;
     }
 
+    const userType = localStorage.getItem("userType");
+    const isGuest = !user && userType === "guest";
+
     setIsLoading(true);
-    const q = query(
-      collection(db, `outlets/${selectedOutlet}/orders`),
-      where("sessionId", "==", selectedSessionId)
-    );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const orders = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          orders.push({
-            id: docSnap.id,
-            ...data,
+    if (isGuest) {
+      // Guest: poll the backend endpoint every 5 seconds
+      const fetchGuestOrders = async () => {
+        try {
+          const orders = await getOrdersBySession(selectedOutlet, selectedSessionId, selectedTableId);
+          orders.sort((a, b) => toDate(a.createdAt) - toDate(b.createdAt));
+          setOrderGroups(orders);
+        } catch (err) {
+          console.error("[Orders] Error fetching guest orders:", err);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      fetchGuestOrders();
+      const intervalId = setInterval(fetchGuestOrders, 5000);
+      return () => clearInterval(intervalId);
+    } else {
+      // Registered customer: use firestore realtime listener
+      const q = query(
+        collection(db, `outlets/${selectedOutlet}/orders`),
+        where("sessionId", "==", selectedSessionId)
+      );
+
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const orders = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            orders.push({
+              id: docSnap.id,
+              ...data,
+            });
           });
-        });
 
-        // Sort orders locally by creation time
-        orders.sort((a, b) => toDate(a.createdAt) - toDate(b.createdAt));
+          orders.sort((a, b) => toDate(a.createdAt) - toDate(b.createdAt));
+          setOrderGroups(orders);
+          setIsLoading(false);
+        },
+        (err) => {
+          console.error("[Orders] Error listening to orders:", err);
+          setIsLoading(false);
+        }
+      );
 
-        setOrderGroups(orders);
-        setIsLoading(false);
-      },
-      (err) => {
-        console.error("[Orders] Error listening to orders:", err);
-        setIsLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [selectedOutlet, selectedSessionId]);
+      return () => unsubscribe();
+    }
+  }, [selectedOutlet, selectedSessionId, selectedTableId, user]);
 
   // Reset bill modal when table changes
   useEffect(() => {

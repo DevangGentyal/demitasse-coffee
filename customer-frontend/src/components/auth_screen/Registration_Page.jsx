@@ -137,6 +137,12 @@ const RegisterForm = () => {
     }
   };
 
+  // ── Guest login ──────────────────────────────────────────────────────────
+  const handleGuestLogin = () => {
+    localStorage.setItem("userType", "guest");
+    navigate("/select-outlet");
+  };
+
   return (
     <div className="w-full max-w-md bg-white shadow-xl rounded-2xl p-8">
       <h2 className="text-3xl font-bold text-center text-[#3e2723] mb-6">
@@ -214,6 +220,15 @@ const RegisterForm = () => {
             className="w-5 h-5"
           />
           Continue with Google
+        </button>
+
+        {/* Guest */}
+        <button
+          type="button"
+          onClick={handleGuestLogin}
+          className="w-full bg-[#f3f4f6] text-[#3e2723] py-3 rounded-xl font-semibold hover:bg-gray-200 transition duration-300 shadow-sm"
+        >
+          Continue as Guest
         </button>
 
         <p className="text-center text-sm text-gray-600 mt-4">

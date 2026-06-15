@@ -71,13 +71,49 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			}
 		}
 		case 'offers': {
+			let totalOrders = 0;
+			if (uid) {
+				try {
+					const userSnap = await db.collection('users').doc(uid).get();
+					const userOutletId = userSnap.data()?.outletId || userSnap.data()?.outletID;
+					if (userOutletId) {
+						const ordersQuery = await db.collection('outlets').doc(userOutletId).collection('orders').where('customerId', '==', uid).count().get();
+						totalOrders = ordersQuery.data().count;
+					}
+				} catch (err) {
+					console.error("Failed to fetch totalOrders for offers:", err);
+				}
+			}
+
+			let offers: any[] = [];
 			const outletId = readString(params.get('outletId'))
 			if (outletId) {
-				const snapshot = await db.collection('outlets').doc(outletId).collection('offers').get()
-				return snapshot.docs.map(mapDoc)
+				const [outletOffersSnap, globalOffersSnap] = await Promise.all([
+					db.collection('outlets').doc(outletId).collection('offers').get(),
+					db.collection('offers').get()
+				])
+				offers = [
+					...globalOffersSnap.docs.map(mapDoc),
+					...outletOffersSnap.docs.map(mapDoc)
+				]
+			} else {
+				const querySnap = await db.collectionGroup('offers').get()
+				offers = querySnap.docs.map(mapDoc)
 			}
-			const querySnap = await db.collectionGroup('offers').get()
-			return querySnap.docs.map(mapDoc)
+
+			// Backend Enforcement: Hide registration offers if user has already placed orders
+			return offers.filter(offer => {
+				const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
+				const isRegistration = offer.userRules?.firstOrderOnly === true ||
+					offer.applicableFor === "new_user" ||
+					["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
+					offer.category === "registration";
+
+				if (isRegistration && totalOrders > 0) {
+					return false;
+				}
+				return true;
+			});
 		}
 		case 'offerById': {
 			const offerId = readString(params.get('offerId'))
@@ -105,8 +141,9 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 				const snap = await db.collection('outlets').doc(outletId).collection('tables').doc(tableId).get()
 				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
 			}
-			const querySnap = await db.collectionGroup('tables').where(FieldPath.documentId(), '==', tableId).limit(1).get()
-			return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
+			const querySnap = await db.collectionGroup('tables').get()
+			const doc = querySnap.docs.find((d) => d.id === tableId)
+			return doc ? [{ id: doc.id, ...doc.data() }] : []
 		}
 		case 'orders': {
 			const outletId = readString(params.get('outletId'))
@@ -125,10 +162,47 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			const querySnap = await db.collectionGroup('orders').where(FieldPath.documentId(), '==', orderId).limit(1).get()
 			return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
 		}
+		case 'sessionOrders': {
+			const outletId = readString(params.get('outletId'))
+			const tableId = readString(params.get('tableId'))
+			const sessionId = readString(params.get('sessionId'))
+
+			if (!outletId) throw new Error('outletId is required')
+			if (!tableId) throw new Error('tableId is required')
+			if (!sessionId) throw new Error('sessionId is required')
+
+			const tableRef = db.collection('outlets').doc(outletId).collection('tables').doc(tableId)
+			const tableSnap = await tableRef.get()
+			if (!tableSnap.exists) {
+				throw new Error('Table not found under outlet')
+			}
+			const tableData = tableSnap.data() || {}
+
+			const activeSessionId = readString(tableData.activeSessionId)
+			if (activeSessionId !== sessionId) {
+				throw new Error('Session is not active on this table')
+			}
+
+			const snapshot = await db.collection('outlets').doc(outletId).collection('orders')
+				.where('sessionId', '==', sessionId)
+				.get()
+			return snapshot.docs.map(mapDoc)
+		}
+		case 'checkGoogleUser': {
+			const email = readString(params.get('email'))
+			if (!email) throw new Error('email is required')
+			try {
+				const userRecord = await admin.auth().getUserByEmail(email)
+				const isGoogle = userRecord.providerData.some((p) => p.providerId === 'google.com')
+				return [{ isGoogle }]
+			} catch (e) {
+				return [{ isGoogle: false }]
+			}
+		}
 		case 'ordersHistory': {
 			const ownerId = readString(params.get('ownerId'))
 			if (!ownerId) throw new Error('ownerId is required')
-			const querySnap = await db.collectionGroup('orderHistory').where('ownerId', '==', ownerId).get()
+			const querySnap = await db.collection('ordersHistory').where('ownerId', '==', ownerId).get()
 			return querySnap.docs.map(mapDoc)
 		}
 		case 'failedPayments': {
@@ -170,7 +244,13 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			if (snap.exists) {
 				const data = snap.data() || {}
 				const resolvedOutletId = data.outletId || data.outletID || ''
-				return [{ id: snap.id, ...data, outletId: resolvedOutletId, outletID: resolvedOutletId }]
+				
+				const ordersQuery = resolvedOutletId 
+					? await db.collection('outlets').doc(resolvedOutletId).collection('orders').where('customerId', '==', uid).count().get()
+					: { data: () => ({ count: 0 }) };
+				const totalOrders = ordersQuery.data().count
+				
+				return [{ id: snap.id, ...data, outletId: resolvedOutletId, outletID: resolvedOutletId, totalOrders }]
 			}
 			snap = await db.collection('outlets').doc(uid).get()
 			if (snap.exists) {
@@ -212,11 +292,27 @@ export const readAppData = functions.https.onRequest(async (req: Request, res: R
 	}
 
 	try {
-		const decoded = await verifyToken(req)
 		const resource = readString(req.query.resource)
 		if (!resource) {
 			res.status(400).json({ success: false, message: 'resource is required' })
 			return
+		}
+
+		const publicResources = ['outlets', 'outletById', 'tables', 'tableById', 'products', 'productById', 'offers', 'offerById', 'sessionOrders', 'checkGoogleUser']
+		const isPublic = publicResources.includes(resource)
+
+		let decoded: admin.auth.DecodedIdToken | null = null
+		if (!isPublic) {
+			decoded = await verifyToken(req)
+		} else {
+			const authHeader = req.headers.authorization
+			if (authHeader && authHeader.startsWith('Bearer ')) {
+				try {
+					decoded = await verifyToken(req)
+				} catch (error) {
+					console.warn('Failed to verify token for public resource:', error)
+				}
+			}
 		}
 
 		const params = new URLSearchParams()
@@ -226,7 +322,7 @@ export const readAppData = functions.https.onRequest(async (req: Request, res: R
 			}
 		})
 
-		const data = await readResource(resource, params, decoded.uid)
+		const data = await readResource(resource, params, decoded?.uid || '')
 		res.status(200).json({ success: true, data })
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Internal server error'

@@ -92,6 +92,7 @@ export interface User {
     dob?: string;
     userType?: "guest" | "registered";
     appliedOffers?: Array<{ offerId: string; count: number }>;
+    totalOrders?: number;
 }
 
 export interface FilteredOffers {
@@ -151,6 +152,80 @@ export const isOfferAvailableToUser = (offer: Offer, user: User = {}): boolean =
     return usedCount < limit;
 };
 
+// ✅ REUSABLE OFFER APPLICABILITY CHECK
+export const isOfferApplicable = (
+    offer: Offer,
+    user: User = {},
+    products: any[] = [],
+    userOrders: any[] = [],
+    selectedOutlet: string = ""
+): boolean => {
+    // 1. Existing check: perUserLimit
+    if (!isOfferAvailableToUser(offer, user)) {
+        console.log(`[offerUtils] Offer ${offer.id} ("${offer.title}") rejected: perUserLimit or availability check failed.`);
+        return false;
+    }
+
+    // 2. New check: Registration offers only if orders.length === 0
+    const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
+    const isRegistrationOffer = offer.userRules?.firstOrderOnly === true ||
+        offer.applicableFor === "new_user" ||
+        ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
+        offer.category === "registration" ||
+        offer.category === "REGISTRATION";
+
+    console.log(`[offerUtils] Checking Offer: ${offer.id} | Title: "${offer.title}" | Category: "${offer.category}" | offerKind: "${offerKind}" | isRegistration: ${isRegistrationOffer}`);
+    console.log(`[offerUtils] userOrders.length: ${userOrders.length}`);
+
+    if (isRegistrationOffer) {
+        if (userOrders.length > 0) {
+            console.log(`[offerUtils] Offer ${offer.id} rejected: userOrders.length (${userOrders.length}) > 0`);
+            return false;
+        }
+    }
+
+    // 3. Birthday Offer Validation: Ensure products exist and are active
+    const isBirthdayOffer = offer.category === "BIRTHDAY" || offer.userRules?.birthdayOnly === true;
+    if (isBirthdayOffer) {
+        // Verify DOB
+        const today = new Date();
+        const dob = user.dob;
+        console.log(`[offerUtils] Birthday Check - user.dob: ${dob}, today: ${today.toISOString()}`);
+        if (dob) {
+            const [y, m, d] = dob.split('-');
+            const isBirthdayToday = Number(m) === (today.getMonth() + 1) && Number(d) === today.getDate();
+            console.log(`[offerUtils] isBirthdayToday logic -> month: ${m}==${today.getMonth()+1}, day: ${d}==${today.getDate()} => ${isBirthdayToday}`);
+            if (!isBirthdayToday) return false;
+        } else {
+            console.log(`[offerUtils] Birthday Check - no dob provided, rejecting.`);
+            return false;
+        }
+
+        const productIds = offer.config?.reward?.productIds || offer.rewardItems?.map(r => r.productId) || [];
+        console.log(`[offerUtils] Birthday Offer ProductIds:`, productIds);
+        if (productIds.length > 0) {
+            const validProducts = productIds.filter(id => {
+                const product = products.find(p => p.id === id);
+                console.log(`[offerUtils] Validating Product ${id}: exists=${!!product}, isActive=${product?.isActive}, isDeleted=${product?.isDeleted}, outletId=${product?.outletId} (current=${selectedOutlet})`);
+                return (
+                    product &&
+                    product.isActive &&
+                    !product.isDeleted &&
+                    (product.outletId === selectedOutlet || !product.outletId)
+                );
+            });
+            console.log(`[offerUtils] Birthday Offer ${offer.id} - validProducts.length: ${validProducts.length}`);
+            if (validProducts.length === 0) {
+                console.log(`[offerUtils] Birthday Offer ${offer.id} rejected: 0 valid products.`);
+                return false; // Hide completely
+            }
+        }
+    }
+
+    console.log(`[offerUtils] Offer ${offer.id} APPLICABLE.`);
+    return true;
+};
+
 // ✅ VALIDATE SINGLE OFFER
 export const validateOffer = (
     offer: Offer,
@@ -167,16 +242,15 @@ export const validateOffer = (
         return { valid: false, message: `Minimum order value ₹${offer.minOrderValue} required` };
     }
 
-    // Eligibility check (legacy applicableFor support)
+    // Eligibility check (legacy applicableFor support + REGISTRATION + category check)
     const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
+    const isRegistrationOffer = offer.userRules?.firstOrderOnly === true ||
+        offer.applicableFor === "new_user" ||
+        ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
+        offer.category === "registration";
 
-    if (offer.applicableFor === "new_user" || offerKind === "NEW_USER" || offerKind === "FIRSTORDER") {
-        if (user.hasPlacedFirstOrder) return { valid: false, message: "Only for first-time orders" };
-    }
-
-    // ✅ NEW: userRules.firstOrderOnly check
-    if (offer.userRules?.firstOrderOnly) {
-        if (user.hasPlacedFirstOrder) return { valid: false, message: "Only for first-time orders" };
+    if (isRegistrationOffer) {
+        if (user.hasPlacedFirstOrder !== false) return { valid: false, message: "Only for first-time orders" };
     }
 
     if (
@@ -238,7 +312,14 @@ export const getOfferPriority = (offer: Offer): number => {
     // BOGO = medium
     if ((offer.offerType || offer.type || '').toString().toUpperCase() === "B1G1" || offer.discountType === "BOGO") return 2;
     // Registration/firstOrder = lowest
-    if (offer.userRules?.firstOrderOnly || offer.applicableFor === "new_user" || ["NEW_USER", "FIRSTORDER"].includes(String(offer.offerType || offer.type || '').toUpperCase())) return 1;
+    // Registration/firstOrder = lowest
+    const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
+    if (
+        offer.userRules?.firstOrderOnly ||
+        offer.applicableFor === "new_user" ||
+        ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
+        offer.category === "registration"
+    ) return 1;
     // Everything else
     return 0;
 };
@@ -248,16 +329,46 @@ export const getAutoRegistrationOffer = (
     allOffers: Offer[],
     user: User
 ): Offer | null => {
-    if (user.hasPlacedFirstOrder) return null;
-    if (user.userType === "guest") return null;
+    console.log("[TRACE] getAutoRegistrationOffer called");
+    console.log("[TRACE] offers received:", allOffers);
 
-    return allOffers.find(offer =>
-        offer.isActive &&
-        isValidDate(offer) &&
-        isOfferAvailableToUser(offer, user) &&
-        offer.autoApply === true &&
-        offer.userRules?.firstOrderOnly === true
-    ) || null;
+    if (user.hasPlacedFirstOrder !== false) {
+        console.log("[TRACE] rejected: hasPlacedFirstOrder");
+        return null;
+    }
+    if (user.userType === "guest") {
+        console.log("[TRACE] rejected: guest user");
+        return null;
+    }
+
+    const selectedOffer = allOffers.find(offer => {
+        console.log("[TRACE] offer", {
+            id: offer.id,
+            title: offer.title,
+            category: offer.category,
+            offerType: offer.offerType,
+            autoApply: offer.autoApply,
+            isActive: offer.isActive
+        });
+
+        const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
+        const isRegOffer = offer.userRules?.firstOrderOnly === true ||
+            offer.applicableFor === "new_user" ||
+            ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
+            String(offer.category || '').toLowerCase() === "registration";
+
+        return (
+            offer.isActive &&
+            isValidDate(offer) &&
+            isOfferAvailableToUser(offer, user) &&
+            !!offer.autoApply &&
+            isRegOffer
+        );
+    }) || null;
+
+    console.log("[TRACE] selected registration offer:", selectedOffer);
+
+    return selectedOffer;
 };
 
 // ✅ REVALIDATE ENTIRE CART
@@ -290,12 +401,14 @@ export const revalidateCart = (
                 if (offerKind === "COMBO" || offer.discountType === "COMBO" || offer.config?.combo) return;
 
                 // ✅ PRIORITY: If combo is in cart, skip registration offer
-                const isRegistrationOffer = offer.userRules?.firstOrderOnly || 
-                    offer.applicableFor === "new_user" || offerKind === "NEW_USER" || offerKind === "FIRSTORDER";
+                const isRegistrationOffer = offer.userRules?.firstOrderOnly === true || 
+                    offer.applicableFor === "new_user" || 
+                    ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
+                    offer.category === "registration";
                 if (isRegistrationOffer && hasComboInCart) return;
 
-                // ✅ userRules.firstOrderOnly check
-                if (offer.userRules?.firstOrderOnly && user.hasPlacedFirstOrder) return;
+                // ✅ userRules.firstOrderOnly/registration check
+                if (isRegistrationOffer && user.hasPlacedFirstOrder !== false) return;
 
                 const { valid } = validateOffer(offer, user, newCart, itemTotal);
                 if (valid) {
@@ -361,11 +474,13 @@ export const filterOffers = (
 
     validOffers.forEach((offer) => {
         const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
-        // ✅ Support both legacy applicableFor AND new userRules.firstOrderOnly
-        if (
-            (offer.applicableFor === "new_user" || offerKind === "NEW_USER" || offerKind === "FIRSTORDER" || offer.userRules?.firstOrderOnly) &&
-            !user?.hasPlacedFirstOrder
-        ) {
+        // ✅ Support both legacy applicableFor AND new userRules.firstOrderOnly / REGISTRATION
+        const isRegistrationOffer = offer.userRules?.firstOrderOnly === true ||
+            offer.applicableFor === "new_user" ||
+            ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
+            offer.category === "registration";
+
+        if (isRegistrationOffer && user?.hasPlacedFirstOrder === false) {
             registrationOffer = offer;
             return;
         }

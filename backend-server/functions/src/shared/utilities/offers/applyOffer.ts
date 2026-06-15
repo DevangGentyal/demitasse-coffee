@@ -117,7 +117,11 @@ export const applyOffer = (
 		return { orderType: 'BASIC', discount: 0, appliedOffers: [] };
 	}
 
-	const type = (offer.offerType ?? offer.type ?? 'BASIC').toUpperCase() as OrderType;
+	let rawType = (offer.offerType ?? offer.type ?? 'BASIC').toUpperCase();
+	if (rawType === 'REGISTRATION') {
+		rawType = 'DISCOUNT';
+	}
+	const type = rawType as OrderType;
 	const flatItems = flattenItems(input.items);
 
 	switch (type) {
@@ -229,7 +233,7 @@ export const applyOffer = (
 			const baseAmount = eligibleItems.reduce((sum, item) => sum + (item.unitPrice * item.qty), 0);
 			const discount = Math.floor(baseAmount * percent / 100);
 
-			return { orderType: 'DISCOUNT', discount, appliedOffers: [{ offerId: offer.id, title: offer.title || offer.id, type: 'DISCOUNT', amount: discount }] };
+			return { orderType: 'DISCOUNT', discount, appliedOffers: [{ offerId: offer.id, title: offer.title || offer.id, type: offer.offerType || offer.type || 'DISCOUNT', amount: discount }] };
 		}
 
 		default:

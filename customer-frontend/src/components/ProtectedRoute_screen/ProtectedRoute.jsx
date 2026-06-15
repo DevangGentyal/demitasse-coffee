@@ -8,8 +8,20 @@ const ProtectedRoute = ({ children }) => {
   const location = useLocation();
   const userType = localStorage.getItem("userType");
 
-  const locationSetupRoutes = ["/select-outlet", "/complete-profile"];
-  const requiresLocationSelection = !locationSetupRoutes.includes(location.pathname);
+  // Routes that don't need outlet/table selection — auth only
+  const authOnlyRoutes = [
+    "/select-outlet",
+    "/complete-profile",
+    "/profile",
+    "/profile/orders",
+  ];
+
+  // Profile sub-routes like /profile/orders/:id also only need auth
+  const isProfileRoute =
+    location.pathname.startsWith("/profile");
+
+  const requiresLocationSelection =
+    !authOnlyRoutes.includes(location.pathname) && !isProfileRoute;
 
   if (!user && userType !== "guest") {
     return <Navigate to="/login" />;

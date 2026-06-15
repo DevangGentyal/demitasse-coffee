@@ -107,11 +107,13 @@ const readNumber = (v: unknown, fallback = 0): number => {
 const readString = (v: unknown): string => String(v ?? '').trim();
 
 const readOfferType = (value: unknown): OrderType | null => {
-	switch (readString(value).toUpperCase()) {
+	let str = readString(value).toUpperCase();
+	if (str === 'REGISTRATION') str = 'DISCOUNT';
+	switch (str) {
 		case 'B1G1':
 		case 'COMBO':
 		case 'DISCOUNT':
-			return readString(value).toUpperCase() as OrderType;
+			return str as OrderType;
 		default:
 			return null;
 	}
@@ -470,7 +472,10 @@ export const applyOfferToItems = (
 		}));
 	}
 
-	const offerType = (offerDoc.offerType ?? offerDoc.type ?? 'BASIC').toUpperCase();
+	let offerType = (offerDoc.offerType ?? offerDoc.type ?? 'BASIC').toUpperCase();
+	if (offerType === 'REGISTRATION') {
+		offerType = 'DISCOUNT';
+	}
 	const results: NormalisedOrderItem[] = [];
 
 	switch (offerType) {

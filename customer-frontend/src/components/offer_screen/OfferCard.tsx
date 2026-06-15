@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { isBirthday } from "../../lib/offerUtils";
 import Variations from "../itemDetails_screen/Variations";
 import AddOnGroup from "../itemDetails_screen/AddOnGroup";
+import { useLocationContext } from "../../context/LocationContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ProductRef { productId?: string; name: string; quantity?: number; }
@@ -102,7 +103,13 @@ const transformAddOns = (product: any, addons: Record<number, string[]>) => {
 const getResolvedOfferType = (offer?: Offer | null) => String(offer?.offerType || offer?.type || offer?.discountType || "").trim().toUpperCase();
 
 const normalizeProductIds = (rawIds: unknown): string[] => {
-  const values = Array.isArray(rawIds) ? rawIds : [];
+  let values: any[] = [];
+  if (Array.isArray(rawIds)) {
+    values = rawIds;
+  } else if (rawIds && typeof rawIds === 'object') {
+    values = Object.values(rawIds);
+  }
+  
   return values
     .map((item: any) => {
       if (!item) return "";
@@ -167,8 +174,22 @@ const getOfferB1G1ProductIds = (offer: Offer | null | undefined): string[] => {
 };
 
 const getOfferBirthdayProductIds = (offer: Offer | null | undefined): string[] => {
-  const rewardConfig: any = offer?.config?.reward || {};
-  const rawIds = rewardConfig.productIds || offer?.rewardItems || [];
+  // Check inside offer.config.reward
+  const configKeys = Object.keys(offer?.config || {});
+  const configRewardKey = configKeys.find(k => k.trim().toLowerCase() === 'reward');
+  const configReward: any = configRewardKey ? offer?.config[configRewardKey] : {};
+
+  // Check at the root level offer.reward
+  const rootKeys = Object.keys(offer || {});
+  const rootRewardKey = rootKeys.find(k => k.trim().toLowerCase() === 'reward');
+  const rootReward: any = rootRewardKey ? (offer as any)[rootRewardKey] : {};
+
+  // Merge both in case it's in either place
+  const combinedReward = { ...configReward, ...rootReward };
+  const rewardKeys = Object.keys(combinedReward || {});
+  const productIdsKey = rewardKeys.find(k => k.trim().toLowerCase() === 'productids');
+  
+  const rawIds = (productIdsKey ? combinedReward[productIdsKey] : null) || offer?.rewardItems || [];
   return normalizeProductIds(rawIds);
 };
 
@@ -510,6 +531,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   // Customization state — same pattern as B1G1/Combo
   const [customization, setCustomization] = useState<{ variations: Record<number, string>; addons: Record<number, string[]> }>({ variations: {}, addons: {} });
   const [customizingProduct, setCustomizingProduct] = useState<boolean>(false);
+  const { selectedOutlet } = useLocationContext();
 
   // Extract the configured product IDs from config.reward.productIds
   // NOTE: Firestore keys may have leading spaces (e.g. " reward" instead of "reward")
@@ -541,20 +563,27 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
       if (missingIds.length > 0) {
         for (const id of missingIds) {
           try {
-            const items = await getProductById(id)
+            const items = await getProductById(id, selectedOutlet);
             const prod = items[0]
             if (prod) {
               const data = prod
-              results.push({
-                id: prod.id,
-                name: data.name || "Item",
-                price: data.price || 0,
-                image: data.imageUrl || data.image || "",
-                isVeg: data.isVeg,
-                description: data.description || "",
-                variations: Array.isArray(data.variations) ? data.variations : [],
-                customizations: Array.isArray(data.customizations) ? data.customizations : [],
-              });
+              // ✅ Apply strict validation before accepting the product!
+              if (
+                data.isActive === true && 
+                data.isDeleted !== true && 
+                (!data.outletId || data.outletId === selectedOutlet)
+              ) {
+                results.push({
+                  id: prod.id,
+                  name: data.name || "Item",
+                  price: data.price || 0,
+                  image: data.imageUrl || data.image || "",
+                  isVeg: data.isVeg,
+                  description: data.description || "",
+                  variations: Array.isArray(data.variations) ? data.variations : [],
+                  customizations: Array.isArray(data.customizations) ? data.customizations : [],
+                });
+              }
             }
           } catch (err) {
             console.error("🎂 Birthday: Failed to fetch product", id, err);
@@ -562,7 +591,11 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
         }
       }
 
-      setFetchedProducts(results);
+      if (results.length === 0) {
+        onClose(); // Hide modal completely if no valid products remain
+      } else {
+        setFetchedProducts(results);
+      }
       setLoading(false);
     };
 
@@ -789,7 +822,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
   }, [offer, productsMap]);
 
   // Discount config
-  const discountType = offer.config?.discount?.mode || offer.config?.discount?.type || offer.discountType || "PERCENT";
+  const discountType = offer.discountType || "PERCENT";
   const discountValue = offer.config?.discount?.discountValue || offer.discountValue || offer.config?.discountValue || 0;
 
   const handleSelect = (productId: string) => {

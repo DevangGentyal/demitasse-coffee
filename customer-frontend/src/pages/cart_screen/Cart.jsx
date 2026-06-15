@@ -158,10 +158,15 @@ const Cart = () => {
     autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
   }
 
-  const totalDiscount = autoDiscount;
-  // Special offer rows already store the final item/group price in `totalPrice`.
-  // Only the auto-registration offer is subtracted here.
-  const grandTotal = Math.max(0, totalPrice - totalDiscount);
+  // Combine discounts from appliedOffers + autoAppliedOffer.
+  // Guard against double-counting when both reference the same offer.
+  const autoOfferAlreadyCounted = autoAppliedOffer &&
+    appliedOffers.some(o => o.offerId === autoAppliedOffer.offerId);
+  const totalDiscount = calculatedDiscount + (autoOfferAlreadyCounted ? 0 : autoDiscount);
+  // discountedPrice = totalPrice - totalDiscount, tax = 5% on discounted amount
+  const discountedAmount = Math.max(0, totalPrice - totalDiscount);
+  const taxAmount = Math.floor(discountedAmount * 0.05);
+  const grandTotal = discountedAmount + taxAmount;
 
   // Helper config string to detect remaining valid normal items for banner UI
   const hasEligibleItems = cart.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1).length > 0;
@@ -367,10 +372,6 @@ const Cart = () => {
       if (userType !== "guest" && auth.currentUser) {
         const updates = {};
 
-        if (!fullUser?.hasPlacedFirstOrder) {
-          updates.hasPlacedFirstOrder = true;
-        }
-
         const birthdayUsed = appliedOffers.some(o => o.type === "birthday") ||
           cart.some(item => item.isBirthday);
         if (birthdayUsed) {
@@ -483,20 +484,36 @@ const Cart = () => {
         return;
       }
 
+      // Use frontend-computed values as authoritative fallback when server
+      // pricing is unavailable or returns an un-discounted price.
+      const serverDiscount = Number(result.pricing?.discount ?? 0);
+      const effectiveDiscount = serverDiscount > 0 ? serverDiscount : totalDiscount;
+      const effectiveDiscountedPrice = Math.max(0, totalPrice - effectiveDiscount);
+      const effectiveTax = serverDiscount > 0
+        ? Number(result.pricing?.tax ?? taxAmount)
+        : taxAmount;
+      const effectiveGrandTotal = serverDiscount > 0
+        ? Number(result.pricing?.total ?? grandTotal)
+        : grandTotal;
+
       navigate("/bill", {
         state: {
-          // Keep original cart items for rich UI rendering (combo/b1g1 grouping)
-          // but always use server pricing as source of truth.
           items: cart,
           itemTotal: Number(result.pricing?.subtotal ?? totalPrice) || 0,
-          tax: Number(result.pricing?.tax ?? 0) || 0,
-          discount: Number(result.pricing?.discount ?? totalDiscount) || 0,
-          discountedPrice: Number(result.pricing?.discountedPrice ?? grandTotal) || 0,
-          grandTotal: Number(result.pricing?.total ?? grandTotal) || 0,
+          tax: effectiveTax,
+          discount: effectiveDiscount,
+          discountedPrice: effectiveDiscountedPrice,
+          grandTotal: effectiveGrandTotal,
           appliedOffers,
           autoAppliedOffer: autoAppliedOffer && hasEligibleItems ? autoAppliedOffer : null,
           autoDiscount,
-          serverPricing: result.pricing,
+          serverPricing: {
+            ...result.pricing,
+            discount: effectiveDiscount,
+            discountedPrice: effectiveDiscountedPrice,
+            tax: effectiveTax,
+            total: effectiveGrandTotal,
+          },
           serverItems: Array.isArray(result.items) ? result.items : [],
           serverDiscountSources: result.discountSources,
         },
@@ -650,6 +667,22 @@ const Cart = () => {
               <div className="flex justify-between text-sm text-green-600 mt-1 font-medium">
                 <span>🎉 {autoAppliedOffer.title}</span>
                 <span>-₹{autoDiscount}</span>
+              </div>
+            )}
+
+            {/* ✅ Net Before Tax row (only when discount is applied) */}
+            {autoDiscount > 0 && (
+              <div className="flex justify-between text-sm text-gray-600 mt-1">
+                <span>Net Before Tax</span>
+                <span>₹{discountedAmount}</span>
+              </div>
+            )}
+
+            {/* ✅ Tax row */}
+            {taxAmount > 0 && (
+              <div className="flex justify-between text-sm text-gray-600 mt-1">
+                <span>Tax (5% GST)</span>
+                <span>₹{taxAmount}</span>
               </div>
             )}
 

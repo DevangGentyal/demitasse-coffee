@@ -265,7 +265,7 @@ export default function CartItem({ item, onQtyChange }) {
           )}
           {item.discountAmount > 0 && (
             <div className="flex justify-between text-xs text-green-600 font-medium">
-              <span>Discount ({item.discountValue}%)</span>
+              <span>Discount ({item.discountType === "PERCENT" ? `${item.discountValue}%` : `₹${item.discountValue}`})</span>
               <span>-₹{item.discountAmount}</span>
             </div>
           )}

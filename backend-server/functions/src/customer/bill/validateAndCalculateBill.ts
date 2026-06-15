@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions';
 import { Request, Response } from 'express';
+import * as admin from 'firebase-admin';
 import { applyOffer } from '../../shared/utilities/offers/applyOffer';
 import { applyTax } from '../../shared/utilities/billing/tax';
 import { handleCustomerPreflight } from '../../shared/utilities/security/cors';
@@ -122,7 +123,7 @@ const normalizeItemsForValidation = (
 			isOfferItem: Boolean(currentOfferId || currentOfferType || item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday),
 			isCombo: Boolean(item.isCombo || currentOfferType?.toUpperCase() === 'COMBO'),
 			isManualB1G1: Boolean(item.isManualB1G1 || currentOfferType?.toUpperCase() === 'B1G1'),
-			isDiscount: Boolean(item.isDiscount || currentOfferType?.toUpperCase() === 'DISCOUNT'),
+			isDiscount: Boolean(item.isDiscount || currentOfferType?.toUpperCase() === 'DISCOUNT' || currentOfferType?.toUpperCase() === 'REGISTRATION'),
 			isBirthday: Boolean(item.isBirthday || currentOfferType?.toUpperCase() === 'BIRTHDAY'),
 			isFree: Boolean(item.isFree),
 			status: readString(item.status) || 'in-progress',
@@ -142,6 +143,17 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 	if (req.method !== 'POST') {
 		res.status(405).json({ success: false, message: 'Method not allowed' });
 		return;
+	}
+
+	let uid: string | null = null;
+	if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+		try {
+			const idToken = req.headers.authorization.split('Bearer ')[1];
+			const decoded = await admin.auth().verifyIdToken(idToken);
+			uid = decoded.uid;
+		} catch (error) {
+			console.error('validateAndCalculateBill token verification failed:', error);
+		}
 	}
 
 	try {
@@ -214,6 +226,25 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			if (offerId) uniqueOfferIds.add(offerId);
 		}
 		const offerDocsById = await getOfferDocs(uniqueOfferIds, String(outletId || ''));
+		if (uid) {
+			const { validateRegistrationEligibility } = await import('../../shared/utilities/firestoreCatalog.js');
+			await validateRegistrationEligibility(uid, offerDocsById);
+		}
+
+		// ── Tag normal items with the auto-applied registration offer ID ─────────
+		// applyOfferPricingByGroup groups items by their offerId. Normal cart items
+		// have no offerId, so they would get zero discount. We tag them here so the
+		// registration offer discount is correctly applied to their prices before tax.
+		if (requestedOfferId && offerDocsById.has(requestedOfferId)) {
+			for (const item of items) {
+				const isSpecial = item.isFree || item.isCombo || item.isManualB1G1 || item.isBirthday;
+				const hasOwnOffer = item.offerId && item.offerId !== requestedOfferId;
+				if (!isSpecial && !hasOwnOffer) {
+					item.offerId = requestedOfferId;
+				}
+			}
+		}
+
 		const orderType = offerDocsById.size > 0 ? 'MIXED' : 'BASIC';
 		let subtotal = Math.round(items.reduce((sum, item) => sum + readNumber(item.totalPrice, 0), 0));
 		const offerResult = applyOffer(
