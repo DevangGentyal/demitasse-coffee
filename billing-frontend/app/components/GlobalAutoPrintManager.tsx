@@ -6,6 +6,8 @@ import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
 import { KotTemplate, KotData } from './print/KotTemplate'
 import { clearPrintPageSize, fitPrintPageToContent } from './print/printPageSize'
 import { useApp } from '@/app/context/AppContext'
+import { connectQZ, silentPrintHTML, isQZConnected } from '@/lib/services/qzPrintService'
+import { toast } from 'sonner'
 
 const MANUAL_KOT_PRINT_EVENT = 'demitasse:manual-kot-print'
 const DEBUG_AUTO_PRINT = false
@@ -85,10 +87,24 @@ export function GlobalAutoPrintManager() {
   const [activePrintJob, setActivePrintJob] = useState<any | null>(null)
   const isReadyToQueue = useRef(false)
   const [printConfigs, setPrintConfigs] = useState<any>(null)
+  const isProcessingQueueRef = useRef(false)
+
+  // Auto-connect to QZ Tray on mount
+  useEffect(() => {
+    console.log('[GlobalAutoPrint] Attempting QZ Tray connection on mount...')
+    connectQZ()
+      .then(() => console.log('[GlobalAutoPrint] QZ Tray connection ready'))
+      .catch((err) => console.warn('[GlobalAutoPrint] QZ Tray not available on mount:', err))
+  }, [])
 
   // 1. Calculate in-progress orders directly from global context
   const inProgressOrders = useMemo(() => {
-    return orders.filter(o => o.orderStatus === 'in-progress' || o.status === 'in-progress')
+    return orders.filter(o => 
+      o.orderStatus === 'in-progress' || 
+      o.status === 'in-progress' || 
+      o.status === 'pending' || 
+      o.orderStatus === 'pending'
+    )
   }, [orders])
 
   // 2. Fetch configs and handle grace period
@@ -165,19 +181,57 @@ export function GlobalAutoPrintManager() {
   useEffect(() => {
     if (!printConfigs) return // Wait until configs are loaded
 
+    orders.forEach(order => {
+      console.log(
+        "[GlobalAutoPrint] Order detected:",
+        order.id,
+        order.status,
+        order.cafeId
+      );
+    })
+
     inProgressOrders.forEach(o => {
-      if (!printedOrdersRef.current.has(o.id)) {
+      console.log(
+        "[GlobalAutoPrint] Evaluating order:",
+        o.id,
+        "status:",
+        o.status
+      );
+
+      // Fix for customer orders: track by ID + number of items
+      // so when items are added to an existing order, a new KOT triggers.
+      const isCustomerOrder = o.placedBy === 'customer' || o.source === 'customer' || o.orderType === 'customer' || !o.placedBy;
+      const orderKey = isCustomerOrder 
+        ? `${o.id}_${Array.isArray(o.items) ? o.items.length : 0}` 
+        : o.id;
+
+      if (!printedOrdersRef.current.has(orderKey)) {
         if (!isReadyToQueue.current) {
-          debugLog(`[GlobalAutoPrint] 🛡️ Grace period active. Skipping existing order: ${o.id}`)
-          printedOrdersRef.current.add(o.id)
+          console.log(
+            "[GlobalAutoPrint] Skipped order:",
+            o.id,
+            "Reason:",
+            "Grace period active"
+          );
+          printedOrdersRef.current.add(orderKey)
         } else {
-          debugLog(`[GlobalAutoPrint] 🚀 New Order Detected: ${o.id}. Adding to global print queue.`)
-          printedOrdersRef.current.add(o.id)
+          console.log(
+            "[GlobalAutoPrint] Adding order to print queue:",
+            o.id
+          );
+          printedOrdersRef.current.add(orderKey)
           setPrintQueue(prev => [...prev, o])
         }
+      } else {
+        console.log(
+          "[GlobalAutoPrint] Skipped order:",
+          o.id,
+          "Reason:",
+          "Already in printedOrdersRef"
+        );
       }
     })
-  }, [inProgressOrders, printConfigs])
+  }, [orders, inProgressOrders, printConfigs])
 
   // Manual trigger hook: reuse this same queue for floor-map duplicate KOT prints.
   useEffect(() => {
@@ -206,16 +260,43 @@ export function GlobalAutoPrintManager() {
     }
   }, [])
 
-  const isProcessingQueueRef = useRef(false)
+  // 1. Queue processing useEffect
+  useEffect(() => {
+    console.log(
+      "[GlobalAutoPrint] Queue changed:",
+      printQueue.length,
+      "processing:",
+      isProcessingQueueRef.current
+    );
+  }, [printQueue]);
 
   // 4. Process the print queue using a robust single-effect execution cycle
   useEffect(() => {
     const processNextInQueue = async () => {
-      if (activePrintJob === null && printQueue.length > 0 && printConfigs && !isProcessingQueueRef.current) {
-        isProcessingQueueRef.current = true
-        const nextOrder = printQueue[0]
-        debugLog(`[GlobalAutoPrint] 🖨️ Preparing KOT for order: ${nextOrder.id}`)
+      if (printQueue.length === 0) {
+        console.log("[GlobalAutoPrint] Queue processing aborted: queue length == 0");
+        return;
+      }
+      if (activePrintJob !== null) {
+        console.log("[GlobalAutoPrint] Queue processing aborted: activePrintJob is not null");
+        return;
+      }
+      if (!printConfigs) {
+        console.log("[GlobalAutoPrint] Queue processing aborted: printConfigs is null");
+        return;
+      }
+      if (isProcessingQueueRef.current === true) {
+        console.log("[GlobalAutoPrint] Queue processing aborted: isProcessingQueueRef.current === true");
+        return;
+      }
 
+      console.log("[GlobalAutoPrint] SET processing true");
+      isProcessingQueueRef.current = true
+      console.log("[GlobalAutoPrint] Processing queue:", printQueue.length);
+      const nextOrder = printQueue[0]
+      debugLog(`[GlobalAutoPrint] 🖨️ Preparing KOT for order: ${nextOrder.id}`)
+
+      try {
         // 5. Normalization: Extract actual items from offers/combos asynchronously
         const rawItems = nextOrder.items || []
         const normalizedItemsArray: any[] = []
@@ -317,6 +398,7 @@ export function GlobalAutoPrintManager() {
         const readyJob = { ...nextOrder, normalizedItems: normalizedItemsArray }
 
         // Set the active job to render the templates in the DOM
+        console.log("[GlobalAutoPrint] SET activePrintJob", readyJob);
         setActivePrintJob(readyJob)
 
         // Remove from queue
@@ -324,58 +406,92 @@ export function GlobalAutoPrintManager() {
 
         // Safely wait for React to flush state to DOM and browser to paint
         debugLog(`[GlobalAutoPrint] ⏳ Waiting for React DOM to render templates...`)
-        setTimeout(() => {
-          debugLog(`[GlobalAutoPrint] 🔔 Triggering window.print() for order: ${readyJob.id}`)
+        setTimeout(async () => {
+          debugLog(`[GlobalAutoPrint] 🔔 Triggering QZ Tray print for order: ${readyJob.id}`)
+          console.log("[GlobalAutoPrint] Printing order:", readyJob.id);
 
           const printTargets = Array.from(document.querySelectorAll<HTMLElement>('.print-receipt'))
-          let printIndex = 0
-          let failsafeTimer: ReturnType<typeof setTimeout> | undefined
 
-          const finishPrintJob = () => {
-            if (failsafeTimer) clearTimeout(failsafeTimer)
-            clearPrintPageSize()
-            setActivePrintJob(null)
-            isProcessingQueueRef.current = false // Allow next queue item
-          }
+          const printReceiptAtIndex = async (index: number) => {
+            const target = printTargets[index]
+            if (!target) return
 
-          const printNextReceipt = () => {
-            const target = printTargets[printIndex]
-            if (!target) {
-              debugLog(`[GlobalAutoPrint] Finished print receipts for order: ${readyJob.id}`)
-              finishPrintJob()
-              return
-            }
+            // Determine printer name: food receipt uses food printer, bev uses coffee printer
+            const isFoodReceipt = target.querySelector('.kot-print-wrapper')?.textContent?.includes('Food KOT')
+            const printerConfig = isFoodReceipt !== false
+              ? printConfigs.foodConfig
+              : printConfigs.coffeeConfig
+            // Check if this specific receipt is beverage by looking at data attribute or content
+            const receiptContent = target.textContent || ''
+            const isBeverage = receiptContent.includes('Beverage KOT')
+            const selectedConfig = isBeverage ? printConfigs.coffeeConfig : printConfigs.foodConfig
+            const rawPrinterName = selectedConfig.systemPrinterName || selectedConfig.printerName
+            const printerName = rawPrinterName?.trim()
 
-            const handleAfterPrint = () => {
-              debugLog(`[GlobalAutoPrint] window.afterprint fired for receipt ${printIndex + 1}/${printTargets.length}: ${readyJob.id}`)
-              window.removeEventListener('afterprint', handleAfterPrint)
-              if (failsafeTimer) clearTimeout(failsafeTimer)
+            console.log(`[GlobalAutoPrint] 🖨️ Sending receipt ${index + 1}/${printTargets.length} to printer: "${printerName}"`)
+
+            try {
+              // Keep fitPrintPageToContent for now
+              fitPrintPageToContent(target)
+              toast('🖨️ Printing started...')
+
+              const htmlContent = target.innerHTML
+              const fullHtml = `<html><head><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
+
+              console.log("Before qz.print()");
+              await Promise.race([
+                silentPrintHTML(printerName, fullHtml, {
+                  widthMm: 80,
+                }),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error("QZ timeout")), 10000)
+                )
+              ])
+              console.log("After qz.print()");
+
+              console.log(`[GlobalAutoPrint] ✅ Receipt ${index + 1}/${printTargets.length} printed successfully`)
+              toast.success('✅ Printed successfully')
+            } catch (err) {
+              console.log("QZ print error:", err);
+              console.error(`[GlobalAutoPrint] ❌ Failed to print receipt ${index + 1}:`, err)
+              toast.error('❌ Printer not connected')
+            } finally {
               clearPrintPageSize()
-              printIndex += 1
-              setTimeout(printNextReceipt, 300)
             }
-
-            window.addEventListener('afterprint', handleAfterPrint)
-            fitPrintPageToContent(target)
-            window.print()
-
-            failsafeTimer = setTimeout(() => {
-              debugLog(`[GlobalAutoPrint] Failsafe advancing print receipt ${printIndex + 1}/${printTargets.length}: ${readyJob.id}`)
-              window.removeEventListener('afterprint', handleAfterPrint)
-              clearPrintPageSize()
-              printIndex += 1
-              printNextReceipt()
-            }, 15000)
           }
 
           if (printTargets.length === 0) {
             console.warn(`[GlobalAutoPrint] No printable KOT receipts rendered for order: ${readyJob.id}`)
-            finishPrintJob()
+            console.log("[GlobalAutoPrint] Queue processing aborted: print targets empty");
+            console.log("CLEAR activePrintJob");
+            setActivePrintJob(null)
+            console.log("CLEAR processing false");
+            isProcessingQueueRef.current = false
             return
           }
 
-          printNextReceipt()
+          try {
+            for (let index = 0; index < printTargets.length; index++) {
+              await printReceiptAtIndex(index)
+              if (index < printTargets.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500))
+              }
+            }
+          } finally {
+            console.log("CLEAR activePrintJob");
+            setActivePrintJob(null)
+
+            console.log("CLEAR processing false");
+            isProcessingQueueRef.current = false
+            console.log("[GlobalAutoPrint] Queue processing finished");
+          }
         }, 1000)
+      } catch (prepError) {
+        console.error("[GlobalAutoPrint] Error during queue preparation:", prepError);
+        console.log("[GlobalAutoPrint] CLEAR activePrintJob");
+        setActivePrintJob(null)
+        console.log("[GlobalAutoPrint] CLEAR processing false");
+        isProcessingQueueRef.current = false
       }
     }
 

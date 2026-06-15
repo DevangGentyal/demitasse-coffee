@@ -44,13 +44,15 @@ const listCollection = async (collectionName: string, fieldName?: string, fieldV
 
 const readResource = async (resource: string, params: URLSearchParams, uid: string) => {
 	switch (resource) {
-		case 'outlets':
-			return listCollection('outletDetails')
+		case 'outlets': {
+			const snapshot = await db.collectionGroup('outletDetails').get()
+			return snapshot.docs.map(mapDoc)
+		}
 		case 'outletById': {
 			const outletId = readString(params.get('outletId'))
 			if (!outletId) throw new Error('outletId is required')
-			const snap = await db.collection('outletDetails').doc(outletId).get()
-			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+			const snap = await db.collection('outlets').doc(outletId).collection('outletDetails').get()
+			return snap.empty ? [] : [{ id: snap.docs[0].id, ...snap.docs[0].data() }]
 		}
 		case 'products': {
 			const outletId = readString(params.get('outletId'))
@@ -179,7 +181,7 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			return []
 		}
 		case 'pendingOutlets': {
-			const snapshot = await db.collection('outletDetails').get()
+			const snapshot = await db.collectionGroup('outletDetails').get()
 			return snapshot.docs
 				.map(mapDoc)
 				.filter((outlet) => normalizeStatus(outlet.status) === 'pending')

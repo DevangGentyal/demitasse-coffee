@@ -4,11 +4,9 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { Card } from '@/components/ui/card'
-import { MapPin, Phone, Mail } from 'lucide-react'
+import { MapPin, Phone, Mail, User } from 'lucide-react'
 import { useEffect, useState } from "react"
-import { getCurrentUserProfile, getOutletIdForCurrentUser } from "@/lib/services/backendApi"
-import { getDoc, doc } from "firebase/firestore"
-import { db } from "@/lib/firebase/app"
+import { getCurrentUserProfile, getOutletIdForCurrentUser, getOutletDetailsById } from "@/lib/services/backendApi"
 
 export default function DetailsPage() {
   const router = useRouter();
@@ -46,11 +44,9 @@ export default function DetailsPage() {
           return;
         }
 
-        const ref = doc(db, "outlets", outletId);
-        const snap = await getDoc(ref);
-
-        if (snap.exists()) {
-          setOutlet(snap.data());
+        const data = await getOutletDetailsById(outletId);
+        if (data) {
+          setOutlet(data);
         } else {
           setOutlet(null);
           setError("Outlet not found");
@@ -128,6 +124,15 @@ export default function DetailsPage() {
                     <p className="text-sm text-muted-foreground"> {outlet.email}</p>
                   </div>
                 </div>
+                {outlet.ownerName && (
+                  <div className="flex items-start gap-3">
+                    <User className="text-accent mt-1 flex-shrink-0" size={20} />
+                    <div>
+                      <p className="font-medium text-foreground">Owner Name</p>
+                      <p className="text-sm text-muted-foreground"> {outlet.ownerName}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
 

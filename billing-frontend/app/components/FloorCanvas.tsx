@@ -9,8 +9,9 @@ import { floorMapService, type Wall as IWall } from '@/lib/services/floorMapServ
 import { tableSessionService } from '@/lib/services/tableSessionService'
 import { updateTableState } from '@/lib/services/tableStateService'
 import { db } from '@/lib/firebase/app'
-import { doc, onSnapshot, deleteField } from 'firebase/firestore'
+import { collection, getDocs, doc, onSnapshot, deleteField } from 'firebase/firestore'
 import { toast } from 'sonner'
+import { connectQZ, silentPrintHTML } from '@/lib/services/qzPrintService'
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
 import { CancellationModal } from '@/app/components/CancellationModal'
 import { removeOrderItem } from '@/lib/services/orderService'
@@ -360,9 +361,8 @@ function OrderViewModal({
                             {!hidePrimaryDetails && <span className="text-sm font-medium text-gray-900 truncate">{rowItem.name}</span>}
                             {hasDetails && !hidePrimaryDetails && (
                               <span
-                                className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${
-                                  isExpanded ? 'rotate-180' : ''
-                                }`}
+                                className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${isExpanded ? 'rotate-180' : ''
+                                  }`}
                               >
                                 ▼
                               </span>
@@ -467,130 +467,131 @@ function OrderViewModal({
                       const offerBucketList = Array.from(offerBuckets.values())
 
                       return offerBucketList.map((bucket) => {
-                      const matchedLog = appliedOfferLogs.find((log: AppliedOfferLog) => {
-                        const sameOfferId = String(log?.offerId || '').trim() === String(bucket.offerId || '').trim()
-                        const sameTitleAndType =
-                          String(log?.offerTitle || '').trim().toLowerCase() === String(bucket.offerTitle || '').trim().toLowerCase() &&
-                          String(log?.offerType || '').trim().toLowerCase() === String(bucket.offerType || '').trim().toLowerCase()
-                        return sameOfferId || sameTitleAndType
-                      })
-                      const bucketSubtotal = bucket.rows.reduce((sum, row) => sum + toSafeNumber(row.item.discountedPrice ?? row.item.totalPrice, 0), 0)
-                      const logBasedPrice = Number.isFinite(Number(matchedLog?.groupDiscountedPrice))
-                        ? Number(matchedLog?.groupDiscountedPrice)
-                        : NaN
-                      const flattenLeafItems = (items: any[]): any[] => {
-                        const leaves: any[] = []
-                        items.forEach((item) => {
-                          if (Array.isArray(item?.items) && item.items.length > 0) {
-                            leaves.push(...flattenLeafItems(item.items))
-                          } else {
-                            leaves.push(item)
-                          }
+                        const matchedLog = appliedOfferLogs.find((log: AppliedOfferLog) => {
+                          const sameOfferId = String(log?.offerId || '').trim() === String(bucket.offerId || '').trim()
+                          const sameTitleAndType =
+                            String(log?.offerTitle || '').trim().toLowerCase() === String(bucket.offerTitle || '').trim().toLowerCase() &&
+                            String(log?.offerType || '').trim().toLowerCase() === String(bucket.offerType || '').trim().toLowerCase()
+                          return sameOfferId || sameTitleAndType
                         })
-                        return leaves
-                      }
-                      const bucketSourceItems = bucket.offerType === 'COMBO' && Array.isArray(bucket.rows[0]?.item.items) ? bucket.rows[0].item.items : bucket.rows.map((row) => row.item)
-                      const bucketPreviewItems = bucket.offerType === 'COMBO' ? flattenLeafItems(bucketSourceItems) : bucketSourceItems
-                      const bucketPreviewNames = bucketPreviewItems
-                        .map((previewItem) => String(previewItem?.name || '').trim())
-                        .filter(Boolean)
-                      const renderComboLeafRows = (nodes: any[], keyPrefix: string, depth = 0): React.ReactNode[] => {
-                        const rendered: React.ReactNode[] = []
-                        nodes.forEach((node, nodeIndex) => {
-                          const childNodes = Array.isArray(node?.items) ? node.items : []
-                          if (childNodes.length > 0) {
-                            rendered.push(...renderComboLeafRows(childNodes, `${keyPrefix}-${nodeIndex}`, depth + 1))
-                            return
-                          }
+                        const bucketSubtotal = bucket.rows.reduce((sum, row) => sum + toSafeNumber(row.item.discountedPrice ?? row.item.totalPrice, 0), 0)
+                        const logBasedPrice = Number.isFinite(Number(matchedLog?.groupDiscountedPrice))
+                          ? Number(matchedLog?.groupDiscountedPrice)
+                          : NaN
+                        const flattenLeafItems = (items: any[]): any[] => {
+                          const leaves: any[] = []
+                          items.forEach((item) => {
+                            if (Array.isArray(item?.items) && item.items.length > 0) {
+                              leaves.push(...flattenLeafItems(item.items))
+                            } else {
+                              leaves.push(item)
+                            }
+                          })
+                          return leaves
+                        }
+                        const bucketSourceItems = bucket.offerType === 'COMBO' && Array.isArray(bucket.rows[0]?.item.items) ? bucket.rows[0].item.items : bucket.rows.map((row) => row.item)
+                        const bucketPreviewItems = bucket.offerType === 'COMBO' ? flattenLeafItems(bucketSourceItems) : bucketSourceItems
+                        const bucketPreviewNames = bucketPreviewItems
+                          .map((previewItem) => String(previewItem?.name || '').trim())
+                          .filter(Boolean)
+                        const renderComboLeafRows = (nodes: any[], keyPrefix: string, depth = 0): React.ReactNode[] => {
+                          const rendered: React.ReactNode[] = []
+                          nodes.forEach((node, nodeIndex) => {
+                            const childNodes = Array.isArray(node?.items) ? node.items : []
+                            if (childNodes.length > 0) {
+                              rendered.push(...renderComboLeafRows(childNodes, `${keyPrefix}-${nodeIndex}`, depth + 1))
+                              return
+                            }
 
-                          const nodeAddOns = Array.isArray(node?.addOns) ? node.addOns : []
-                          const indentClass = depth > 0 ? 'ml-4 border-l border-blue-100 pl-3' : ''
-                          rendered.push(
-                            <div key={`${keyPrefix}-${nodeIndex}`} className={`rounded-lg bg-white px-3 py-2 text-sm ${indentClass}`}>
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <p className="flex items-center gap-1.5 truncate font-medium text-gray-900">
-                                    <span>{node?.name || 'Item'}</span>
-                                    {node?.isFree && <span className="text-[10px] font-semibold text-emerald-700">(FREE)</span>}
-                                  </p>
-                                  {nodeAddOns.length > 0 && (
-                                    <p className="mt-0.5 text-[11px] font-medium text-amber-700">
-                                      Add-ons included
+                            const nodeAddOns = Array.isArray(node?.addOns) ? node.addOns : []
+                            const indentClass = depth > 0 ? 'ml-4 border-l border-blue-100 pl-3' : ''
+                            rendered.push(
+                              <div key={`${keyPrefix}-${nodeIndex}`} className={`rounded-lg bg-white px-3 py-2 text-sm ${indentClass}`}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="flex items-center gap-1.5 truncate font-medium text-gray-900">
+                                      <span>{node?.name || 'Item'}</span>
+                                      {node?.isFree && <span className="text-[10px] font-semibold text-emerald-700">(FREE)</span>}
                                     </p>
-                                  )}
+                                    {nodeAddOns.length > 0 && (
+                                      <p className="mt-0.5 text-[11px] font-medium text-amber-700">
+                                        Add-ons included
+                                      </p>
+                                    )}
+                                  </div>
+                                  <span className="shrink-0 font-semibold text-gray-900">
+                                    {formatRupee(Number(node?.discountedPrice ?? node?.totalPrice ?? 0))}
+                                  </span>
                                 </div>
-                                <span className="shrink-0 font-semibold text-gray-900">
-                                  {formatRupee(Number(node?.discountedPrice ?? node?.totalPrice ?? 0))}
-                                </span>
+                                {nodeAddOns.length > 0 && (
+                                  <div className="mt-2 space-y-0.5 pl-2 text-[11px] text-amber-700">
+                                    {nodeAddOns.map((addon: any, addonIndex: number) => (
+                                      <div key={`${keyPrefix}-${nodeIndex}-addon-${addonIndex}`}>+ {addon.name} {addon.price ? `(+₹${addon.price})` : ''}</div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>,
+                            )
+                          })
+                          return rendered
+                        }
+
+                        const itemLevelPrice = bucket.rows.reduce((sum, row) => {
+                          const explicitDiscounted = toSafeNumber(row.item.discountedPrice, NaN)
+                          if (Number.isFinite(explicitDiscounted)) return sum + explicitDiscounted
+                          return sum + Math.max(toSafeNumber(row.item.totalPrice, 0) - toSafeNumber(row.item.discount, 0), 0)
+                        }, 0)
+
+                        const consideredPrice = Number.isFinite(itemLevelPrice)
+                          ? itemLevelPrice
+                          : Number.isFinite(logBasedPrice)
+                            ? logBasedPrice
+                            : bucketSubtotal
+                        const groupKey = `offer-group-${orderId}-${bucket.offerId}`
+                        const isGroupExpanded = !!expandedItems[groupKey]
+
+                        return (
+                          <div key={groupKey} className="mx-3 my-3 rounded-xl border border-blue-200 bg-blue-50/60">
+                            <button
+                              type="button"
+                              onClick={() => toggleExpanded(groupKey)}
+                              className="flex w-full items-center justify-between gap-3 border-b border-blue-200 px-3 py-2 text-left"
+                              aria-expanded={isGroupExpanded}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
+                                  <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
+                                    {bucket.offerType}
+                                  </span>
+                                  <span className="truncate max-w-[220px]">{bucket.offerTitle}</span>
+                                </div>
+                                <div className="mt-1 text-[11px] font-medium text-blue-700/80">
+                                  {isGroupExpanded ? 'Hide items' : 'View items'}
+                                </div>
                               </div>
-                              {nodeAddOns.length > 0 && (
-                                <div className="mt-2 space-y-0.5 pl-2 text-[11px] text-amber-700">
-                                  {nodeAddOns.map((addon: any, addonIndex: number) => (
-                                    <div key={`${keyPrefix}-${nodeIndex}-addon-${addonIndex}`}>+ {addon.name} {addon.price ? `(+₹${addon.price})` : ''}</div>
-                                  ))}
+                              <div className="text-right">
+                                <div className="text-[10px] font-medium uppercase tracking-wide text-blue-600">
+                                  {bucket.rows.length} item{bucket.rows.length > 1 ? 's' : ''}
+                                  <span className={`ml-1 inline-block transition-transform ${isGroupExpanded ? 'rotate-180' : ''}`}>▼</span>
                                 </div>
-                              )}
-                            </div>,
-                          )
-                        })
-                        return rendered
-                      }
+                                <div className="text-xs font-bold text-blue-800">
+                                  Offer Price: {formatRupee(consideredPrice)}
+                                </div>
 
-                      const itemLevelPrice = bucket.rows.reduce((sum, row) => {
-                        const explicitDiscounted = toSafeNumber(row.item.discountedPrice, NaN)
-                        if (Number.isFinite(explicitDiscounted)) return sum + explicitDiscounted
-                        return sum + Math.max(toSafeNumber(row.item.totalPrice, 0) - toSafeNumber(row.item.discount, 0), 0)
-                      }, 0)
+                              </div>
+                            </button>
 
-                      const consideredPrice = Number.isFinite(itemLevelPrice)
-                        ? itemLevelPrice
-                        : Number.isFinite(logBasedPrice)
-                          ? logBasedPrice
-                          : bucketSubtotal
-                      const groupKey = `offer-group-${orderId}-${bucket.offerId}`
-                      const isGroupExpanded = !!expandedItems[groupKey]
+                            {isGroupExpanded && (
+                              <div className="space-y-2 p-3">
 
-                      return (
-                      <div key={groupKey} className="mx-3 my-3 rounded-xl border border-blue-200 bg-blue-50/60">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(groupKey)}
-                          className="flex w-full items-center justify-between gap-3 border-b border-blue-200 px-3 py-2 text-left"
-                          aria-expanded={isGroupExpanded}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
-                              <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
-                                {bucket.offerType}
-                              </span>
-                              <span className="truncate max-w-[220px]">{bucket.offerTitle}</span>
-                            </div>
-                            <div className="mt-1 text-[11px] font-medium text-blue-700/80">
-                              {isGroupExpanded ? 'Hide items' : 'View items'}
-                            </div>
+                                {bucket.offerType === 'COMBO' && bucket.rows.length > 0 && Array.isArray(bucket.rows[0].item.items) && bucket.rows[0].item.items.length > 0
+                                  ? renderComboLeafRows(bucket.rows[0].item.items, `${groupKey}-combo`)
+                                  : bucket.rows.map(({ item, index }) => renderOrderRow(item, index, `offer-${bucket.offerId}`, true, false))}
+                              </div>
+                            )}
                           </div>
-                          <div className="text-right">
-                            <div className="text-[10px] font-medium uppercase tracking-wide text-blue-600">
-                              {bucket.rows.length} item{bucket.rows.length > 1 ? 's' : ''}
-                              <span className={`ml-1 inline-block transition-transform ${isGroupExpanded ? 'rotate-180' : ''}`}>▼</span>
-                            </div>
-                            <div className="text-xs font-bold text-blue-800">
-                              Offer Price: {formatRupee(consideredPrice)}
-                            </div>
-                            
-                          </div>
-                        </button>
-
-                        {isGroupExpanded && (
-                          <div className="space-y-2 p-3">
-                            
-                            {bucket.offerType === 'COMBO' && bucket.rows.length > 0 && Array.isArray(bucket.rows[0].item.items) && bucket.rows[0].item.items.length > 0
-                              ? renderComboLeafRows(bucket.rows[0].item.items, `${groupKey}-combo`)
-                              : bucket.rows.map(({ item, index }) => renderOrderRow(item, index, `offer-${bucket.offerId}`, true, false))}
-                          </div>
-                        )}
-                      </div>
-                    )})
+                        )
+                      })
                     })()}
 
                     {regularRows.map(({ item, index }) => renderOrderRow(item, index, 'regular'))}
@@ -846,7 +847,7 @@ export function FloorCanvas() {
         // Define unique key for this notification instance to prevent double trigger/double toasts
         const stableSeconds = (table as any).needsPaymentCollectionAt?.seconds ?? (table as any).updatedAt?.seconds ?? 'payment'
         const notificationKey = `${table.id}_${stableSeconds}`
-        
+
         let shouldToast = true
         if (typeof window !== 'undefined') {
           if (!(window as any).__notifiedPayments) {
@@ -937,6 +938,34 @@ export function FloorCanvas() {
     appliedOfferLogs?: AppliedOfferLog[]
   } | null>(null)
   const [printBillData, setPrintBillData] = useState<BillData | null>(null)
+  const [billPrinterName, setBillPrinterName] = useState<string | null>(null)
+
+  // Fetch bill printer name from printerConfigs
+  useEffect(() => {
+    let isMounted = true
+    const fetchBillPrinter = async () => {
+      try {
+        const printersSnap = await getDocs(collection(db, 'printerConfigs'))
+        let billPrinter: string | null = null
+        let counterPrinter: string | null = null
+        printersSnap.forEach(d => {
+          const p = d.data()
+          if (p.role === 'bill') billPrinter = p.systemPrinterName || p.printerName
+          if (p.role === 'coffee') counterPrinter = p.systemPrinterName || p.printerName
+        })
+        if (isMounted) {
+          // Fallback chain: bill → counter → null (default printer)
+          const resolved = billPrinter || counterPrinter || null
+          setBillPrinterName(resolved)
+          console.log(`[FloorCanvas] Bill printer resolved: "${resolved}"`)
+        }
+      } catch (e) {
+        console.error('[FloorCanvas] Error fetching bill printer config:', e)
+      }
+    }
+    fetchBillPrinter()
+    return () => { isMounted = false }
+  }, [])
 
   // Walls
   const [walls, setWalls] = useState<IWall[]>([])
@@ -1157,8 +1186,8 @@ export function FloorCanvas() {
         addOns: Array.isArray(item.addOns)
           ? item.addOns
           : Array.isArray(item.addons)
-          ? item.addons
-          : [],
+            ? item.addons
+            : [],
         notes: item.notes || '',
         items: Array.isArray(item.items) ? item.items.map((child: any, childIndex: number) => normalizeOrderItem(child, childIndex, parentOrderId)) : [],
       })
@@ -1416,7 +1445,7 @@ export function FloorCanvas() {
 
       if (tablesToUpdate.length > 0) {
         await Promise.all(
-          tablesToUpdate.map( (table: any) => floorMapService.updateTable(table.id, {
+          tablesToUpdate.map((table: any) => floorMapService.updateTable(table.id, {
             outletId,
             x: toFiniteNumber(table.x, 100),
             y: toFiniteNumber(table.y, 100),
@@ -1649,6 +1678,7 @@ export function FloorCanvas() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: table.activeSessionId || undefined,
+          outletId: outletId,
           tableId: table.id,
         }),
       })
@@ -1703,28 +1733,54 @@ export function FloorCanvas() {
   useEffect(() => {
     if (!printBillData) return undefined
 
-    const handleAfterPrint = () => {
-      clearPrintPageSize()
-      setPrintBillData(null)
+    let cancelled = false
+
+    const printBillViaQZ = async () => {
+      // Wait for React to render the BillTemplate into the DOM
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      if (cancelled) return
+
+      const container = document.querySelector('.print-container') as HTMLElement | null
+      if (!container) {
+        console.warn('[FloorCanvas] Bill print container not found in DOM')
+        setPrintBillData(null)
+        return
+      }
+
+      // Keep fitPrintPageToContent for now
+      fitPrintPageToContent('.print-container')
+
+      const printerName = billPrinterName
+      console.log(`[FloorCanvas] 🖨️ Printing bill to: "${printerName || 'default printer'}"`)
+      toast('🖨️ Printing started...')
+
+      try {
+        const htmlContent = container.innerHTML
+        const fullHtml = `<html><head><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
+
+        await silentPrintHTML(printerName, fullHtml, {
+          widthMm: 80,
+        })
+
+        console.log('[FloorCanvas] ✅ Bill printed successfully')
+        toast.success('✅ Printed successfully')
+      } catch (err) {
+        console.error('[FloorCanvas] ❌ Failed to print bill:', err)
+        toast.error('❌ Printer not connected')
+      } finally {
+        clearPrintPageSize()
+        if (!cancelled) {
+          setPrintBillData(null)
+        }
+      }
     }
 
-    let firstFrame = 0
-    let secondFrame = 0
-
-    window.addEventListener('afterprint', handleAfterPrint)
-    fitPrintPageToContent('.print-container')
-    firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => {
-        window.print()
-      })
-    })
+    printBillViaQZ()
 
     return () => {
-      window.removeEventListener('afterprint', handleAfterPrint)
-      window.cancelAnimationFrame(firstFrame)
-      window.cancelAnimationFrame(secondFrame)
+      cancelled = true
     }
-  }, [printBillData])
+  }, [printBillData, billPrinterName])
 
   const printKOT = (table: Table) => {
     const relatedOrders = tableSessionOrders[table.id] || []
@@ -1814,9 +1870,8 @@ export function FloorCanvas() {
               if (isEditMode) saveLayout()
               else setIsEditMode(true)
             }}
-            className={`flex items-center gap-2 text-sm ${
-              isEditMode ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'
-            } text-white`}
+            className={`flex items-center gap-2 text-sm ${isEditMode ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'
+              } text-white`}
           >
             {isEditMode ? (
               <>
@@ -1893,9 +1948,8 @@ export function FloorCanvas() {
                     e.stopPropagation()
                     if (showWallEditor) setSelectedWallIndex(idx)
                   }}
-                  className={`absolute rounded-sm transition-colors ${
-                    showWallEditor ? 'cursor-pointer' : ''
-                  } ${isSelected ? 'bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'}`}
+                  className={`absolute rounded-sm transition-colors ${showWallEditor ? 'cursor-pointer' : ''
+                    } ${isSelected ? 'bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'}`}
                   style={{
                     left: toFiniteNumber(wall.x, 0),
                     top: toFiniteNumber(wall.y, 0),
@@ -1990,9 +2044,8 @@ export function FloorCanvas() {
             return (
               <div
                 key={table.id}
-                className={`absolute transition-shadow ${
-                  isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
-                }`}
+                className={`absolute transition-shadow ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+                  }`}
                 style={{
                   left: toFiniteNumber(table.x, 0),
                   top: toFiniteNumber(table.y, 0),
@@ -2005,30 +2058,28 @@ export function FloorCanvas() {
                   className={`
                     w-full h-full rounded-xl border flex flex-col justify-between p-4 gap-1.5
                     ${isPaymentHighlighted
-                        ? 'border-red-400 bg-red-50 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse'
-                        : isTableActive
-                          ? 'border-emerald-300 bg-white shadow-[0_1px_8px_rgba(16,185,129,0.18)]'
-                          : 'border-gray-300 bg-white shadow-sm'
+                      ? 'border-red-400 bg-red-50 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse'
+                      : isTableActive
+                        ? 'border-emerald-300 bg-white shadow-[0_1px_8px_rgba(16,185,129,0.18)]'
+                        : 'border-gray-300 bg-white shadow-sm'
                     }
                   `}
                 >
                   {/* Status row */}
                   <div className="flex items-center justify-between">
                     <span
-                      className={`whitespace-nowrap text-[9px] font-medium leading-none ${
-                        isBillRequested ? 'text-red-600' : 'text-gray-500'
-                      }`}
+                      className={`whitespace-nowrap text-[9px] font-medium leading-none ${isBillRequested ? 'text-red-600' : 'text-gray-500'
+                        }`}
                     >
                       {isBillRequested ? 'Collect Money' : isTableActive ? 'Occupied' : 'Available'}
                     </span>
                     <span
-                      className={`h-2 w-2 rounded-full ${
-                        isBillRequested
+                      className={`h-2 w-2 rounded-full ${isBillRequested
                           ? 'bg-red-500'
                           : isTableActive
-                          ? 'bg-emerald-500'
-                          : 'bg-gray-300'
-                      }`}
+                            ? 'bg-emerald-500'
+                            : 'bg-gray-300'
+                        }`}
                     />
                   </div>
 
@@ -2036,13 +2087,12 @@ export function FloorCanvas() {
                   <div className="text-center leading-tight py-0.5">
                     <div className="text-xs font-semibold text-gray-900 truncate">{table.name}</div>
                     <div className="text-[10px] text-gray-500 mt-0.5">Bill</div>
-                            {/* tableBillAmount = sum of server-provided order totals (displayTotal/pricing.total) */}
+                    {/* tableBillAmount = sum of server-provided order totals (displayTotal/pricing.total) */}
                     <div
-                      className={`text-sm font-semibold mt-0.5 ${
-                        isBillRequested ? 'text-red-700' : 'text-gray-900'
-                      }`}
+                      className={`text-sm font-semibold mt-0.5 ${isBillRequested ? 'text-red-700' : 'text-gray-900'
+                        }`}
                     >
-                              {formatRupee(tableBillAmount)}
+                      {formatRupee(tableBillAmount)}
                     </div>
                   </div>
 
@@ -2165,11 +2215,11 @@ export function FloorCanvas() {
           orders={
             tableSessionOrders[activeTable.id]?.length
               ? {
-                  tableId: activeTable.id,
-                  // Build normalised items using correct DB keys
-                  items: buildOrderItems(tableSessionOrders[activeTable.id]),
-                  createdAt: new Date(),
-                }
+                tableId: activeTable.id,
+                // Build normalised items using correct DB keys
+                items: buildOrderItems(tableSessionOrders[activeTable.id]),
+                createdAt: new Date(),
+              }
               : undefined
           }
           billData={billData}
@@ -2260,10 +2310,10 @@ export function FloorCanvas() {
         <div className="fixed top-[-9999px] left-[-9999px] -z-50 print-container print:static print:top-0 print:left-0 print:z-auto">
           <BillTemplate
             data={printBillData}
-            restaurantHeader="Demitasse Coffee"
-            restaurantFooter="Thank You"
-            showRestaurantHeader={true}
-            showFooter={true}
+            restaurantHeader={printSettings?.restaurantHeaderText || 'Demitasse Coffee'}
+            restaurantFooter={printSettings?.restaurantFooterText || 'Thank You'}
+            showRestaurantHeader={printSettings?.showRestaurantHeader ?? true}
+            showFooter={printSettings?.showFooter ?? true}
             width={universalWidth}
             margins={universalMargins}
             padding={universalPadding}

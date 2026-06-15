@@ -37,6 +37,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const profile = await getCurrentUserProfile();
           if (profile) {
+            if (profile.role === 'customer') {
+              localStorage.setItem('auth_error', 'Customers are not allowed to access the billing portal.');
+              await firebaseLogOut();
+              setUser(null);
+              setIsLoggedIn(false);
+              setOutletId(null);
+              setAccountStatus(null);
+              localStorage.removeItem('outlet_id');
+              localStorage.removeItem('billing_account_status');
+              setIsLoading(false);
+              return;
+            }
+            if (profile.role !== 'outlet') {
+              localStorage.setItem('auth_error', 'Only outlet accounts are allowed to access the billing portal.');
+              await firebaseLogOut();
+              setUser(null);
+              setIsLoggedIn(false);
+              setOutletId(null);
+              setAccountStatus(null);
+              localStorage.removeItem('outlet_id');
+              localStorage.removeItem('billing_account_status');
+              setIsLoading(false);
+              return;
+            }
             outlet = (profile?.outletID || profile?.outletId) as string;
             status = (profile?.status as string) || 'approved';
           }
