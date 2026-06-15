@@ -33,13 +33,67 @@ import {
 import { auth } from '@/lib/firebase/auth'
 import { getAllOutlets, AdminOutlet } from '@/services/adminOutlet.service'
 
-const CATEGORIES = ['Appetizers', 'Main Course', 'Desserts', 'Beverages', 'Sides']
-const SUB_CATEGORIES: Record<string, string[]> = {
-  'Appetizers': ['Starters', 'Soups', 'Salads'],
-  'Main Course': ['Pasta', 'Pizza', 'Meat', 'Vegetarian'],
-  'Desserts': ['Cakes', 'Ice Cream', 'Pastries'],
-  'Beverages': ['Soft Drinks', 'Coffee', 'Juice', 'Alcohol'],
-  'Sides': ['Fries', 'Bread', 'Sauces'],
+function CreatableSuggestionInput({
+  id,
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  id: string
+  value: string
+  options: string[]
+  placeholder: string
+  onChange: (value: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const query = value.trim().toLocaleLowerCase()
+  const filteredOptions = options.filter(option =>
+    option.toLocaleLowerCase().includes(query)
+  )
+  const isNewValue =
+    value.trim() &&
+    !options.some(option => option.toLocaleLowerCase() === query)
+
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        value={value}
+        onChange={event => {
+          onChange(event.target.value)
+          setIsOpen(true)
+        }}
+        onFocus={() => setIsOpen(true)}
+        onBlur={() => setIsOpen(false)}
+        autoComplete="off"
+        placeholder={placeholder}
+      />
+      {isOpen && (filteredOptions.length > 0 || isNewValue) && (
+        <div className="absolute z-50 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+          {filteredOptions.map(option => (
+            <button
+              key={option}
+              type="button"
+              className="w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => {
+                onChange(option)
+                setIsOpen(false)
+              }}
+            >
+              {option}
+            </button>
+          ))}
+          {isNewValue && (
+            <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+              New value: <span className="font-medium text-foreground">{value.trim()}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function MenuPage() {
@@ -130,6 +184,41 @@ export default function MenuPage() {
     )
   }, [products, searchQuery])
 
+  const categories = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          products
+            .map(product => product.category?.trim().toUpperCase())
+            .filter(Boolean) as string[]
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [products]
+  )
+
+  const subcategoriesByCategory = useMemo(() => {
+    const grouped = new Map<string, Set<string>>()
+
+    products.forEach(product => {
+      const category = product.category?.trim().toUpperCase()
+      const subcategory = product.subcategory?.trim()
+      if (!category || !subcategory) return
+
+      if (!grouped.has(category)) grouped.set(category, new Set())
+      grouped.get(category)!.add(subcategory)
+    })
+
+    return Object.fromEntries(
+      Array.from(grouped.entries()).map(([category, subcategories]) => [
+        category,
+        Array.from(subcategories).sort((a, b) => a.localeCompare(b)),
+      ])
+    ) as Record<string, string[]>
+  }, [products])
+
+  const selectedCategorySubcategories =
+    subcategoriesByCategory[formData.category.trim().toUpperCase()] || []
+
   // Auth checks
   if (isLoading) {
     return (
@@ -207,7 +296,7 @@ export default function MenuPage() {
 
   const handleSubmit = async () => {
     // subcategory is now optional in validation (some products may not have one)
-    if (!formData.name.trim() || !formData.category || !formData.price) {
+    if (!formData.name.trim() || !formData.category.trim() || !formData.price) {
       setEditError('Please fill all required fields (Name, Category, Price)')
       return
     }
@@ -229,8 +318,8 @@ export default function MenuPage() {
     try {
       const productData: any = {
         name: formData.name.trim(),
-        category: formData.category,
-        subcategory: formData.subcategory, // can be empty string
+        category: formData.category.trim().toUpperCase(),
+        subcategory: formData.subcategory.trim(), // can be empty string
         price: priceValue,
         isAvailable: formData.isAvailable,
         imageUrl: formData.imageUrl,
@@ -491,44 +580,25 @@ export default function MenuPage() {
             {/* Category */}
             <div className="space-y-2">
               <Label htmlFor="category">Category *</Label>
-              <Select value={formData.category} onValueChange={value => {
-                handleFormChange('category', value)
-                handleFormChange('subcategory', '')
-              }}>
-                <SelectTrigger id="category">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map(cat => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CreatableSuggestionInput
+                id="category"
+                value={formData.category.toUpperCase()}
+                options={categories}
+                onChange={value => handleFormChange('category', value.toUpperCase())}
+                placeholder="Select or enter category"
+              />
             </div>
 
             {/* Sub Category */}
             <div className="space-y-2">
-              <Label htmlFor="subcategory">Sub Category *</Label>
-              <Select value={formData.subcategory} onValueChange={value => handleFormChange('subcategory', value)}>
-                <SelectTrigger id="subcategory">
-                  <SelectValue placeholder="Select sub category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {formData.category && SUB_CATEGORIES[formData.category] ? (
-                    SUB_CATEGORIES[formData.category].map(subCat => (
-                      <SelectItem key={subCat} value={subCat}>
-                        {subCat}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value="none" disabled>
-                      Select category first
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="subcategory">Sub Category</Label>
+              <CreatableSuggestionInput
+                id="subcategory"
+                value={formData.subcategory}
+                options={selectedCategorySubcategories}
+                onChange={value => handleFormChange('subcategory', value)}
+                placeholder="Select or enter sub category"
+              />
             </div>
 
             {/* Price */}

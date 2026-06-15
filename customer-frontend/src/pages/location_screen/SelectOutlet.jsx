@@ -122,7 +122,8 @@ const SelectOutlet = ({ onClose }) => {
       const outletList = outletListRaw
         .filter((docSnap) => {
           const status = String(docSnap?.status || '').trim().toLowerCase()
-          return status === "approved" || status === "accepted"
+          const name = String(docSnap?.name || '').trim()
+          return Boolean(name) && (status === "approved" || status === "accepted")
         })
         .map((docSnap) => {
           const data = docSnap || {}

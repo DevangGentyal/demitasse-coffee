@@ -44,8 +44,25 @@ const listCollection = async (collectionName: string, fieldName?: string, fieldV
 
 const readResource = async (resource: string, params: URLSearchParams, uid: string) => {
 	switch (resource) {
-		case 'outlets':
-			return listCollection('outletDetails')
+		case 'outlets': {
+			const snapshot = await db.collection('outlets').get()
+			const outlets = await Promise.all(snapshot.docs.map(async (outletDoc) => {
+				const detailsSnapshot = await outletDoc.ref.collection('outletDetails').get()
+				const detailsDoc = detailsSnapshot.docs.find((docSnap) =>
+					typeof docSnap.data().name === 'string' && docSnap.data().name.trim() !== ''
+				)
+				if (!detailsDoc) return null
+
+				const detailsData = detailsDoc.data()
+				return {
+					...outletDoc.data(),
+					...detailsData,
+					id: outletDoc.id,
+					name: String(detailsData.name || '').trim(),
+				}
+			}))
+			return outlets.filter((outlet): outlet is NonNullable<typeof outlet> => outlet !== null)
+		}
 		case 'outletById': {
 			const outletId = readString(params.get('outletId'))
 			if (!outletId) throw new Error('outletId is required')

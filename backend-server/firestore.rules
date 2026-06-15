@@ -96,6 +96,11 @@ service cloud.firestore {
       allow write: if false;  // All writes via backend only
     }
 
+    match /outlets/{outletId}/outletDetails/{detailsId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     match /{path=**}/tables/{id} {
       allow read: if isSignedIn();
       allow write: if false;  // All writes via backend only

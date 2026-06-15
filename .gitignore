@@ -12,3 +12,4 @@ backend-server/scripts/seedLoyaltyEmulator.js
 backend-server/functions/seedPassword.js
 billing-frontend/tsconfig.tsbuildinfo
 billing-frontend/tsconfig.tsbuildinfo
+backend-server/scripts/products.js

@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 interface DeleteProductRequest { productId: string; outletId?: string; }
 
@@ -49,6 +50,18 @@ export const deleteProduct = functions.https.onRequest(
 			}
 
 			await productRef.delete();
+			const resolvedOutletId = productRef.parent.parent?.id;
+			if (!resolvedOutletId) {
+				throw new Error("Unable to resolve outletId from product path");
+			}
+			const outletDetailsSnapshot = await db.collection("outlets").doc(resolvedOutletId)
+				.collection("outletDetails").limit(1).get();
+			if (outletDetailsSnapshot.empty) {
+				throw new Error("Outlet details not found");
+			}
+			await outletDetailsSnapshot.docs[0].ref.update({
+				menuVersion: FieldValue.increment(1),
+			});
 			res.status(200).json({ success: true, message: "Product deleted successfully" });
 		} catch (error) {
 			console.error("deleteProduct error:", error);

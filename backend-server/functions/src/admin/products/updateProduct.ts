@@ -103,6 +103,18 @@ export const updateProduct = functions.https.onRequest(
 			updateData["priceRaw"] = FieldValue.delete();
 
 			await productRef.update(updateData);
+			const resolvedOutletId = productRef.parent.parent?.id;
+			if (!resolvedOutletId) {
+				throw new Error("Unable to resolve outletId from product path");
+			}
+			const outletDetailsSnapshot = await db.collection("outlets").doc(resolvedOutletId)
+				.collection("outletDetails").limit(1).get();
+			if (outletDetailsSnapshot.empty) {
+				throw new Error("Outlet details not found");
+			}
+			await outletDetailsSnapshot.docs[0].ref.update({
+				menuVersion: FieldValue.increment(1),
+			});
 
 			res.status(200).json({ success: true, message: "Product updated successfully" });
 		} catch (error) {

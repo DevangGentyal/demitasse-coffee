@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 interface CreateProductRequest {
 	outletId: string;
@@ -78,6 +79,14 @@ export const createProduct = functions.https.onRequest(
 			});
 
 			await productRef.set(productDoc);
+			const outletDetailsSnapshot = await db.collection("outlets").doc(data.outletId)
+				.collection("outletDetails").limit(1).get();
+			if (outletDetailsSnapshot.empty) {
+				throw new Error("Outlet details not found");
+			}
+			await outletDetailsSnapshot.docs[0].ref.update({
+				menuVersion: FieldValue.increment(1),
+			});
 
 			res.status(201).json({ success: true, message: "Product created successfully", data: { productId: productRef.id } });
 			return;

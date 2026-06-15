@@ -1,5 +1,6 @@
 import { auth } from '@/lib/firebase/auth'
-import { Timestamp } from 'firebase/firestore'
+import { db } from '@/lib/firebase/app'
+import { collection, getDocs, limit, query, Timestamp } from 'firebase/firestore'
 import { getProductsByOutletId as getProductsByOutletIdFromBackend, invalidateReadCache } from './backendApi'
 import { buildCloudFunctionsUrl } from './cloudFunctions'
 import { parseJsonOrFallback } from './httpUtils'
@@ -66,7 +67,37 @@ const getIdToken = async (): Promise<string> => {
  */
 export const getProductsByOutletId = async (outletId: string): Promise<Product[]> => {
   try {
-    return await getProductsByOutletIdFromBackend<Product>(outletId)
+    let menuVersion: number | null = null
+    try {
+      const menuVersionSnapshot = await getDocs(
+        query(
+          collection(db, 'outlets', outletId, 'outletDetails'),
+          limit(1)
+        )
+      )
+      menuVersion = menuVersionSnapshot.docs[0]?.data()?.menuVersion ?? 0
+    } catch (versionError) {
+      console.warn('Unable to read menu version; fetching menu:', versionError)
+    }
+
+    const cachedMenuVersion = localStorage.getItem(`menuVersion_${outletId}`)
+    const cachedMenu = localStorage.getItem(`menu_${outletId}`)
+
+    if (
+      cachedMenu &&
+      menuVersion !== null &&
+      cachedMenuVersion !== null &&
+      Number(cachedMenuVersion) === menuVersion
+    ) {
+      return JSON.parse(cachedMenu) as Product[]
+    }
+
+    const products = await getProductsByOutletIdFromBackend<Product>(outletId)
+    localStorage.setItem(`menu_${outletId}`, JSON.stringify(products))
+    if (menuVersion !== null) {
+      localStorage.setItem(`menuVersion_${outletId}`, String(menuVersion))
+    }
+    return products
   } catch (error) {
     console.error('Error fetching products:', error)
     throw error
