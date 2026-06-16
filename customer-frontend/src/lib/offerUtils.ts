@@ -102,6 +102,69 @@ export interface FilteredOffers {
     normalOffers: Offer[];
 }
 
+const BIRTHDAY_TIME_ZONE = "Asia/Kolkata";
+
+const normalizeText = (value: unknown): string => String(value ?? "").trim().toLowerCase();
+
+const getOfferKind = (offer: Offer): string => String(offer.offerType || offer.type || "").trim().toUpperCase();
+
+export const isRegistrationOffer = (offer: Offer): boolean => {
+    const offerKind = getOfferKind(offer);
+    const category = normalizeText(offer.category);
+    const applicableFor = normalizeText(offer.applicableFor);
+
+    return offer.userRules?.firstOrderOnly === true ||
+        applicableFor === "new_user" ||
+        ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
+        category === "registration";
+};
+
+export const isBirthdayOffer = (offer: Offer): boolean => {
+    const offerKind = getOfferKind(offer);
+    const category = normalizeText(offer.category);
+    const applicableFor = normalizeText(offer.applicableFor);
+
+    return applicableFor === "birthday" ||
+        offerKind === "BIRTHDAY" ||
+        (offerKind === "REWARD" && category === "birthday") ||
+        offer.userRules?.birthdayOnly === true ||
+        category === "birthday";
+};
+
+const getTodayMonthDay = () => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: BIRTHDAY_TIME_ZONE,
+        month: "numeric",
+        day: "numeric",
+    }).formatToParts(new Date());
+
+    const monthPart = parts.find((part) => part.type === "month")?.value;
+    const dayPart = parts.find((part) => part.type === "day")?.value;
+
+    const month = monthPart ? Number(monthPart) : null;
+    const day = dayPart ? Number(dayPart) : null;
+
+    // Fallback to browser's local date if formatToParts fails
+    if (month === null || day === null || isNaN(month) || isNaN(day)) {
+        const today = new Date();
+        return {
+            month: today.getMonth() + 1, // JavaScript months are 0-indexed
+            day: today.getDate(),
+        };
+    }
+
+    return { month, day };
+};
+
+const isUsableOfferProduct = (product: any, selectedOutlet = ""): boolean => {
+    if (!product) return false;
+    const productOutletId = String(product.outletId || "").trim();
+    return product.isDeleted !== true &&
+        product.isActive !== false &&
+        product.isAvailable !== false &&
+        (!productOutletId || !selectedOutlet || productOutletId === selectedOutlet);
+};
+
 // ✅ DATE CHECK
 export const isValidDate = (offer: Offer) => {
     const now = new Date();
@@ -128,18 +191,43 @@ export const isValidDate = (offer: Offer) => {
 export const isBirthday = (dob?: string) => {
     if (!dob) return false;
 
-    const today = new Date();
+    let month: number | null = null;
+    let day: number | null = null;
+    const strDob = String(dob).trim();
 
-    const parts = dob.split("-");
-    if (parts.length !== 3) return false;
+    // 1. YYYY-MM-DD or YYYY/MM/DD
+    let match = strDob.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (match) {
+        month = parseInt(match[2], 10);
+        day = parseInt(match[3], 10);
+    } else {
+        // 2. DD-MM-YYYY or DD/MM/YYYY
+        match = strDob.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+        if (match) {
+            day = parseInt(match[1], 10);
+            month = parseInt(match[2], 10);
+        } else {
+            // 3. Fallback
+            const d = new Date(strDob);
+            if (!isNaN(d.getTime())) {
+                month = d.getMonth() + 1;
+                day = d.getDate();
+            }
+        }
+    }
 
-    const month = parseInt(parts[1], 10) - 1; 
-    const day = parseInt(parts[2], 10);
+    if (month === null || day === null || isNaN(month) || isNaN(day)) return false;
 
-    return (
-        today.getDate() === day &&
-        today.getMonth() === month
-    );
+    const today = getTodayMonthDay();
+    const todayMonth = today.month;
+    const todayDay = today.day;
+    const birthMonth = month;
+    const birthDay = day;
+
+    console.log("Today Month-Day", todayMonth, todayDay);
+    console.log("DOB Month-Day", birthMonth, birthDay);
+
+    return today.day === day && today.month === month;
 };
 
 export const isOfferAvailableToUser = (offer: Offer, user: User = {}): boolean => {
@@ -166,60 +254,48 @@ export const isOfferApplicable = (
         return false;
     }
 
-    // 2. New check: Registration offers only if orders.length === 0
-    const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
-    const isRegistrationOffer = offer.userRules?.firstOrderOnly === true ||
-        offer.applicableFor === "new_user" ||
-        ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
-        offer.category === "registration" ||
-        offer.category === "REGISTRATION";
+    // 2. Registration offers are only for registered users before their first order.
+    const offerKind = getOfferKind(offer);
+    const registrationOffer = isRegistrationOffer(offer);
 
-    console.log(`[offerUtils] Checking Offer: ${offer.id} | Title: "${offer.title}" | Category: "${offer.category}" | offerKind: "${offerKind}" | isRegistration: ${isRegistrationOffer}`);
+    console.log(`[offerUtils] Checking Offer: ${offer.id} | Title: "${offer.title}" | Category: "${offer.category}" | offerKind: "${offerKind}" | isRegistration: ${registrationOffer}`);
     console.log(`[offerUtils] userOrders.length: ${userOrders.length}`);
 
-    if (isRegistrationOffer) {
-        if (userOrders.length > 0) {
-            console.log(`[offerUtils] Offer ${offer.id} rejected: userOrders.length (${userOrders.length}) > 0`);
+    if (registrationOffer) {
+        // A user is NOT applicable for a registration offer if they are a guest,
+        // or if they have explicitly placed their first order, or have > 0 total orders.
+        if (user.userType === "guest" || user.hasPlacedFirstOrder === true || (user.totalOrders && user.totalOrders > 0) || userOrders.length > 0) {
+            console.log(`[offerUtils] Offer ${offer.id} rejected: registration offer is only for registered new users with 0 orders.`);
             return false;
         }
     }
 
-    // 3. Birthday Offer Validation: Ensure products exist and are active
-    const isBirthdayOffer = offer.category === "BIRTHDAY" || offer.userRules?.birthdayOnly === true;
-    if (isBirthdayOffer) {
-        // Verify DOB
-        const today = new Date();
-        const dob = user.dob;
-        console.log(`[offerUtils] Birthday Check - user.dob: ${dob}, today: ${today.toISOString()}`);
-        if (dob) {
-            const [y, m, d] = dob.split('-');
-            const isBirthdayToday = Number(m) === (today.getMonth() + 1) && Number(d) === today.getDate();
-            console.log(`[offerUtils] isBirthdayToday logic -> month: ${m}==${today.getMonth()+1}, day: ${d}==${today.getDate()} => ${isBirthdayToday}`);
-            if (!isBirthdayToday) return false;
-        } else {
-            console.log(`[offerUtils] Birthday Check - no dob provided, rejecting.`);
+    // 3. Birthday Offer Validation: Only show if DOB matches today
+    const birthdayOffer = isBirthdayOffer(offer);
+    if (birthdayOffer) {
+        if (!isBirthday(user?.dob)) {
+            console.log(`[offerUtils] Birthday Offer ${offer.id} rejected: DOB ${user?.dob} does not match today.`);
             return false;
         }
 
+        // Validate that reward products exist and are active
         const productIds = offer.config?.reward?.productIds || offer.rewardItems?.map(r => r.productId) || [];
-        console.log(`[offerUtils] Birthday Offer ProductIds:`, productIds);
+        console.log("Reward Product IDs", productIds);
+        console.log("Selected Outlet", selectedOutlet);
+
         if (productIds.length > 0) {
             const validProducts = productIds.filter(id => {
                 const product = products.find(p => p.id === id);
-                console.log(`[offerUtils] Validating Product ${id}: exists=${!!product}, isActive=${product?.isActive}, isDeleted=${product?.isDeleted}, outletId=${product?.outletId} (current=${selectedOutlet})`);
-                return (
-                    product &&
-                    product.isActive &&
-                    !product.isDeleted &&
-                    (product.outletId === selectedOutlet || !product.outletId)
-                );
+                return isUsableOfferProduct(product, selectedOutlet);
             });
-            console.log(`[offerUtils] Birthday Offer ${offer.id} - validProducts.length: ${validProducts.length}`);
+            console.log("Valid Products", validProducts);
             if (validProducts.length === 0) {
                 console.log(`[offerUtils] Birthday Offer ${offer.id} rejected: 0 valid products.`);
-                return false; // Hide completely
+                return false; // Hide completely if no valid products
             }
         }
+        // Always allow birthday offers to be "applicable" - OfferCard handles the visibility
+        return true;
     }
 
     console.log(`[offerUtils] Offer ${offer.id} APPLICABLE.`);
@@ -243,21 +319,13 @@ export const validateOffer = (
     }
 
     // Eligibility check (legacy applicableFor support + REGISTRATION + category check)
-    const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
-    const isRegistrationOffer = offer.userRules?.firstOrderOnly === true ||
-        offer.applicableFor === "new_user" ||
-        ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
-        offer.category === "registration";
+    const registrationOffer = isRegistrationOffer(offer);
 
-    if (isRegistrationOffer) {
+    if (registrationOffer) {
         if (user.hasPlacedFirstOrder !== false) return { valid: false, message: "Only for first-time orders" };
     }
 
-    if (
-        offer.applicableFor === "birthday" || offerKind === "BIRTHDAY" ||
-        (offerKind === "REWARD" && offer.category === "BIRTHDAY") ||
-        offer.userRules?.birthdayOnly
-    ) {
+    if (isBirthdayOffer(offer)) {
         if (!isBirthday(user.dob)) return { valid: false, message: "Only valid on your birthday 🎂" };
         // Year-based usage check
         const currentYear = new Date().getFullYear();
@@ -313,13 +381,7 @@ export const getOfferPriority = (offer: Offer): number => {
     if ((offer.offerType || offer.type || '').toString().toUpperCase() === "B1G1" || offer.discountType === "BOGO") return 2;
     // Registration/firstOrder = lowest
     // Registration/firstOrder = lowest
-    const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
-    if (
-        offer.userRules?.firstOrderOnly ||
-        offer.applicableFor === "new_user" ||
-        ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
-        offer.category === "registration"
-    ) return 1;
+    if (isRegistrationOffer(offer)) return 1;
     // Everything else
     return 0;
 };
@@ -351,11 +413,7 @@ export const getAutoRegistrationOffer = (
             isActive: offer.isActive
         });
 
-        const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
-        const isRegOffer = offer.userRules?.firstOrderOnly === true ||
-            offer.applicableFor === "new_user" ||
-            ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
-            String(offer.category || '').toLowerCase() === "registration";
+        const isRegOffer = isRegistrationOffer(offer);
 
         return (
             offer.isActive &&
@@ -392,23 +450,25 @@ export const revalidateCart = (
     // 2. Identify and Validate Auto-Apply Offers
     if (newCart.length > 0) {
         allOffers.forEach(offer => {
-            const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
+            const offerKind = getOfferKind(offer);
             if (offer.autoApply) {
-                // Special Case: Birthday Offer is disabled for now by user request
-                if (offerKind === "BIRTHDAY" || offer.applicableFor === "birthday") return;
+                const isBdyOffer = isBirthdayOffer(offer);
+                const isInteractiveBirthday = isBdyOffer && (offerKind === "REWARD" || offer.discountType === "FREE_ITEM" || (offer.config?.reward?.productIds?.length) || (offer.rewardItems?.length));
 
-                // ✅ COMBO offers already in cart — skip auto-apply of lower priority
-                if (offerKind === "COMBO" || offer.discountType === "COMBO" || offer.config?.combo) return;
+                // ✅ Interactive offers (COMBO, REWARD, BIRTHDAY, B1G1) require user selection — skip auto-apply
+                if (
+                    offerKind === "COMBO" || offer.discountType === "COMBO" || offer.config?.combo ||
+                    offerKind === "REWARD" || offer.discountType === "FREE_ITEM" ||
+                    offerKind === "B1G1" || offer.discountType === "BOGO" || offer.config?.b1g1 ||
+                    isInteractiveBirthday
+                ) return;
 
                 // ✅ PRIORITY: If combo is in cart, skip registration offer
-                const isRegistrationOffer = offer.userRules?.firstOrderOnly === true || 
-                    offer.applicableFor === "new_user" || 
-                    ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
-                    offer.category === "registration";
-                if (isRegistrationOffer && hasComboInCart) return;
+                const registrationOffer = isRegistrationOffer(offer);
+                if (registrationOffer && hasComboInCart) return;
 
                 // ✅ userRules.firstOrderOnly/registration check
-                if (isRegistrationOffer && user.hasPlacedFirstOrder !== false) return;
+                if (registrationOffer && user.hasPlacedFirstOrder !== false) return;
 
                 const { valid } = validateOffer(offer, user, newCart, itemTotal);
                 if (valid) {
@@ -473,30 +533,23 @@ export const filterOffers = (
     let normalOffers: Offer[] = [];
 
     validOffers.forEach((offer) => {
-        const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
         // ✅ Support both legacy applicableFor AND new userRules.firstOrderOnly / REGISTRATION
-        const isRegistrationOffer = offer.userRules?.firstOrderOnly === true ||
-            offer.applicableFor === "new_user" ||
-            ["NEW_USER", "FIRSTORDER", "REGISTRATION"].includes(offerKind) ||
-            offer.category === "registration";
+        const isRegistration = isRegistrationOffer(offer);
 
-        if (isRegistrationOffer && user?.hasPlacedFirstOrder === false) {
+        if (isRegistration && user?.hasPlacedFirstOrder === false) {
             registrationOffer = offer;
             return;
         }
 
-        if (
-            (offer.applicableFor === "birthday" || offerKind === "BIRTHDAY" ||
-             (offerKind === "REWARD" && offer.category === "BIRTHDAY") ||
-             offer.userRules?.birthdayOnly) &&
-            isBirthday(user?.dob)
-        ) {
-            // Year-based usage check
-            const currentYear = new Date().getFullYear();
-            const usedThisYear = user?.lastBirthdayOfferYear === currentYear;
-            const usedLegacy = user?.hasUsedBirthdayOffer && !user?.lastBirthdayOfferYear;
-            if (!usedThisYear && !usedLegacy) {
-                birthdayOffer = offer;
+        if (isBirthdayOffer(offer)) {
+            if (isBirthday(user?.dob)) {
+                // Year-based usage check
+                const currentYear = new Date().getFullYear();
+                const usedThisYear = user?.lastBirthdayOfferYear === currentYear;
+                const usedLegacy = user?.hasUsedBirthdayOffer && !user?.lastBirthdayOfferYear;
+                if (!usedThisYear && !usedLegacy) {
+                    birthdayOffer = offer;
+                }
             }
             return;
         }

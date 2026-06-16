@@ -231,7 +231,7 @@ export const applyOffer = (
 			});
 
 			const baseAmount = eligibleItems.reduce((sum, item) => sum + (item.unitPrice * item.qty), 0);
-			const discount = Math.floor(baseAmount * percent / 100);
+			const discount = Math.round(baseAmount * percent / 100);
 
 			return { orderType: 'DISCOUNT', discount, appliedOffers: [{ offerId: offer.id, title: offer.title || offer.id, type: offer.offerType || offer.type || 'DISCOUNT', amount: discount }] };
 		}

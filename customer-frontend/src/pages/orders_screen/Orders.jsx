@@ -70,8 +70,8 @@ const getOrderTotal = (orderData) => {
   if (Number.isFinite(pricingTotal) && pricingTotal >= 0) return pricingTotal;
 
   const direct = readNumber(
-    orderData?.discountedPrice ?? orderData?.grandTotal ?? orderData?.subTotal ??
-    orderData?.totalAmount ?? orderData?.itemTotal,
+    orderData?.totalAmount ?? orderData?.grandTotal ?? orderData?.discountedPrice ??
+    orderData?.subTotal ?? orderData?.itemTotal,
     NaN
   );
   if (Number.isFinite(direct) && direct >= 0) return direct;

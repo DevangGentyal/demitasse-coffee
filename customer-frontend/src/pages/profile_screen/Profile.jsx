@@ -4,6 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
+import { useOffers } from "../../context/OfferContext";
 import UpdateNameModal from "../../components/profile/UpdateNameModal";
 import UpdatePasswordModal from "../../components/profile/UpdatePasswordModal";
 
@@ -24,6 +25,7 @@ import {
 export default function Profile() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { refreshUserProfile } = useOffers();
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showNameModal, setShowNameModal] = useState(false);
@@ -87,6 +89,7 @@ export default function Profile() {
   const handleNameSuccess = (newName) => {
     setShowNameModal(false);
     setUserData((prev) => (prev ? { ...prev, name: newName } : prev));
+    refreshUserProfile().catch((err) => console.error("Failed to refresh profile context:", err));
     showToast("Display name updated successfully! 🎉");
   };
 

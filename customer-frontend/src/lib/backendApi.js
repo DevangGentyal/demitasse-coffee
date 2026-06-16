@@ -33,7 +33,7 @@ const buildUrl = (resource, params = {}) => {
 }
 
 const readResource = async (resource, params = {}) => {
-  const publicResources = ['outlets', 'outletById', 'tables', 'tableById', 'products', 'productById', 'offers', 'offerById', 'sessionOrders', 'checkGoogleUser']
+  const publicResources = ['outlets', 'outletDetails', 'outletById', 'tables', 'tableById', 'products', 'productById', 'offers', 'offerById', 'sessionOrders', 'checkGoogleUser']
   const isPublic = publicResources.includes(resource)
 
   const token = await getAuthToken(!isPublic)
@@ -56,6 +56,8 @@ const readResource = async (resource, params = {}) => {
 export const getOutlets = async () => readResource('outlets')
 
 export const getOutletById = async (outletId) => readResource('outletById', { outletId })
+
+export const getOutletDetails = async (outletId) => readResource('outletDetails', { outletId })
 
 export const getProductsByOutletId = async (outletId) => readResource('products', { outletId })
 
@@ -116,15 +118,21 @@ export const upsertUserProfile = async (profile) => {
 
 export const getOrderHistory = async (sortDir = 'desc') => {
   const token = await getIdToken()
-  const response = await fetch(`${API_BASE}/customerGetOrderHistory?sort=${sortDir}`, {
+  const requestUrl = `${API_BASE}/customerGetOrderHistory?sort=${sortDir}`;
+  console.log(`[E2E TRACE backendApi] Request: GET ${requestUrl}`);
+  
+  const response = await fetch(requestUrl, {
     headers: { Authorization: `Bearer ${token}` }
   })
+  
   const payload = await response.json().catch(() => ({}))
+  console.log("[E2E TRACE backendApi] Response Payload:", payload);
+  
   if (!response.ok || !payload.success) {
     throw new Error(payload.message || 'Failed to load order history')
   }
-  // Extract all orders from the groups
-  const allOrders = payload.groups?.reduce((acc, group) => acc.concat(group.orders), []) || []
+  
+  const allOrders = payload.orders || []
   return allOrders
 }
 

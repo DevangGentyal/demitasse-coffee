@@ -4,7 +4,7 @@ import { useCart } from "../../context/CartContext";
 import { useOffers } from "../../context/OfferContext";
 import { useMenu } from "../../context/MenuContext";
 import { useNavigate } from "react-router-dom";
-import { isBirthday } from "../../lib/offerUtils";
+import { isBirthday, isBirthdayOffer as isBirthdayOfferConfig } from "../../lib/offerUtils";
 import Variations from "../itemDetails_screen/Variations";
 import AddOnGroup from "../itemDetails_screen/AddOnGroup";
 import { useLocationContext } from "../../context/LocationContext";
@@ -193,6 +193,15 @@ const getOfferBirthdayProductIds = (offer: Offer | null | undefined): string[] =
   return normalizeProductIds(rawIds);
 };
 
+const isUsableBirthdayProduct = (product: any, selectedOutlet = ""): boolean => {
+  if (!product) return false;
+  const productOutletId = String(product.outletId || "").trim();
+  return product.isDeleted !== true &&
+    product.isActive !== false &&
+    product.isAvailable !== false &&
+    (!productOutletId || !selectedOutlet || productOutletId === selectedOutlet);
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = false }) => {
   const { cart, appliedOffers, addComboToCart, addB1G1ToCart, addDiscountToCart, addBirthdayToCart } = useCart();
@@ -258,12 +267,9 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   }
 
   // ─── Birthday Offer detection ───────────────────────────────────────────
-  const isBirthdayOffer = offer ? (
-    (resolvedOfferType === "REWARD" && offer.category === "BIRTHDAY") ||
-    resolvedOfferType === "BIRTHDAY" ||
-    offer.applicableFor === "birthday" ||
-    offer.userRules?.birthdayOnly === true
-  ) : false;
+  const isBirthdayOffer = offer ? isBirthdayOfferConfig(offer as any) : false;
+  const birthdayProductIds = getOfferBirthdayProductIds(offer);
+  const isBirthdayFreeItem = isBirthdayOffer && (birthdayProductIds.length > 0 || resolvedOfferType === "REWARD" || offer?.discountType === "FREE_ITEM");
 
   const perUserLimit = offer.userRules?.perUserLimit ?? (offer as any).perUserLimit;
 
@@ -293,10 +299,10 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
       setShowComboModal(true);
     } else if (isB1G1) {
       setShowB1G1Modal(true);
+    } else if (isBirthdayFreeItem) {
+      setShowBirthdayModal(true);
     } else if (isInteractiveDiscount) {
       setShowDiscountModal(true);
-    } else if (isBirthdayOffer) {
-      setShowBirthdayModal(true);
     }
   };
 
@@ -324,10 +330,32 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
 
   // ─── Hide birthday offer on non-birthday days or if already used ────────────
   if (isBirthdayOffer) {
-    if (!fullUser?.dob || !isBirthday(fullUser.dob)) return null;
+    // ✅ FIX: Only hide if we KNOW it's not the user's birthday
+    // If fullUser is still loading (dob undefined), wait for data before hiding
+    if (fullUser?.dob) {
+      // fullUser loaded with DOB info - check if it's their birthday
+      if (!isBirthday(fullUser.dob)) {
+        console.log(`[OfferCard] Birthday Offer ${offer.id}: NOT user's birthday, hiding`);
+        return null;
+      }
+    } else if (fullUser !== null && fullUser !== undefined) {
+      // fullUser loaded but has NO dob field - this user shouldn't see birthday offer
+      console.log(`[OfferCard] Birthday Offer ${offer.id}: No DOB in fullUser, hiding`);
+      return null;
+    }
+    // If fullUser is null/undefined, it's still loading - show the offer for now
+    // It will hide once fullUser loads with the correct data
+    
+    // Check if already used this year
     const currentYear = new Date().getFullYear();
-    if (fullUser.lastBirthdayOfferYear === currentYear) return null;
-    if (fullUser.hasUsedBirthdayOffer && !fullUser.lastBirthdayOfferYear) return null;
+    if (fullUser?.lastBirthdayOfferYear === currentYear) {
+      console.log(`[OfferCard] Birthday Offer ${offer.id}: Already used this year, hiding`);
+      return null;
+    }
+    if (fullUser?.hasUsedBirthdayOffer && !fullUser?.lastBirthdayOfferYear) {
+      console.log(`[OfferCard] Birthday Offer ${offer.id}: Already used (legacy), hiding`);
+      return null;
+    }
   }
 
   // ─── Handle invalid combo config ───────────────────────────────────────────
@@ -416,7 +444,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
           </div>
 
           {/* ── CTA BUTTONS ──────────────────────────────────────────────────── */}
-          {(isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer) && (
+          {(isB1G1 || isCombo || isInteractiveDiscount || isBirthdayFreeItem) && (
             <div className="mt-4 flex justify-center">
               <button
                 disabled={isAddedInCart}
@@ -427,13 +455,13 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
                     : "bg-[#16a34a] hover:bg-green-700 text-white active:scale-95"
                   }`}
               >
-                {isAddedInCart ? "Added ✅" : isCombo ? "Add Combo" : isInteractiveDiscount ? "Apply Offer" : isBirthdayOffer ? "Claim Free Item 🎂" : "Add Offer"}
+                {isAddedInCart ? "Added ✅" : isCombo ? "Add Combo" : isInteractiveDiscount ? "Apply Offer" : isBirthdayFreeItem ? "Claim Free Item 🎂" : "Add Offer"}
               </button>
             </div>
           )}
 
-          {/* ── Registration / First Order ──────────────────────── */}
-          {!isCombo && !isB1G1 && !isInteractiveDiscount && !isBirthdayOffer && offer.userRules?.firstOrderOnly && (
+          {/* ── Registration / First Order or Auto Apply Birthday ──────────────────────── */}
+          {!isCombo && !isB1G1 && !isInteractiveDiscount && !isBirthdayFreeItem && (offer.userRules?.firstOrderOnly || isBirthdayOffer) && (
             <div className="mt-4 text-center text-[#16a34a] text-xs font-bold bg-[#16a34a]/10 py-2.5 rounded-xl border border-[#16a34a]/20 flex items-center justify-center gap-2">
               <span>🎉</span> Will apply automatically on checkout
             </div>
@@ -552,8 +580,9 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
 
       // Check which IDs are already in productsMap
       for (const id of configuredIds) {
-        if (productsMap[id]) {
-          results.push(productsMap[id]);
+        const cachedProduct = productsMap[id];
+        if (isUsableBirthdayProduct(cachedProduct, selectedOutlet)) {
+          results.push(cachedProduct);
         } else {
           missingIds.push(id);
         }
@@ -568,11 +597,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
             if (prod) {
               const data = prod
               // ✅ Apply strict validation before accepting the product!
-              if (
-                data.isActive === true && 
-                data.isDeleted !== true && 
-                (!data.outletId || data.outletId === selectedOutlet)
-              ) {
+              if (isUsableBirthdayProduct(data, selectedOutlet)) {
                 results.push({
                   id: prod.id,
                   name: data.name || "Item",

@@ -76,6 +76,8 @@ service cloud.firestore {
       allow write: if false;
     }
 
+
+
     /* ═══════════════════════════════════════════════════════════
        2. USER COLLECTIONS (Only read own profile)
     ═══════════════════════════════════════════════════ */
@@ -94,6 +96,12 @@ service cloud.firestore {
     match /outlets/{id} {
       allow read: if isSignedIn();
       allow write: if false;  // All writes via backend only
+    }
+
+    // [EDIT] Added explicit rule for outletDetails subcollections to allow proximity location checks by the client
+    match /{path=**}/outletDetails/{docId} {
+      allow get, list: if true;
+      allow write: if false;
     }
 
     match /{path=**}/tables/{id} {

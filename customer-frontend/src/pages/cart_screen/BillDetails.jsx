@@ -4,6 +4,7 @@ import { auth } from "../../lib/firebase";
 import { getOutletById } from "../../lib/backendApi";
 import { useLocationContext } from "../../context/LocationContext";
 import { useOffers } from "../../context/OfferContext";
+import offerImg from "../../assets/home_screen/offer.png";
 import { useCart } from "../../context/CartContext";
 import { revalidateCart } from "../../lib/offerUtils";
 
@@ -416,7 +417,11 @@ const BillDetails = () => {
         {autoAppliedOffer && (
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-xl shrink-0">🎉</div>
+              {autoAppliedOffer.imageurl ? (
+                <img src={autoAppliedOffer.imageurl} alt={autoAppliedOffer.title} className="w-10 h-10 object-cover rounded-full shrink-0 shadow-sm" onError={(e) => { e.target.src = offerImg; }} />
+              ) : (
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-xl shrink-0">🎉</div>
+              )}
               <div>
                 <p className="text-sm font-bold text-green-700">{autoAppliedOffer.title}</p>
                 <p className="text-xs text-green-600">
@@ -441,7 +446,7 @@ const BillDetails = () => {
               })}
               {items.filter(i => i.isBirthday).map((item, i) => (
                 <li key={`bday-app-${i}`} className="text-pink-700 list-none flex items-center gap-1">
-                   <span>🎂</span> {item.offerTitle}
+                  <span>🎂</span> {item.offerTitle}
                 </li>
               ))}
             </ul>

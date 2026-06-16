@@ -234,6 +234,7 @@ function PaymentRequestScreen({ tableName, outletName }) {
   );
 }
 
+
 function AuthRedirect() {
   const { user } = useAuth();
   const { selectedOutlet, selectedTableId } = useLocationContext();
@@ -244,6 +245,7 @@ function AuthRedirect() {
   }
 
   if (!selectedOutlet || !selectedTableId) {
+    // If they need to select an outlet, route them there.
     return <Navigate to="/select-outlet" />;
   }
 

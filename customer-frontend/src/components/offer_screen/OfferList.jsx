@@ -4,7 +4,7 @@ import { useOffers } from "../../context/OfferContext";
 import { isBirthday } from "../../lib/offerUtils";
 
 const getOfferCategoryKey = (offer) => {
-  const category = String(offer?.category || offer?.offerType || offer?.type || "").trim();
+  const category = String(offer?.category || offer?.offerType || offer?.type || "").trim().toUpperCase();
   return category || "UNCATEGORIZED";
 };
 
@@ -16,8 +16,14 @@ const OfferList = () => {
   // This ensures B1G1 and all offers show, matching home carousel behavior
   const activeOffers = useMemo(() => {
     if (!offers || !offers.length) return [];
-    return offers.filter(o => o.isActive);
-  }, [offers]);
+    const isUserBirthday = fullUser?.dob && isBirthday(fullUser.dob);
+    return offers.filter(o => {
+      if (!o.isActive) return false;
+      const categoryKey = getOfferCategoryKey(o);
+      if (categoryKey === "BIRTHDAY" && !isUserBirthday) return false;
+      return true;
+    });
+  }, [offers, fullUser?.dob]);
 
   // ✅ Extract categories — show BIRTHDAY only on user's birthday
   const isUserBirthday = fullUser?.dob && isBirthday(fullUser.dob);
@@ -26,9 +32,14 @@ const OfferList = () => {
     const cats = new Set();
     activeOffers.forEach((o) => {
       const categoryKey = getOfferCategoryKey(o);
-      if (categoryKey === "BIRTHDAY" && !isUserBirthday) return;
+      console.log(`[OfferList] Offer ${o.id}: category=${categoryKey}, isBirthdayOffer=${categoryKey === "BIRTHDAY"}, isUserBirthday=${isUserBirthday}`);
+      if (categoryKey === "BIRTHDAY" && !isUserBirthday) {
+        console.log(`[OfferList] Skipping BIRTHDAY offer because !isUserBirthday`);
+        return;
+      }
       cats.add(categoryKey);
     });
+    console.log(`[OfferList] Final categories:`, Array.from(cats));
     return ["All", ...Array.from(cats)];
   }, [activeOffers, isUserBirthday]);
 

@@ -127,10 +127,16 @@ const RegisterForm = () => {
         navigate("/complete-profile");
       } else if (!profile.isProfileComplete) {
         navigate("/complete-profile");
-      } else {
-        navigate("/select-outlet");
+        return;
       }
 
+      const redirectTarget = "/complete-profile";
+      console.log("[REGISTRATION FLOW] Google User Configured:", {
+        uid: user.uid,
+        redirectTarget,
+      });
+
+      navigate(redirectTarget);
     } catch (error) {
       setErrorMsg(getFriendlyError(error.code));
       console.error("Google Register Error:", error);
@@ -138,9 +144,18 @@ const RegisterForm = () => {
   };
 
   // ── Guest login ──────────────────────────────────────────────────────────
-  const handleGuestLogin = () => {
+  const handleGuestLogin = async () => {
+    setErrorMsg("");
+    setLoading(true);
+    try {
+      await signInAnonymously(auth);
+    } catch (err) {
+      console.warn("Guest sign in failed", err);
+    }
+    
     localStorage.setItem("userType", "guest");
     navigate("/select-outlet");
+    setLoading(false);
   };
 
   return (

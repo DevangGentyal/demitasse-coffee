@@ -44,12 +44,34 @@ const listCollection = async (collectionName: string, fieldName?: string, fieldV
 
 const readResource = async (resource: string, params: URLSearchParams, uid: string) => {
 	switch (resource) {
-		case 'outlets':
-			return listCollection('outletDetails')
+		case 'outlets': {
+			const outletsSnap = await db.collection('outlets').get()
+			const outletsData = await Promise.all(
+				outletsSnap.docs.map(async (doc) => {
+					const outlet = mapDoc(doc)
+					let detailsSnap = await db.collection('outlets').doc(doc.id).collection('outletDetails').limit(1).get()
+					if (detailsSnap.empty) {
+						detailsSnap = await db.collection('outlets').doc(doc.id).collection('outlateDetails').limit(1).get()
+					}
+					const details = detailsSnap.empty ? {} : detailsSnap.docs[0].data()
+					return { ...outlet, ...details, id: doc.id }
+				})
+			)
+			return outletsData
+		}
+		case 'outletDetails': {
+			const outletId = readString(params.get('outletId'))
+			if (!outletId) throw new Error('outletId is required')
+			let snap = await db.collection('outlets').doc(outletId).collection('outletDetails').limit(1).get()
+			if (snap.empty) {
+				snap = await db.collection('outlets').doc(outletId).collection('outlateDetails').limit(1).get()
+			}
+			return snap.empty ? [] : [{ id: snap.docs[0].id, ...snap.docs[0].data() }]
+		}
 		case 'outletById': {
 			const outletId = readString(params.get('outletId'))
 			if (!outletId) throw new Error('outletId is required')
-			const snap = await db.collection('outletDetails').doc(outletId).get()
+			const snap = await db.collection('outlets').doc(outletId).get()
 			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
 		}
 		case 'products': {
@@ -62,13 +84,9 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			const productId = readString(params.get('productId'))
 			if (!productId) throw new Error('productId is required')
 			const outletId = readString(params.get('outletId'))
-			if (outletId) {
-				const snap = await db.collection('outlets').doc(outletId).collection('products').doc(productId).get()
-				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
-			} else {
-				const querySnap = await db.collectionGroup('products').where(FieldPath.documentId(), '==', productId).limit(1).get()
-				return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
-			}
+			if (!outletId) throw new Error('Outlet context required')
+			const snap = await db.collection('outlets').doc(outletId).collection('products').doc(productId).get()
+			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
 		}
 		case 'offers': {
 			let totalOrders = 0;
@@ -87,19 +105,10 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 
 			let offers: any[] = [];
 			const outletId = readString(params.get('outletId'))
-			if (outletId) {
-				const [outletOffersSnap, globalOffersSnap] = await Promise.all([
-					db.collection('outlets').doc(outletId).collection('offers').get(),
-					db.collection('offers').get()
-				])
-				offers = [
-					...globalOffersSnap.docs.map(mapDoc),
-					...outletOffersSnap.docs.map(mapDoc)
-				]
-			} else {
-				const querySnap = await db.collectionGroup('offers').get()
-				offers = querySnap.docs.map(mapDoc)
-			}
+			if (!outletId) throw new Error('Outlet context required')
+
+			const outletOffersSnap = await db.collection('outlets').doc(outletId).collection('offers').get()
+			offers = outletOffersSnap.docs.map(mapDoc)
 
 			// Backend Enforcement: Hide registration offers if user has already placed orders
 			return offers.filter(offer => {
@@ -119,13 +128,9 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			const offerId = readString(params.get('offerId'))
 			if (!offerId) throw new Error('offerId is required')
 			const outletId = readString(params.get('outletId'))
-			if (outletId) {
-				const snap = await db.collection('outlets').doc(outletId).collection('offers').doc(offerId).get()
-				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
-			} else {
-				const querySnap = await db.collectionGroup('offers').where(FieldPath.documentId(), '==', offerId).limit(1).get()
-				return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
-			}
+			if (!outletId) throw new Error('Outlet context required')
+			const snap = await db.collection('outlets').doc(outletId).collection('offers').doc(offerId).get()
+			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
 		}
 		case 'tables': {
 			const outletId = readString(params.get('outletId'))
@@ -137,13 +142,9 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			const tableId = readString(params.get('tableId'))
 			if (!tableId) throw new Error('tableId is required')
 			const outletId = readString(params.get('outletId'))
-			if (outletId) {
-				const snap = await db.collection('outlets').doc(outletId).collection('tables').doc(tableId).get()
-				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
-			}
-			const querySnap = await db.collectionGroup('tables').get()
-			const doc = querySnap.docs.find((d) => d.id === tableId)
-			return doc ? [{ id: doc.id, ...doc.data() }] : []
+			if (!outletId) throw new Error('Outlet context required')
+			const snap = await db.collection('outlets').doc(outletId).collection('tables').doc(tableId).get()
+			return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
 		}
 		case 'orders': {
 			const outletId = readString(params.get('outletId'))
@@ -155,12 +156,26 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			const orderId = readString(params.get('orderId'))
 			if (!orderId) throw new Error('orderId is required')
 			const outletId = readString(params.get('outletId'))
+			
+			// 1. Try active orders under specific outletId
 			if (outletId) {
 				const snap = await db.collection('outlets').doc(outletId).collection('orders').doc(orderId).get()
-				return snap.exists ? [{ id: snap.id, ...snap.data() }] : []
+				if (snap.exists) return [{ id: snap.id, ...snap.data() }]
 			}
+			
+			// 2. Try collectionGroup active orders
 			const querySnap = await db.collectionGroup('orders').where(FieldPath.documentId(), '==', orderId).limit(1).get()
-			return querySnap.empty ? [] : [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
+			if (!querySnap.empty) return [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
+			
+			// 3. Try collectionGroup archived orderHistory (subcollection under outlets)
+			const historySnap = await db.collectionGroup('orderHistory').where(FieldPath.documentId(), '==', orderId).limit(1).get()
+			if (!historySnap.empty) return [{ id: historySnap.docs[0].id, ...historySnap.docs[0].data() }]
+			
+			// 4. Try root archived ordersHistory collection
+			const rootHistorySnap = await db.collection('ordersHistory').doc(orderId).get()
+			if (rootHistorySnap.exists) return [{ id: rootHistorySnap.id, ...rootHistorySnap.data() }]
+			
+			return []
 		}
 		case 'sessionOrders': {
 			const outletId = readString(params.get('outletId'))
@@ -200,8 +215,8 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			}
 		}
 		case 'ordersHistory': {
-			const ownerId = readString(params.get('ownerId'))
-			if (!ownerId) throw new Error('ownerId is required')
+			const ownerId = readString(params.get('ownerId')) || readString(params.get('customerId'))
+			if (!ownerId) throw new Error('ownerId or customerId is required')
 			const querySnap = await db.collection('ordersHistory').where('ownerId', '==', ownerId).get()
 			return querySnap.docs.map(mapDoc)
 		}
@@ -259,7 +274,7 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			return []
 		}
 		case 'pendingOutlets': {
-			const snapshot = await db.collection('outletDetails').get()
+			const snapshot = await db.collectionGroup('outletDetails').get()
 			return snapshot.docs
 				.map(mapDoc)
 				.filter((outlet) => normalizeStatus(outlet.status) === 'pending')
@@ -323,6 +338,9 @@ export const readAppData = functions.https.onRequest(async (req: Request, res: R
 		})
 
 		const data = await readResource(resource, params, decoded?.uid || '')
+		if (resource === 'offers') {
+			console.log('[BACKEND DEBUG] Offers fetched:', data.map(o => ({ id: o.id, title: o.title, imageUrl: o.imageUrl })));
+		}
 		res.status(200).json({ success: true, data })
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Internal server error'

@@ -3,6 +3,7 @@ import { useCart } from "../../context/CartContext";
 import { useNavigate } from "react-router-dom";
 import { useLocationContext } from "../../context/LocationContext";
 import { useOffers } from "../../context/OfferContext";
+import offerImg from "../../assets/home_screen/offer.png";
 import { auth } from "../../lib/firebase";
 import { getProductById } from "../../lib/backendApi";
 import { revalidateCart } from "../../lib/offerUtils";
@@ -165,7 +166,7 @@ const Cart = () => {
   const totalDiscount = calculatedDiscount + (autoOfferAlreadyCounted ? 0 : autoDiscount);
   // discountedPrice = totalPrice - totalDiscount, tax = 5% on discounted amount
   const discountedAmount = Math.max(0, totalPrice - totalDiscount);
-  const taxAmount = Math.floor(discountedAmount * 0.05);
+  const taxAmount = Math.round(discountedAmount * 0.05);
   const grandTotal = discountedAmount + taxAmount;
 
   // Helper config string to detect remaining valid normal items for banner UI
@@ -317,22 +318,30 @@ const Cart = () => {
         }
       }
 
-      if (userType === "guest") {
+      console.log("[ORDER AUTH CHECK]", {
+        isGuest: localStorage.getItem("userType") === "guest",
+        uid: auth.currentUser?.uid,
+        userType: localStorage.getItem("userType")
+      });
+
+      let idToken = null;
+      if (userType !== "guest") {
         const guestUser = auth.currentUser;
         if (!guestUser) throw new Error("User not authenticated");
+        idToken = await guestUser.getIdToken();
+        if (!idToken) throw new Error("User not authenticated");
       }
 
-      const idToken = await auth.currentUser?.getIdToken();
-      if (!idToken) {
-        throw new Error("User not authenticated");
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      if (idToken) {
+        headers['Authorization'] = `Bearer ${idToken}`;
       }
 
       const createOrderRes = await fetch(`${API_BASE}/customerOrdersCreate`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
-        },
+        headers,
         body: JSON.stringify({
           outletId: selectedOutlet,
           tableId: selectedTableId,
@@ -488,13 +497,9 @@ const Cart = () => {
       // pricing is unavailable or returns an un-discounted price.
       const serverDiscount = Number(result.pricing?.discount ?? 0);
       const effectiveDiscount = serverDiscount > 0 ? serverDiscount : totalDiscount;
-      const effectiveDiscountedPrice = Math.max(0, totalPrice - effectiveDiscount);
-      const effectiveTax = serverDiscount > 0
-        ? Number(result.pricing?.tax ?? taxAmount)
-        : taxAmount;
-      const effectiveGrandTotal = serverDiscount > 0
-        ? Number(result.pricing?.total ?? grandTotal)
-        : grandTotal;
+      const effectiveDiscountedPrice = result.pricing?.discountedPrice ?? Math.max(0, totalPrice - effectiveDiscount);
+      const effectiveTax = result.pricing?.tax ?? taxAmount;
+      const effectiveGrandTotal = result.pricing?.total ?? grandTotal;
 
       navigate("/bill", {
         state: {
@@ -569,7 +574,11 @@ const Cart = () => {
         {/* ✅ Auto Applied Registration Offer Banner */}
         {autoAppliedOffer && hasEligibleItems && (
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl px-4 py-3 flex items-center gap-3">
-            <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center text-lg shrink-0">🎉</div>
+            {autoAppliedOffer.imageurl ? (
+              <img src={autoAppliedOffer.imageurl} alt={autoAppliedOffer.title} className="w-10 h-10 object-cover rounded-full shrink-0 shadow-sm" onError={(e) => { e.target.src = offerImg; }} />
+            ) : (
+              <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center text-lg shrink-0">🎉</div>
+            )}
             <div className="flex-1">
               <p className="text-sm font-bold text-green-700">{autoAppliedOffer.title}</p>
               <p className="text-xs text-green-600">
@@ -592,7 +601,11 @@ const Cart = () => {
               if (!offer) return null;
               return (
                 <div key={idx} className="flex items-center gap-2 text-sm text-green-700 font-medium">
-                  <span>🏷️</span>
+                  {offer.imageurl ? (
+                    <img src={offer.imageurl} alt={offer.title} className="w-6 h-6 object-cover rounded shrink-0 shadow-sm" onError={(e) => { e.target.src = offerImg; }} />
+                  ) : (
+                    <span>🏷️</span>
+                  )}
                   <span>{offer.title}</span>
                   <span className="ml-auto bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">Applied ✓</span>
                 </div>

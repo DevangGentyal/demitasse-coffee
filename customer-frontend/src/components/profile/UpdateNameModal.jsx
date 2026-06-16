@@ -22,16 +22,22 @@ export default function UpdateNameModal({ currentName, onClose, onSuccess }) {
       const user = auth.currentUser;
       if (!user) throw new Error("Not authenticated");
 
+      console.info("[UpdateNameModal] Updating profile name:", {
+        uid: user.uid,
+        currentUserUid: auth.currentUser?.uid,
+        payload: { displayName: trimmed },
+        name: trimmed,
+      });
+
       // Use the shared functions instance (emulator already connected in firebase.js)
       const updateProfile_ = httpsCallable(functions, "customerUpdateUserProfile");
       const result = await updateProfile_({ displayName: trimmed });
 
+      console.info("[UpdateNameModal] Response received:", result);
+
       if (!result.data?.success) {
         throw new Error(result.data?.message || "Failed to update name");
       }
-
-      // Refresh the Firebase Auth displayName locally so it reflects immediately
-      await updateProfile(user, { displayName: trimmed });
 
       onSuccess(trimmed);
     } catch (err) {

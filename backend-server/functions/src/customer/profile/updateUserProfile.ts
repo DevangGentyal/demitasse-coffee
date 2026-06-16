@@ -16,6 +16,14 @@ export const customerUpdateUserProfile = onCall(
 
 		const uid = request.auth.uid;
 
+		console.info("[customerUpdateUserProfile] Request Data:", {
+			uid,
+			authUid: request.auth.uid,
+			data: request.data,
+			displayName,
+			updates,
+		});
+
 		try {
 			// Validate displayName if provided
 			if (displayName !== undefined && displayName !== null) {
@@ -33,7 +41,6 @@ export const customerUpdateUserProfile = onCall(
 			// Update Firestore user document
 			const userRef = db.collection("users").doc(uid);
 			const updatePayload: any = {
-				...updates,
 				updatedAt: FieldValue.serverTimestamp(),
 			};
 

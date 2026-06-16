@@ -100,7 +100,14 @@ export default function OfferCard() {
                   BUY NOW
                 </button>
               </div>
-              <img src={offerImg} alt="offer" className="h-24 ml-2" />
+              <img 
+                src={offer.imageurl || offerImg} 
+                alt={offer.title || "offer"} 
+                className="h-24 ml-2" 
+                onError={(e) => {
+                  e.target.src = offerImg;
+                }}
+              />
             </div>
           ))}
         </div>

@@ -61,6 +61,12 @@ export const upsertUserProfile = functions.https.onRequest(async (req: Request, 
 
 		if (typeof profile?.role === 'string') {
 			payload.role = profile.role
+		} else {
+			// If role is not provided, verify if user exists. If new user, set role as customer.
+			const userSnap = await db.collection('users').doc(resolvedUserId).get();
+			if (!userSnap.exists) {
+				payload.role = 'customer';
+			}
 		}
 
 		await db.collection('users').doc(resolvedUserId).set(payload, { merge: true })
@@ -93,8 +99,8 @@ export const registerOutletOwner = functions.https.onRequest(async (req: Request
 			return
 		}
 
-		const outletDetailsRef = db.collection('outletDetails').doc()
-		const outletId = outletDetailsRef.id
+		const outletId = db.collection('outlets').doc().id
+		const outletDetailsRef = db.collection('outlets').doc(outletId).collection('outletDetails').doc('config')
 		await outletDetailsRef.set({
 			...outlet,
 			id: outletId,
@@ -170,7 +176,7 @@ export const registerOutletPending = functions.https.onRequest(async (req: Reque
 		}
 
 		// Write pending details to outletDetails
-		await db.collection('outletDetails').doc(decoded.uid).set({
+		await db.collection('outlets').doc(decoded.uid).collection('outletDetails').doc('config').set({
 			...outlet,
 			id: decoded.uid,
 			status: 'pending',
@@ -232,7 +238,7 @@ export const updateOutletStatus = functions.https.onRequest(async (req: Request,
 			updatedAt: FieldValue.serverTimestamp(),
 		}, { merge: true })
 
-		await db.collection('outletDetails').doc(outletId).set({
+		await db.collection('outlets').doc(outletId).collection('outletDetails').doc('config').set({
 			status,
 			updatedAt: FieldValue.serverTimestamp(),
 		}, { merge: true })

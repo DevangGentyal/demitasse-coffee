@@ -92,25 +92,24 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
       setAllValidOffers([]);
       return;
     }
-    if (user?.uid && !isGuestUser && !userProfileLoaded) {
-      setOffers([]);
-      setAllValidOffers([]);
-      return;
-    }
 
     const outletFiltered = allOffers.filter((offer) => {
-      // If the offer has no outletId (or empty string) → it's a global/welcome offer → always show
-      if (!offer.outletId) return true;
-      // Otherwise only show if it belongs to the currently selected outlet
       return offer.outletId === selectedOutlet;
     });
-    const eligibilityUser = user?.uid && !isGuestUser ? (fullUser || {}) : ({ userType: "guest" } as User);
+
+    // ✅ FIX: Use fullUser data even if still loading (will be empty object {}, triggering re-filter when it loads)
+    // This allows offers to display immediately while profile loads, preventing blank offer pages
+    const eligibilityUser = user?.uid && !isGuestUser
+      ? (fullUser || {})
+      : ({ userType: "guest" } as User);
+
     const eligibleOffers = outletFiltered.filter((offer) =>
       isOfferApplicable(offer, eligibilityUser, products, userOrders, selectedOutlet)
     );
 
     setOffers(eligibleOffers);
     console.log("[OFFERS] Loaded Offers:", eligibleOffers);
+    console.log("[OFFERS] fullUser DOB:", eligibilityUser?.dob, "userProfileLoaded:", userProfileLoaded);
 
     // ✅ NEW: Set all valid offers (active + date-valid) for category-based filtering
     const validOffers = eligibleOffers.filter(

@@ -339,7 +339,7 @@ const StatChip = ({ label, count, color }) => (
 export default function OrderHistory() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [groups, setGroups] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [totalOrders, setTotalOrders] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -352,17 +352,27 @@ export default function OrderHistory() {
       const token = await user?.getIdToken?.();
       if (!token) throw new Error("Not authenticated");
 
+      console.log(`[E2E TRACE OrderHistory] Requesting API...`);
       const res = await fetch(
         `${API_BASE}/customerGetOrderHistory?sort=${direction}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
       const payload = await res.json().catch(() => ({}));
+      console.log(`[E2E TRACE OrderHistory] API Response Payload:`, payload);
+
       if (!res.ok || !payload.success) {
         throw new Error(payload.message || "Failed to load history");
       }
 
-      setGroups(payload.groups || []);
-      setTotalOrders(payload.totalOrders || 0);
+      console.log(`[E2E TRACE OrderHistory] payload.groups (should be undefined):`, payload.groups);
+      console.log(`[E2E TRACE OrderHistory] payload.orders:`, payload.orders);
+
+      const receivedOrders = payload.orders || [];
+      console.log(`[E2E TRACE OrderHistory] Final state passed to setOrders():`, receivedOrders);
+      
+      setOrders(receivedOrders);
+      setTotalOrders(payload.totalOrders || receivedOrders.length);
     } catch (err) {
       console.error("[OrderHistory] fetch error:", err);
       setError(err.message || "Failed to load order history.");
@@ -397,7 +407,7 @@ export default function OrderHistory() {
             <h1 className="text-lg font-extrabold text-[#3e2723] leading-tight">Order History</h1>
             {!loading && (
               <p className="text-[11px] text-gray-500">
-                {totalOrders} order{totalOrders !== 1 ? "s" : ""} across {groups.length} group{groups.length !== 1 ? "s" : ""}
+                {totalOrders} order{totalOrders !== 1 ? "s" : ""}
               </p>
             )}
           </div>
@@ -440,7 +450,7 @@ export default function OrderHistory() {
         )}
 
         {/* ── Empty state ── */}
-        {!loading && !error && groups.length === 0 && (
+        {!loading && !error && orders.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <div className="w-20 h-20 rounded-full bg-amber-50 flex items-center justify-center">
               <ShoppingBagIcon className="w-9 h-9 text-amber-300" />
@@ -458,15 +468,17 @@ export default function OrderHistory() {
           </div>
         )}
 
-        {/* ── Groups ── */}
-        {!loading && !error && groups.length > 0 && (
+        {/* ── Orders ── */}
+        {!loading && !error && orders.length > 0 && (
           <>
             {/* Summary bar */}
-            <SummaryBar groups={groups} />
+            <SummaryBar orders={orders} />
 
-            {groups.map((group) => (
-              <OfferGroupCard key={group.offerId} group={group} />
-            ))}
+            <div className="space-y-4">
+              {orders.map((order) => (
+                <OrderCard key={order.orderId} order={order} />
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -475,18 +487,17 @@ export default function OrderHistory() {
 }
 
 // ─── SummaryBar ───────────────────────────────────────────────────────────────
-const SummaryBar = ({ groups }) => {
-  const allOrders = groups.flatMap((g) => g.orders);
-  const totalSaved = groups.reduce((s, g) => s + g.stats.totalDiscountSaved, 0);
-  const totalSpent = allOrders.reduce((s, o) => s + readNumber(o.finalAmount), 0);
-  const completed = allOrders.filter((o) => o.status === "completed").length;
+const SummaryBar = ({ orders }) => {
+  const totalSaved = orders.reduce((s, o) => s + readNumber(o.discount), 0);
+  const totalSpent = orders.reduce((s, o) => s + readNumber(o.finalAmount), 0);
+  const completed = orders.filter((o) => o.status === "completed").length;
 
   return (
     <div className="rounded-3xl bg-gradient-to-br from-[#3e2723] to-[#6d4c41] p-5 text-white shadow-lg">
       <p className="text-[11px] uppercase tracking-widest text-amber-200/80 mb-3 font-semibold">Your Overview</p>
       <div className="grid grid-cols-3 gap-3">
         <div className="text-center">
-          <p className="text-xl font-extrabold">{allOrders.length}</p>
+          <p className="text-xl font-extrabold">{orders.length}</p>
           <p className="text-[10px] text-white/60 mt-0.5">Total Orders</p>
         </div>
         <div className="text-center border-x border-white/10">
