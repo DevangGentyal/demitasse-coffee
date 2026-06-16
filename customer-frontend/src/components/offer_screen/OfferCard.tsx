@@ -51,7 +51,7 @@ interface Offer {
   combo?: ComboGroup[]; // Fallback
   comboPrice?: number;   // Fallback
   applicableCategory?: string;
-  userRules?: { firstOrderOnly?: boolean; birthdayOnly?: boolean; };
+  userRules?: { firstOrderOnly?: boolean; birthdayOnly?: boolean; perUserLimit?: number; };
 }
 
 interface OfferCardProps {
@@ -177,7 +177,7 @@ const getOfferBirthdayProductIds = (offer: Offer | null | undefined): string[] =
   // Check inside offer.config.reward
   const configKeys = Object.keys(offer?.config || {});
   const configRewardKey = configKeys.find(k => k.trim().toLowerCase() === 'reward');
-  const configReward: any = configRewardKey ? offer?.config[configRewardKey] : {};
+  const configReward: any = configRewardKey ? (offer?.config as any)[configRewardKey] : {};
 
   // Check at the root level offer.reward
   const rootKeys = Object.keys(offer || {});
@@ -272,6 +272,10 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const isBirthdayFreeItem = isBirthdayOffer && (birthdayProductIds.length > 0 || resolvedOfferType === "REWARD" || offer?.discountType === "FREE_ITEM");
 
   const perUserLimit = offer.userRules?.perUserLimit ?? (offer as any).perUserLimit;
+  const userAppliedCount = (fullUser?.appliedOffers || [])
+    .filter((a: any) => a.offerId === offer.id)
+    .reduce((s: number, u: any) => s + (Number(u.count) || 0), 0);
+  const isLimitReached = fullUser?.userType !== "guest" && perUserLimit > 0 && userAppliedCount >= perUserLimit;
 
   // ─── Discount badge text ────────────────────────────────────────────────────
   const resolvedDiscountValue = offer?.discountValue || offer?.config?.discountValue || 0;
@@ -447,15 +451,15 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
           {(isB1G1 || isCombo || isInteractiveDiscount || isBirthdayFreeItem) && (
             <div className="mt-4 flex justify-center">
               <button
-                disabled={isAddedInCart}
-                onClick={isAddedInCart ? undefined : handleCTAClick}
+                disabled={isAddedInCart || isLimitReached}
+                onClick={(isAddedInCart || isLimitReached) ? undefined : handleCTAClick}
                 className={`w-full py-2.5 text-sm font-bold rounded-xl shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#16a34a]
-                ${isAddedInCart
+                ${(isAddedInCart || isLimitReached)
                     ? "bg-[#16a34a]/80 text-white cursor-not-allowed shadow-none"
                     : "bg-[#16a34a] hover:bg-green-700 text-white active:scale-95"
                   }`}
               >
-                {isAddedInCart ? "Added ✅" : isCombo ? "Add Combo" : isInteractiveDiscount ? "Apply Offer" : isBirthdayFreeItem ? "Claim Free Item 🎂" : "Add Offer"}
+                {isAddedInCart ? "Added ✅" : isLimitReached ? "Limit Reached 🔒" : isCombo ? "Add Combo" : isInteractiveDiscount ? "Apply Offer" : isBirthdayFreeItem ? "Claim Free Item 🎂" : "Add Offer"}
               </button>
             </div>
           )}
