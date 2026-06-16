@@ -113,7 +113,7 @@ export function LocationProvider({ children }) {
             if (!storedTableId || !storedOutletId) return;
 
             try {
-                const tableDocs = await getTableById(storedTableId);
+                const tableDocs = await getTableById(storedTableId, storedOutletId);
                 const tableData = tableDocs[0] || null;
                 if (cancelled) return;
 
@@ -306,13 +306,13 @@ export function LocationProvider({ children }) {
     // Keep the REST-based poll only for the payment lock scenario, since the
     // table onSnapshot already handles the session-closed case.
     useEffect(() => {
-        if (!paymentLockActive || !selectedTableId) return undefined;
+        if (!selectedTableId || !selectedSessionId) return undefined;
         const pollToken = ++sessionPollTokenRef.current;
         let cancelled = false;
 
         const pollTable = async () => {
             try {
-                const tableDocs = await getTableById(selectedTableId);
+                const tableDocs = await getTableById(selectedTableId, selectedOutlet);
                 if (cancelled || pollToken !== sessionPollTokenRef.current) return;
 
                 const data = tableDocs[0] || null;

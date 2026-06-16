@@ -61,6 +61,12 @@ export const upsertUserProfile = functions.https.onRequest(async (req: Request, 
 
 		if (typeof profile?.role === 'string') {
 			payload.role = profile.role
+		} else {
+			// If role is not provided, verify if user exists. If new user, set role as customer.
+			const userSnap = await db.collection('users').doc(resolvedUserId).get();
+			if (!userSnap.exists) {
+				payload.role = 'customer';
+			}
 		}
 
 		await db.collection('users').doc(resolvedUserId).set(payload, { merge: true })
@@ -94,7 +100,8 @@ export const registerOutletOwner = functions.https.onRequest(async (req: Request
 		}
 
 		const outletId = db.collection('outlets').doc().id
-		await db.collection('outlets').doc(outletId).collection('outletDetails').doc().set({
+		const outletDetailsRef = db.collection('outlets').doc(outletId).collection('outletDetails').doc('config')
+		await outletDetailsRef.set({
 			...outlet,
 			id: outletId,
 			status: 'approved',
@@ -170,8 +177,7 @@ export const registerOutletPending = functions.https.onRequest(async (req: Reque
 		}
 
 		// Write pending details to outletDetails
-		// Write pending details to outletDetails
-		await db.collection('outlets').doc(decoded.uid).collection('outletDetails').doc().set({
+		await db.collection('outlets').doc(decoded.uid).collection('outletDetails').doc('config').set({
 			...outlet,
 			id: decoded.uid,
 			status: 'pending',
@@ -234,13 +240,10 @@ export const updateOutletStatus = functions.https.onRequest(async (req: Request,
 			updatedAt: FieldValue.serverTimestamp(),
 		}, { merge: true })
 
-		const snap = await db.collection('outlets').doc(outletId).collection('outletDetails').get()
-		if (!snap.empty) {
-			await snap.docs[0].ref.set({
-				status,
-				updatedAt: FieldValue.serverTimestamp(),
-			}, { merge: true })
-		}
+		await db.collection('outlets').doc(outletId).collection('outletDetails').doc('config').set({
+			status,
+			updatedAt: FieldValue.serverTimestamp(),
+		}, { merge: true })
 
 		await db.collection('users').doc(outletId).set({
 			status,

@@ -107,7 +107,9 @@ const readNumber = (v: unknown, fallback = 0): number => {
 const readString = (v: unknown): string => String(v ?? '').trim();
 
 const readOfferType = (value: unknown): OrderType | null => {
-	switch (readString(value).toUpperCase()) {
+	let str = readString(value).toUpperCase();
+	if (str === 'REGISTRATION') str = 'DISCOUNT';
+	switch (str) {
 		case 'B1G1':
 		case 'COMBO':
 		case 'DISCOUNT':
@@ -477,7 +479,10 @@ export const applyOfferToItems = (
 		}));
 	}
 
-	const offerType = (offerDoc.offerType ?? offerDoc.type ?? 'BASIC').toUpperCase();
+	let offerType = (offerDoc.offerType ?? offerDoc.type ?? 'BASIC').toUpperCase();
+	if (offerType === 'REGISTRATION') {
+		offerType = 'DISCOUNT';
+	}
 	const results: NormalisedOrderItem[] = [];
 
 	switch (offerType) {
@@ -671,6 +676,9 @@ export const applyOfferToItems = (
 						const itemId = String(item.productId).trim();
 						const itemName = String(item.name).trim().toLowerCase();
 						isEligible = allowedIds.includes(itemId) || allowedNames.includes(itemName);
+					} else if (offerDoc.offerType?.toUpperCase() === 'REGISTRATION' || offerDoc.type?.toUpperCase() === 'REGISTRATION' || readString(offerDoc.category).toLowerCase() === 'registration') {
+						// Registration offers apply to all items by default
+						isEligible = true;
 					} else if (categoryName && categoryName !== 'all') {
 						// Fallback: category-based discount
 						const itemCat = String(item.category || '').trim().toLowerCase();
@@ -683,7 +691,7 @@ export const applyOfferToItems = (
 
 					if (isEligible) {
 						const itemBaseTotal = item.unitPrice * item.qty;
-						discount = Math.floor((itemBaseTotal * discountPercent) / 100);
+						discount = Math.round((itemBaseTotal * discountPercent) / 100);
 					}
 				}
 
@@ -829,6 +837,7 @@ export const applyOfferPricingByGroup = (
 	items: NormalisedOrderItem[],
 	offerDocsById: Map<string, OfferDocForPricing>,
 	applyTaxFn: (amount: number) => number,
+	primaryOfferDoc?: OfferDocForPricing | null,
 ): NormalisedOrderItem[] => {
 	const groupedItems = new Map<string, NormalisedOrderItem[]>();
 
@@ -840,7 +849,7 @@ export const applyOfferPricingByGroup = (
 
 	const results: NormalisedOrderItem[] = [];
 	for (const [groupKey, groupItems] of groupedItems.entries()) {
-		const offerDoc = groupKey === '__basic__' ? null : (offerDocsById.get(groupKey) || null);
+		const offerDoc = groupKey === '__basic__' ? (primaryOfferDoc || null) : (offerDocsById.get(groupKey) || null);
 		if (offerDoc) {
 			results.push(...applyOfferToItems(groupItems, offerDoc, applyTaxFn));
 			continue;

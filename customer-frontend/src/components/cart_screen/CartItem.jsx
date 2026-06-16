@@ -52,6 +52,16 @@ export default function CartItem({ item, onQtyChange }) {
             </div>
           ))}
         </div>
+        {/* Customizations & Add-ons */}
+        <div className="text-xs text-gray-500 mt-2 ml-1 space-y-0.5">
+          {Object.values(item.variation || {}).map((v, i) => (
+            <div key={`v-${i}`}>• {String(v)}</div>
+          ))}
+          {(item.addOns || item.addons || []).map((a, i) => (
+            <div key={`a-${i}`}>+ {typeof a === "object" ? a.name : a} (FREE 🎂)</div>
+
+          ))}
+        </div>
 
         {/* Footer */}
         <div className="mt-3 pt-2 border-t border-pink-100 flex justify-between items-center">
@@ -116,8 +126,10 @@ export default function CartItem({ item, onQtyChange }) {
               ))}
 
               {/* Add-ons */}
-              {Object.values(subItem.addOns || {}).flat().map((a, i) => (
-                <div key={`a-${i}`} className="text-[10px] text-[#AE7A65] ml-2 mt-0.5">+ {String(a)}</div>
+              {(subItem.addOns || []).map((a, i) => (
+                <div key={`a-${i}`} className="text-[10px] text-[#AE7A65] ml-2 mt-0.5">
+                  + {typeof a === "object" ? `${a.name} (+₹${a.price})` : a}
+                </div>
               ))}
             </div>
           ))}
@@ -185,8 +197,10 @@ export default function CartItem({ item, onQtyChange }) {
               ))}
 
               {/* Add-ons */}
-              {Object.values(subItem.addOns || {}).flat().map((a, i) => (
-                <div key={`a-${i}`} className="text-[10px] text-orange-600 ml-2 mt-0.5">+ {String(a)}</div>
+              {(subItem.addOns || []).map((a, i) => (
+                <div key={`a-${i}`} className="text-[10px] text-orange-600 ml-2 mt-0.5">
+                  + {typeof a === "object" ? `${a.name} (+₹${a.price})` : a}
+                </div>
               ))}
             </div>
           ))}
@@ -266,8 +280,10 @@ export default function CartItem({ item, onQtyChange }) {
               ))}
 
               {/* Add-ons */}
-              {Object.values(subItem.addOns || {}).flat().map((a, i) => (
-                <div key={`a-${i}`} className="text-[10px] text-[#16a34a] ml-2 mt-0.5">+ {String(a)}</div>
+              {(subItem.addOns || []).map((a, i) => (
+                <div key={`a-${i}`} className="text-[10px] text-[#16a34a] ml-2 mt-0.5">
+                  + {typeof a === "object" ? `${a.name} (+₹${a.price})` : a}
+                </div>
               ))}
               {subItem.addOnsCost > 0 && (
                 <div className="text-[10px] text-[#8B6F5E] ml-2 mt-0.5">Add-ons: +₹{subItem.addOnsCost}</div>
@@ -286,7 +302,7 @@ export default function CartItem({ item, onQtyChange }) {
           )}
           {item.discountAmount > 0 && (
             <div className="flex justify-between text-xs text-green-600 font-medium">
-              <span>Discount ({item.discountValue}%)</span>
+              <span>Discount ({item.discountType === "PERCENT" ? `${item.discountValue}%` : `₹${item.discountValue}`})</span>
               <span>-₹{item.discountAmount}</span>
             </div>
           )}
@@ -334,8 +350,10 @@ export default function CartItem({ item, onQtyChange }) {
               <div key={i}>• {v}</div>
             ))}
 
-            {Object.values(item.addons || {}).flat().map((a, i) => (
-              <div key={i}>+ {a}</div>
+            {(item.addOns || item.addons || []).map((a, i) => (
+              <div key={i}>
+                + {typeof a === "object" ? `${a.name} (+₹${a.price})` : a}
+              </div>
             ))}
 
           </div>

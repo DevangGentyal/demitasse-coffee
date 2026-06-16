@@ -25,9 +25,9 @@ const setCors = (res: Response): void => {
 	res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 };
 
-const verifyToken = async (req: Request): Promise<admin.auth.DecodedIdToken> => {
+const verifyToken = async (req: Request): Promise<admin.auth.DecodedIdToken | null> => {
 	const authHeader = req.headers.authorization;
-	if (!authHeader || !authHeader.startsWith('Bearer ')) throw new Error('Missing token');
+	if (!authHeader || !authHeader.startsWith('Bearer ') || authHeader === 'Bearer null') return null;
 	return admin.auth().verifyIdToken(authHeader.slice('Bearer '.length));
 };
 
@@ -54,6 +54,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 
 	try {
 		const decoded = await verifyToken(req);
+		const uid = decoded?.uid || null;
 		const {
 			outletId, tableId, sessionId, items,
 			placedBy, customerName, customerPhone, customerId,
@@ -93,13 +94,13 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 		let activeSessionId = readString(sessionId);
 		if (!activeSessionId && tableId) {
 			const sessionResult = await createOrGetSession(String(outletId), String(tableId), {
-				uid: decoded.uid,
+				uid: uid || 'guest',
 				name: 'customer',
 			});
 			activeSessionId = sessionResult.sessionId;
 		}
 
-		const resolvedCustomerName = await resolveCustomerName(decoded.uid, customerName);
+		const resolvedCustomerName = uid ? await resolveCustomerName(uid, customerName) : (readString(customerName) || 'Walk-In-Customer');
 		const resolvedCustomerPhone = readString(customerPhone);
 
 		// ── Price resolver (always from products collection) ─────────────────
@@ -135,10 +136,25 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 		}
 		const offerDocsById = await getOfferDocs(uniqueOfferIds, String(outletId));
+		if (uid) {
+			const { validateRegistrationEligibility } = await import('../../shared/utilities/firestoreCatalog.js');
+			await validateRegistrationEligibility(uid, offerDocsById);
+		}
+
+		// ── Tag normal items with the auto-applied registration offer ID ─────────
+		if (requestedOfferId && offerDocsById.has(requestedOfferId)) {
+			for (const item of normalisedItems) {
+				const isSpecial = item.isFree || item.isCombo || item.isManualB1G1 || item.isBirthday;
+				const hasOwnOffer = item.offerId && item.offerId !== requestedOfferId;
+				if (!isSpecial && !hasOwnOffer) {
+					item.offerId = requestedOfferId;
+				}
+			}
+		}
 
 		// ── Apply offer to each item individually ──────────────────────────
-		const itemsWithPricing = applyOfferPricingByGroup(normalisedItems, offerDocsById as any, applyTax);
 		const primaryOfferDoc = requestedOfferId ? (offerDocsById.get(requestedOfferId) || null) : null;
+		const itemsWithPricing = applyOfferPricingByGroup(normalisedItems, offerDocsById as any, applyTax, primaryOfferDoc as any);
 		const { orderType: appliedOrderType } = applyOffer({ subTotal, items: itemsWithPricing }, primaryOfferDoc);
 		const resolvedOrderType = readString(requestedOrderType).toUpperCase() || appliedOrderType;
 		// ── Grand total ───────────────────────────────────────────────────
@@ -206,27 +222,36 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			const existingData = existingSnap.data() || {};
 			const alreadyCounted = existingSnap.exists && existingData.offerUsageCounted === true;
 
-			if (consumedOfferUsages.length > 0 && !alreadyCounted) {
-				const userRef = db.collection('users').doc(decoded.uid);
+			if (!alreadyCounted && uid) {
+				const userRef = db.collection('users').doc(uid);
 				const userSnap = await tx.get(userRef);
 				const userData = userSnap.data() || {};
-				const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
-				for (const usage of consumedOfferUsages) {
-					const offerSnap = await tx.get(db.collection('outlets').doc(String(outletId)).collection('offers').doc(usage.offerId));
-					offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
-				}
-				const violation = findUsageLimitViolation(
-					consumedOfferUsages,
-					getAppliedOfferUsageCounts(userData.appliedOffers),
-					offersById,
-				);
-				if (violation) throw new Error('OFFER_USAGE_LIMIT_REACHED');
+				const userUpdates: Record<string, any> = {};
 
-				tx.set(userRef, {
-					hasPlacedFirstOrder: true,
-					appliedOffers: mergeAppliedOfferUsages(userData.appliedOffers, consumedOfferUsages),
-					updatedAt: FieldValue.serverTimestamp(),
-				}, { merge: true });
+				if (userData.hasPlacedFirstOrder === false) {
+					userUpdates.hasPlacedFirstOrder = true;
+				}
+
+				if (consumedOfferUsages.length > 0) {
+					const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
+					for (const usage of consumedOfferUsages) {
+						const offerSnap = await tx.get(db.collection('outlets').doc(String(outletId)).collection('offers').doc(usage.offerId));
+						offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
+					}
+					const violation = findUsageLimitViolation(
+						consumedOfferUsages,
+						getAppliedOfferUsageCounts(userData.appliedOffers),
+						offersById,
+					);
+					if (violation) throw new Error('OFFER_USAGE_LIMIT_REACHED');
+
+					userUpdates.appliedOffers = mergeAppliedOfferUsages(userData.appliedOffers, consumedOfferUsages);
+				}
+
+				if (Object.keys(userUpdates).length > 0) {
+					userUpdates.updatedAt = FieldValue.serverTimestamp();
+					tx.set(userRef, userUpdates, { merge: true });
+				}
 			}
 
 			tx.set(orderRef, {
@@ -234,7 +259,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				outletId: String(outletId),
 				orderType: resolvedOrderType,
 				customerName: resolvedCustomerName,
-				customerId: readString(customerId) || decoded.uid,
+				customerId: readString(customerId) || uid || null,
 				customerPhone: resolvedCustomerPhone,
 				placedBy: readString(placedBy) === 'billing' ? 'billing' : 'customer',
 				tableId: tableId || null,
@@ -248,6 +273,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				discount: pricing.discount,
 				discountedPrice: pricing.discountedPrice,
 				tax: pricing.tax,
+				totalAmount: pricing.grandTotal,
 				status: req.body?.status || req.body?.orderStatus || 'in-progress',
 				autoAppliedOfferId: alreadyCounted
 					? (readString(existingData.autoAppliedOfferId) || null)

@@ -25,12 +25,21 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4efe9] text-[#3e2723]">
+        <div className="w-10 h-10 border-4 border-[#6B4F4F]/20 border-t-[#6B4F4F] rounded-full animate-spin mb-4"></div>
+        <p className="text-sm font-medium tracking-wide">Loading application...</p>
+      </div>
+    )
+  }
+
   return (
     <AuthContext.Provider value={{ user, logout }}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
-  );
-};
+  )
+}
 
 export const useAuth = () => {
   return useContext(AuthContext);

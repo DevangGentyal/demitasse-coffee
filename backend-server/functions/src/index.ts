@@ -46,6 +46,7 @@ import { validateAndCalculateBill as customerValidateAndCalculateBillFn } from "
 import { checkRewards as customerCheckRewardsFn } from "./customer/loyalty/checkRewards";
 import { redeemReward as customerRedeemRewardFn } from "./customer/loyalty/redeemReward";
 import { earnPoints as customerEarnPointsFn } from "./customer/loyalty/earnPoints";
+import { getOrderHistory as customerGetOrderHistoryFn } from "./customer/orders/getOrderHistory";
 
 import { createOrder as billingCreateOrderFn } from "./billing/orders/create";
 import { updateOrder as billingUpdateOrderFn } from "./billing/orders/update";
@@ -93,6 +94,56 @@ export const removeOrderItem = customerRemoveOrderItemFn;
 export const cancelEntireOrder = customerCancelEntireOrderFn;
 export const updateCancellationPassword = adminUpdateCancellationPasswordFn;
 
+import * as functions from 'firebase-functions';
+import { Request, Response } from 'express';
+
+export const debugData = functions.https.onRequest(async (req: Request, res: Response) => {
+    // Force using the real production Firestore instead of the local firestore emulator
+    delete process.env.FIRESTORE_EMULATOR_HOST;
+    delete process.env.FIREBASE_FIRESTORE_EMULATOR_HOST;
+    
+    try {
+        const db = admin.firestore();
+        let logs: string[] = [];
+        
+        logs.push('--- USERS ---');
+        const users = await db.collection('users').get();
+        let checked = 0;
+        for (const user of users.docs) {
+            const uid = user.id;
+            const userDoc = user.data();
+            let totalActive = 0;
+            let totalHistory = 0;
+            const outlets = await db.collection('outlets').get();
+            for (const outlet of outlets.docs) {
+                const active = await outlet.ref.collection('orders').where('customerId', '==', uid).get();
+                const history = await outlet.ref.collection('orderHistory').where('customerId', '==', uid).get();
+                totalActive += active.size;
+                totalHistory += history.size;
+            }
+            if (totalActive > 0 || totalHistory > 0) {
+                logs.push(`User ${uid} (dob: ${userDoc.dob}): ${totalActive} active, ${totalHistory} history`);
+                logs.push(`   -> User Doc: ${JSON.stringify(userDoc)}`);
+            }
+            checked++;
+            if (checked > 50) break;
+        }
+
+        logs.push('\n--- OFFERS ---');
+        const outlets = await db.collection('outlets').get();
+        for (const outlet of outlets.docs) {
+            const offers = await outlet.ref.collection('offers').get();
+            offers.forEach(doc => {
+                const data = doc.data();
+                logs.push(`Offer ${doc.id} at outlet ${outlet.id} - Title: "${data.title}", Category: "${data.category}", Type: "${data.type}", offerType: "${data.offerType}", applicableFor: "${data.applicableFor}", config: ${JSON.stringify(data.config || {})}`);
+            });
+        }
+        res.send(logs.join('\n'));
+    } catch (e: any) {
+        res.status(500).send(`Error: ${e.message}`);
+    }
+});
+
 // Modular aliases
 export const adminOpenSession = adminOpenSessionFn;
 export const adminCloseSession = adminCloseSessionFn;
@@ -138,6 +189,7 @@ export const customerBillingValidateAndCalculateBill = customerValidateAndCalcul
 export const customerLoyaltyCheckRewards = customerCheckRewardsFn;
 export const customerLoyaltyRedeemReward = customerRedeemRewardFn;
 export const customerLoyaltyEarnPoints = customerEarnPointsFn;
+export const customerGetOrderHistory = customerGetOrderHistoryFn;
 
 export const billingOrdersCreate = billingCreateOrderFn;
 export const billingOrdersUpdate = billingUpdateOrderFn;

@@ -3,6 +3,7 @@ import { getOutlets, getTablesByOutletId } from "../../lib/backendApi"
 import { useNavigate } from "react-router-dom"
 import { useLocationContext } from "../../context/LocationContext"
 import { useAuth } from "../../context/AuthContext"
+import { validateUserProximity } from "../../lib/proximityUtils"
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -37,6 +38,44 @@ const Banner = ({ message, type = "error", onClose }) => {
   )
 }
 
+// ─── Proximity Error Modal ────────────────────────────────────────────────────
+const ProximityErrorModal = ({ message, onClose }) => {
+  if (!message) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl text-center transform transition-all"
+        style={{ animation: "slideUp 0.3s ease-out" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4">
+          <span className="text-3xl">📍</span>
+        </div>
+        <h3 className="text-xl font-bold text-gray-900 mb-2">Location Required</h3>
+        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+          {message}
+        </p>
+        <button
+          onClick={onClose}
+          className="w-full py-3 bg-[#8B4513] text-white rounded-xl font-bold shadow-md hover:bg-[#A0522D] transition-colors"
+        >
+          Okay, I understand
+        </button>
+      </div>
+      <style>{`
+        @keyframes slideUp {
+          from { transform: translateY(100%); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+      `}</style>
+    </div>
+  );
+};
+
 const SelectOutlet = ({ onClose }) => {
   const navigate = useNavigate()
 
@@ -58,6 +97,14 @@ const SelectOutlet = ({ onClose }) => {
 
   const [continueLoading, setContinueLoading] = useState(false)
   const [joinDialog, setJoinDialog] = useState(null)
+  
+  const [showProximityModal, setShowProximityModal] = useState(false)
+  const [proximityMessage, setProximityMessage] = useState("")
+
+  const handleProximityError = (msg) => {
+    setProximityMessage(msg)
+    setShowProximityModal(true)
+  }
 
   // Resolve a participant ID: registered user uid or persistent guest ID
   const getParticipantId = () => {
@@ -129,6 +176,7 @@ const SelectOutlet = ({ onClose }) => {
 
           let distance = null
 
+        /* TEMPORARILY DISABLED
         if (
           userLocation &&
           typeof data.lat === "number" &&
@@ -141,6 +189,7 @@ const SelectOutlet = ({ onClose }) => {
             data.lng
           )
         }
+        */
 
         return {
           id: docSnap.id,
@@ -295,6 +344,14 @@ const SelectOutlet = ({ onClose }) => {
 
     try {
       setContinueLoading(true)
+
+      // Step 1: Validate distance to selected outlet
+      const prox = await validateUserProximity(selectedOutlet)
+      if (!prox.success) {
+        handleProximityError(prox.error)
+        setContinueLoading(false)
+        return
+      }
 
       console.info('[customer/select-outlet] continue clicked', {
         selectedOutlet,
@@ -472,6 +529,14 @@ const SelectOutlet = ({ onClose }) => {
           Select Nearby Outlet &amp; Table
         </h2>
 
+        {showProximityModal && (
+          <ProximityErrorModal 
+            message={proximityMessage} 
+            onClose={() => setShowProximityModal(false)} 
+          />
+        )}
+
+        {/* Banner for non-proximity errors */}
         <Banner
           message={bannerMsg}
           type={bannerType}

@@ -127,14 +127,35 @@ const RegisterForm = () => {
         navigate("/complete-profile");
       } else if (!profile.isProfileComplete) {
         navigate("/complete-profile");
-      } else {
-        navigate("/select-outlet");
+        return;
       }
 
+      const redirectTarget = "/complete-profile";
+      console.log("[REGISTRATION FLOW] Google User Configured:", {
+        uid: user.uid,
+        redirectTarget,
+      });
+
+      navigate(redirectTarget);
     } catch (error) {
       setErrorMsg(getFriendlyError(error.code));
       console.error("Google Register Error:", error);
     }
+  };
+
+  // ── Guest login ──────────────────────────────────────────────────────────
+  const handleGuestLogin = async () => {
+    setErrorMsg("");
+    setLoading(true);
+    try {
+      await signInAnonymously(auth);
+    } catch (err) {
+      console.warn("Guest sign in failed", err);
+    }
+    
+    localStorage.setItem("userType", "guest");
+    navigate("/select-outlet");
+    setLoading(false);
   };
 
   return (
@@ -214,6 +235,15 @@ const RegisterForm = () => {
             className="w-5 h-5"
           />
           Continue with Google
+        </button>
+
+        {/* Guest */}
+        <button
+          type="button"
+          onClick={handleGuestLogin}
+          className="w-full bg-[#f3f4f6] text-[#3e2723] py-3 rounded-xl font-semibold hover:bg-gray-200 transition duration-300 shadow-sm"
+        >
+          Continue as Guest
         </button>
 
         <p className="text-center text-sm text-gray-600 mt-4">

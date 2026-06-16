@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getAuth } from "firebase-admin/auth";
+import { FieldValue } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
 
 const db = admin.firestore();
@@ -14,6 +15,14 @@ export const customerUpdateUserProfile = onCall(
 		}
 
 		const uid = request.auth.uid;
+
+		console.info("[customerUpdateUserProfile] Request Data:", {
+			uid,
+			authUid: request.auth.uid,
+			data: request.data,
+			displayName,
+			updates,
+		});
 
 		try {
 			// Validate displayName if provided
@@ -32,8 +41,7 @@ export const customerUpdateUserProfile = onCall(
 			// Update Firestore user document
 			const userRef = db.collection("users").doc(uid);
 			const updatePayload: any = {
-				...updates,
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: FieldValue.serverTimestamp(),
 			};
 
 			// Add displayName to Firestore if provided

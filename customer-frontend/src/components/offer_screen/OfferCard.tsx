@@ -4,9 +4,10 @@ import { useCart } from "../../context/CartContext";
 import { useOffers } from "../../context/OfferContext";
 import { useMenu } from "../../context/MenuContext";
 import { useNavigate } from "react-router-dom";
-import { isBirthday } from "../../lib/offerUtils";
+import { isBirthday, isBirthdayOffer as isBirthdayOfferConfig } from "../../lib/offerUtils";
 import Variations from "../itemDetails_screen/Variations";
 import AddOnGroup from "../itemDetails_screen/AddOnGroup";
+import { useLocationContext } from "../../context/LocationContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ProductRef { productId?: string; name: string; quantity?: number; }
@@ -50,7 +51,7 @@ interface Offer {
   combo?: ComboGroup[]; // Fallback
   comboPrice?: number;   // Fallback
   applicableCategory?: string;
-  userRules?: { firstOrderOnly?: boolean; birthdayOnly?: boolean; };
+  userRules?: { firstOrderOnly?: boolean; birthdayOnly?: boolean; perUserLimit?: number; };
 }
 
 interface OfferCardProps {
@@ -102,7 +103,13 @@ const transformAddOns = (product: any, addons: Record<number, string[]>) => {
 const getResolvedOfferType = (offer?: Offer | null) => String(offer?.offerType || offer?.type || offer?.discountType || "").trim().toUpperCase();
 
 const normalizeProductIds = (rawIds: unknown): string[] => {
-  const values = Array.isArray(rawIds) ? rawIds : [];
+  let values: any[] = [];
+  if (Array.isArray(rawIds)) {
+    values = rawIds;
+  } else if (rawIds && typeof rawIds === 'object') {
+    values = Object.values(rawIds);
+  }
+
   return values
     .map((item: any) => {
       if (!item) return "";
@@ -189,6 +196,15 @@ const getBirthdaySelectionRules = (offer: any) => {
     minSelect: Number(cfg.minSelect ?? 1),
     maxSelect: Number(cfg.maxSelect ?? 1),
   };
+};
+
+const isUsableBirthdayProduct = (product: any, selectedOutlet = ""): boolean => {
+  if (!product) return false;
+  const productOutletId = String(product.outletId || "").trim();
+  return product.isDeleted !== true &&
+    product.isActive !== false &&
+    product.isAvailable !== false &&
+    (!productOutletId || !selectedOutlet || productOutletId === selectedOutlet);
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -420,10 +436,32 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
 
   // ─── Hide birthday offer on non-birthday days or if already used ────────────
   if (isBirthdayOffer) {
-    if (!fullUser?.dob || !isBirthday(fullUser.dob)) return null;
+    // ✅ FIX: Only hide if we KNOW it's not the user's birthday
+    // If fullUser is still loading (dob undefined), wait for data before hiding
+    if (fullUser?.dob) {
+      // fullUser loaded with DOB info - check if it's their birthday
+      if (!isBirthday(fullUser.dob)) {
+        console.log(`[OfferCard] Birthday Offer ${offer.id}: NOT user's birthday, hiding`);
+        return null;
+      }
+    } else if (fullUser !== null && fullUser !== undefined) {
+      // fullUser loaded but has NO dob field - this user shouldn't see birthday offer
+      console.log(`[OfferCard] Birthday Offer ${offer.id}: No DOB in fullUser, hiding`);
+      return null;
+    }
+    // If fullUser is null/undefined, it's still loading - show the offer for now
+    // It will hide once fullUser loads with the correct data
+
+    // Check if already used this year
     const currentYear = new Date().getFullYear();
-    if (fullUser.lastBirthdayOfferYear === currentYear) return null;
-    if (fullUser.hasUsedBirthdayOffer && !fullUser.lastBirthdayOfferYear) return null;
+    if (fullUser?.lastBirthdayOfferYear === currentYear) {
+      console.log(`[OfferCard] Birthday Offer ${offer.id}: Already used this year, hiding`);
+      return null;
+    }
+    if (fullUser?.hasUsedBirthdayOffer && !fullUser?.lastBirthdayOfferYear) {
+      console.log(`[OfferCard] Birthday Offer ${offer.id}: Already used (legacy), hiding`);
+      return null;
+    }
   }
 
   // ─── Handle invalid combo config ───────────────────────────────────────────
@@ -513,7 +551,8 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
 
           {/* ── CTA BUTTONS ──────────────────────────────────────────────────── */}
 
-          {!shouldAutoApply &&
+          {
+            !shouldAutoApply &&
             (isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer || isFirstOrder) && (
               <div className="mt-4 flex justify-center">
                 <button
@@ -536,76 +575,87 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
                           : "Add Offer"}
                 </button>
               </div>
-            )}
+            )
+          }
 
 
-        </div>
+        </div >
 
         {/* ── Combo Builder Modal ──────────────────────────────────────────────── */}
-        {showComboModal && (
-          <ComboBuilderModal
-            offer={offer}
-            comboGroups={comboGroups}
-            comboPrice={comboPrice}
-            productsMap={productsMap}
-            productsArray={products as any[] || []}
-            onClose={() => setShowComboModal(false)}
-            onAdded={() => handleAdded("Combo")}
-            addComboToCart={addComboToCart}
-          />
-        )}
+        {
+          showComboModal && (
+            <ComboBuilderModal
+              offer={offer}
+              comboGroups={comboGroups}
+              comboPrice={comboPrice}
+              productsMap={productsMap}
+              productsArray={products as any[] || []}
+              onClose={() => setShowComboModal(false)}
+              onAdded={() => handleAdded("Combo")}
+              addComboToCart={addComboToCart}
+            />
+          )
+        }
 
         {/* ── B1G1 Builder Modal ───────────────────────────────────────────────── */}
-        {showB1G1Modal && (
-          <B1G1BuilderModal
-            offer={offer}
-            productsMap={productsMap}
-            productsArray={products as any[] || []}
-            onClose={() => setShowB1G1Modal(false)}
-            onAdded={() => handleAdded("B1G1")}
-            addB1G1ToCart={addB1G1ToCart}
-          />
-        )}
+        {
+          showB1G1Modal && (
+            <B1G1BuilderModal
+              offer={offer}
+              productsMap={productsMap}
+              productsArray={products as any[] || []}
+              onClose={() => setShowB1G1Modal(false)}
+              onAdded={() => handleAdded("B1G1")}
+              addB1G1ToCart={addB1G1ToCart}
+            />
+          )
+        }
 
         {/* ── Discount Builder Modal ───────────────────────────────────────── */}
-        {showDiscountModal && (
-          <DiscountBuilderModal
-            offer={offer}
-            productsMap={productsMap}
-            productsArray={products as any[] || []}
-            onClose={() => setShowDiscountModal(false)}
-            onAdded={() => handleAdded("Discount")}
-            addDiscountToCart={addDiscountToCart}
-            cart={cart}
-          />
-        )}
+        {
+          showDiscountModal && (
+            <DiscountBuilderModal
+              offer={offer}
+              productsMap={productsMap}
+              productsArray={products as any[] || []}
+              onClose={() => setShowDiscountModal(false)}
+              onAdded={() => handleAdded("Discount")}
+              addDiscountToCart={addDiscountToCart}
+              cart={cart}
+            />
+          )
+        }
 
         {/* ── Birthday Builder Modal ──────────────────────────────────────── */}
-        {showBirthdayModal && (
-          <BirthdayBuilderModal
-            offer={offer}
-            productsMap={productsMap}
-            onClose={() => setShowBirthdayModal(false)}
-            onAdded={() => handleAdded("Birthday")}
-            addBirthdayToCart={addBirthdayToCart}
-          />
-        )}
+        {
+          showBirthdayModal && (
+            <BirthdayBuilderModal
+              offer={offer}
+              productsMap={productsMap}
+              onClose={() => setShowBirthdayModal(false)}
+              onAdded={() => handleAdded("Birthday")}
+              addBirthdayToCart={addBirthdayToCart}
+            />
+          )
+        }
 
         {/* ── Login popup ─────────────────────────────────────────────────────── */}
-        {showLoginPopup && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-            <div className="bg-white w-[90%] max-sm rounded-2xl p-6 text-center shadow-lg">
-              <h2 className="text-lg font-semibold mb-2">Login Required</h2>
-              <p className="text-gray-600 text-sm mb-5">Offers are exclusive! Login or Register to unlock 🎉</p>
-              <div className="flex justify-center gap-4">
-                <button onClick={() => { setShowLoginPopup(false); navigate("/login"); }}
-                  className="px-6 py-2 bg-green-600 text-white rounded-full font-semibold">Login</button>
-                <button onClick={() => setShowLoginPopup(false)}
-                  className="px-6 py-2 bg-gray-200 rounded-full font-semibold">Cancel</button>
+        {
+          showLoginPopup && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+              <div className="bg-white w-[90%] max-sm rounded-2xl p-6 text-center shadow-lg">
+                <h2 className="text-lg font-semibold mb-2">Login Required</h2>
+                <p className="text-gray-600 text-sm mb-5">Offers are exclusive! Login or Register to unlock 🎉</p>
+                <div className="flex justify-center gap-4">
+                  <button onClick={() => { setShowLoginPopup(false); navigate("/login"); }}
+                    className="px-6 py-2 bg-green-600 text-white rounded-full font-semibold">Login</button>
+                  <button onClick={() => setShowLoginPopup(false)}
+                    className="px-6 py-2 bg-gray-200 rounded-full font-semibold">Cancel</button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )
+        }
       </>
     );
   } catch (error) {
@@ -633,6 +683,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   // Customization state — same pattern as B1G1/Combo
   const [customization, setCustomization] = useState<{ variations: Record<number, string>; addons: Record<number, string[]> }>({ variations: {}, addons: {} });
   const [customizingProduct, setCustomizingProduct] = useState<boolean>(false);
+  const { selectedOutlet } = useLocationContext();
 
   // Extract the configured product IDs from config.reward.productIds
   // NOTE: Firestore keys may have leading spaces (e.g. " reward" instead of "reward")
@@ -653,8 +704,9 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
 
       // Check which IDs are already in productsMap
       for (const id of configuredIds) {
-        if (productsMap[id]) {
-          results.push(productsMap[id]);
+        const cachedProduct = productsMap[id];
+        if (isUsableBirthdayProduct(cachedProduct, selectedOutlet)) {
+          results.push(cachedProduct);
         } else {
           missingIds.push(id);
         }
@@ -664,20 +716,23 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
       if (missingIds.length > 0) {
         for (const id of missingIds) {
           try {
-            const items = await getProductById(id)
+            const items = await getProductById(id, selectedOutlet);
             const prod = items[0]
             if (prod) {
               const data = prod
-              results.push({
-                id: prod.id,
-                name: data.name || "Item",
-                price: data.price || 0,
-                image: data.imageUrl || data.image || "",
-                isVeg: data.isVeg,
-                description: data.description || "",
-                variations: Array.isArray(data.variations) ? data.variations : [],
-                customizations: Array.isArray(data.customizations) ? data.customizations : [],
-              });
+              // ✅ Apply strict validation before accepting the product!
+              if (isUsableBirthdayProduct(data, selectedOutlet)) {
+                results.push({
+                  id: prod.id,
+                  name: data.name || "Item",
+                  price: data.price || 0,
+                  image: data.imageUrl || data.image || "",
+                  isVeg: data.isVeg,
+                  description: data.description || "",
+                  variations: Array.isArray(data.variations) ? data.variations : [],
+                  customizations: Array.isArray(data.customizations) ? data.customizations : [],
+                });
+              }
             }
           } catch (err) {
             console.error("🎂 Birthday: Failed to fetch product", id, err);
@@ -685,7 +740,11 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
         }
       }
 
-      setFetchedProducts(results);
+      if (results.length === 0) {
+        onClose(); // Hide modal completely if no valid products remain
+      } else {
+        setFetchedProducts(results);
+      }
       setLoading(false);
     };
 
@@ -963,7 +1022,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
   }, [offer, productsMap]);
 
   // Discount config
-  const discountType = offer.config?.discount?.mode || offer.config?.discount?.type || offer.discountType || "PERCENT";
+  const discountType = offer.discountType || "PERCENT";
   const discountValue = offer.config?.discount?.discountValue || offer.discountValue || offer.config?.discountValue || 0;
 
   const handleSelect = (productId: string) => {

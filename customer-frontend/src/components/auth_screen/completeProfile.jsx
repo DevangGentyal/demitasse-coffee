@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth } from "../../lib/firebase";
 import { upsertUserProfile } from "../../lib/backendApi";
+import { useOffers } from "../../context/OfferContext";
 
 // ── Inline banner ─────────────────────────────────────────────────────────────
 const Banner = ({ message, type = "error", onClose }) => {
@@ -31,6 +32,7 @@ const CompleteProfile = () => {
     const [bannerMsg, setBannerMsg] = useState("");
     const [bannerType, setBannerType] = useState("error");
     const navigate = useNavigate();
+    const { refreshUserProfile } = useOffers();
 
     const showMsg = (msg, type = "error") => { setBannerMsg(msg); setBannerType(type); };
 
@@ -72,8 +74,19 @@ const CompleteProfile = () => {
 
             await upsertUserProfile(profileData);
 
+            if (refreshUserProfile) {
+                await refreshUserProfile();
+            }
+
             console.log("Profile completed");
-            navigate("/select-outlet");
+            const redirectTarget = "/select-outlet";
+            console.log("[REGISTRATION FLOW]", {
+              currentRoute: location.pathname,
+              uid: auth.currentUser?.uid,
+              redirectTarget,
+            });
+            
+            navigate(redirectTarget);
 
         } catch (error) {
             console.error("Profile Update Error:", error);

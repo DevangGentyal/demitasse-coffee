@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { updateProfile } from "firebase/auth";
-import { auth } from "../../lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { auth, functions } from "../../lib/firebase";
 
 export default function UpdateNameModal({ currentName, onClose, onSuccess }) {
   const [name, setName] = useState(currentName || "");
@@ -21,28 +22,21 @@ export default function UpdateNameModal({ currentName, onClose, onSuccess }) {
       const user = auth.currentUser;
       if (!user) throw new Error("Not authenticated");
 
-      // Update Firebase Auth displayName
-      await updateProfile(user, { displayName: trimmed });
+      console.info("[UpdateNameModal] Updating profile name:", {
+        uid: user.uid,
+        currentUserUid: auth.currentUser?.uid,
+        payload: { displayName: trimmed },
+        name: trimmed,
+      });
 
-      // Call cloud function to update Firestore user document
-      const idToken = await user.getIdToken();
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'}/customerUpdateUserProfile`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${idToken}`,
-          },
-          body: JSON.stringify({
-            displayName: trimmed,
-          }),
-        }
-      );
+      // Use the shared functions instance (emulator already connected in firebase.js)
+      const updateProfile_ = httpsCallable(functions, "customerUpdateUserProfile");
+      const result = await updateProfile_({ displayName: trimmed });
 
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success) {
-        throw new Error(result.error?.message || result.message || "Failed to update name");
+      console.info("[UpdateNameModal] Response received:", result);
+
+      if (!result.data?.success) {
+        throw new Error(result.data?.message || "Failed to update name");
       }
 
       onSuccess(trimmed);

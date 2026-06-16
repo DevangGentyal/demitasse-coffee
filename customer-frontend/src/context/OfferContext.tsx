@@ -1,10 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { getCurrentUserProfile, getOffersByOutletId } from "../lib/backendApi";
+import { getCurrentUserProfile, getOffersByOutletId, getOrderHistory } from "../lib/backendApi";
 import { useLocationContext } from "./LocationContext";
+import { useMenu } from "./MenuContext";
 
 import {
   filterOffers,
   isOfferAvailableToUser,
+  isOfferApplicable,
   isValidDate,
   isBirthday,
   Offer,
@@ -17,6 +19,7 @@ interface OfferContextType {
   offers: Offer[];
   filteredOffers: FilteredOffers | null;
   fullUser: User | null;
+  userOrders: any[];
   refreshUserProfile: () => Promise<void>;
   allValidOffers: Offer[];
 }
@@ -49,9 +52,11 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
     useState<FilteredOffers | null>(null);
 
   const [fullUser, setFullUser] = useState<User | null>(null);
+  const [userOrders, setUserOrders] = useState<any[]>([]);
   const [userProfileLoaded, setUserProfileLoaded] = useState(false);
 
   const { selectedOutlet } = useLocationContext();
+  const { products } = useMenu();
   const isGuestUser = localStorage.getItem("userType") === "guest";
 
   // 🔥 FETCH ALL OFFERS FOR SELECTED OUTLET
@@ -87,9 +92,20 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
     try {
       const profile = await getCurrentUserProfile();
       setFullUser((profile || {}) as User);
+
+      if (profile) {
+        try {
+          const orders = await getOrderHistory();
+          setUserOrders(orders || []);
+        } catch (err) {
+          console.error("Failed to fetch order history:", err);
+          setUserOrders([]);
+        }
+      }
     } catch (error) {
       console.error("Error fetching user from backend:", error);
       setFullUser({} as User);
+      setUserOrders([]);
     } finally {
       setUserProfileLoaded(true);
     }

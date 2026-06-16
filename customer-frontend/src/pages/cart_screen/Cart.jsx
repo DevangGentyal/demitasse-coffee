@@ -3,6 +3,7 @@ import { useCart } from "../../context/CartContext";
 import { useNavigate } from "react-router-dom";
 import { useLocationContext } from "../../context/LocationContext";
 import { useOffers } from "../../context/OfferContext";
+import offerImg from "../../assets/home_screen/offer.png";
 import { auth } from "../../lib/firebase";
 import { getProductById } from "../../lib/backendApi";
 import { revalidateCart, validateOffer } from "../../lib/offerUtils";
@@ -338,22 +339,30 @@ const Cart = () => {
         }
       }
 
-      if (userType === "guest") {
+      console.log("[ORDER AUTH CHECK]", {
+        isGuest: localStorage.getItem("userType") === "guest",
+        uid: auth.currentUser?.uid,
+        userType: localStorage.getItem("userType")
+      });
+
+      let idToken = null;
+      if (userType !== "guest") {
         const guestUser = auth.currentUser;
         if (!guestUser) throw new Error("User not authenticated");
+        idToken = await guestUser.getIdToken();
+        if (!idToken) throw new Error("User not authenticated");
       }
 
-      const idToken = await auth.currentUser?.getIdToken();
-      if (!idToken) {
-        throw new Error("User not authenticated");
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      if (idToken) {
+        headers['Authorization'] = `Bearer ${idToken}`;
       }
 
       const createOrderRes = await fetch(`${API_BASE}/customerOrdersCreate`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
-        },
+        headers,
         body: JSON.stringify({
           outletId: selectedOutlet,
           tableId: selectedTableId,
@@ -392,10 +401,6 @@ const Cart = () => {
 
       if (userType !== "guest" && auth.currentUser) {
         const updates = {};
-
-        if (!fullUser?.hasPlacedFirstOrder) {
-          updates.hasPlacedFirstOrder = true;
-        }
 
         const birthdayUsed = appliedOffers.some(o => o.type === "birthday") ||
           cart.some(item => item.isBirthday);
@@ -509,20 +514,32 @@ const Cart = () => {
         return;
       }
 
+      // Use frontend-computed values as authoritative fallback when server
+      // pricing is unavailable or returns an un-discounted price.
+      const serverDiscount = Number(result.pricing?.discount ?? 0);
+      const effectiveDiscount = serverDiscount > 0 ? serverDiscount : totalDiscount;
+      const effectiveDiscountedPrice = result.pricing?.discountedPrice ?? Math.max(0, totalPrice - effectiveDiscount);
+      const effectiveTax = result.pricing?.tax ?? taxAmount;
+      const effectiveGrandTotal = result.pricing?.total ?? grandTotal;
+
       navigate("/bill", {
         state: {
-          // Keep original cart items for rich UI rendering (combo/b1g1 grouping)
-          // but always use server pricing as source of truth.
           items: cart,
           itemTotal: Number(result.pricing?.subtotal ?? totalPrice) || 0,
-          tax: Number(result.pricing?.tax ?? 0) || 0,
-          discount: Number(result.pricing?.discount ?? totalDiscount) || 0,
-          discountedPrice: Number(result.pricing?.discountedPrice ?? grandTotal) || 0,
-          grandTotal: Number(result.pricing?.total ?? grandTotal) || 0,
+          tax: effectiveTax,
+          discount: effectiveDiscount,
+          discountedPrice: effectiveDiscountedPrice,
+          grandTotal: effectiveGrandTotal,
           appliedOffers,
           autoAppliedOffer: autoAppliedOffer && hasEligibleItems ? autoAppliedOffer : null,
           autoDiscount,
-          serverPricing: result.pricing,
+          serverPricing: {
+            ...result.pricing,
+            discount: effectiveDiscount,
+            discountedPrice: effectiveDiscountedPrice,
+            tax: effectiveTax,
+            total: effectiveGrandTotal,
+          },
           serverItems: Array.isArray(result.items) ? result.items : [],
           serverDiscountSources: result.discountSources,
         },
@@ -583,7 +600,11 @@ const Cart = () => {
         {/* ✅ Auto Applied Registration Offer Banner */}
         {autoAppliedOffer && hasEligibleItems && (
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl px-4 py-3 flex items-center gap-3">
-            <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center text-lg shrink-0">🎉</div>
+            {autoAppliedOffer.imageurl ? (
+              <img src={autoAppliedOffer.imageurl} alt={autoAppliedOffer.title} className="w-10 h-10 object-cover rounded-full shrink-0 shadow-sm" onError={(e) => { e.target.src = offerImg; }} />
+            ) : (
+              <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center text-lg shrink-0">🎉</div>
+            )}
             <div className="flex-1">
               <p className="text-sm font-bold text-green-700">{autoAppliedOffer.title}</p>
               <p className="text-xs text-green-600">
@@ -597,8 +618,9 @@ const Cart = () => {
           </div>
         )}
 
-          {/* Applied Offers Display */}
-          {(appliedOffers.length > 0 || newUserOffer) && (
+        {/* Applied Offers Display */}
+        {
+          (appliedOffers.length > 0 || newUserOffer) && (
             <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 flex flex-col gap-1">
               <p className="text-xs text-green-700 font-semibold uppercase tracking-wide mb-1">Applied Offers</p>
               {appliedOffers.map((applied, idx) => {
@@ -627,7 +649,8 @@ const Cart = () => {
                   <span>{newUserOffer.offerTitle}</span>
                   <span className="ml-auto bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">Applied ✓</span>
                 </div>
-              )}
+              )
+              }
             </div>
           )}
 
@@ -693,12 +716,13 @@ const Cart = () => {
             )}
 
             {/* ✅ New User Offer Discount Row */}
-            {newUserOffer && newUserDiscount > 0 && (
-              <div className="flex justify-between text-sm text-green-600 mt-1 font-medium">
-                <span>🎉 {newUserOffer.offerTitle} ({newUserOffer.discountValue}%)</span>
-                <span>-₹{newUserDiscount}</span>
-              </div>
-            )}
+            {
+              newUserOffer && newUserDiscount > 0 && (
+                <div className="flex justify-between text-sm text-green-600 mt-1 font-medium">
+                  <span>🎉 {newUserOffer.offerTitle} ({newUserOffer.discountValue}%)</span>
+                  <span>-₹{newUserDiscount}</span>
+                </div>
+              )}
 
             <hr className="my-3" />
 
@@ -715,7 +739,8 @@ const Cart = () => {
               {isValidating ? "Calculating..." : "View Detailed Bill →"}
             </button>
           </div>
-        )}
+        )
+        }
 
 
 
@@ -743,8 +768,8 @@ const Cart = () => {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 };
 

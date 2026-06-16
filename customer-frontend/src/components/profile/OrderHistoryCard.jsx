@@ -4,6 +4,9 @@ const currency = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 0,
 });
 
+// Convert any timestamp representation to a JS Date.
+// Handles: Firestore Timestamp objects (.toDate()), {seconds,nanoseconds} plain
+// objects (returned by the HTTP backend as JSON), JS Date, ISO strings, numbers.
 const toDate = (value) => {
   if (!value) return new Date(0);
   if (value instanceof Date) return value;
@@ -15,42 +18,79 @@ const toDate = (value) => {
   return Number.isNaN(parsed.getTime()) ? new Date(0) : parsed;
 };
 
+// Full priority chain per spec:
+// archivedAt → finalizedAt → closedAt → updatedAt → createdAt → timeOfOrder
+const pickDate = (order) =>
+  toDate(
+    order.archivedAt ||
+    order.finalizedAt ||
+    order.closedAt ||
+    order.updatedAt ||
+    order.createdAt ||
+    order.timeOfOrder
+  );
+
 const getOrderTotal = (order) => {
-  if (order.pricing?.total) return Number(order.pricing.total);
+  const p = order.pricing || {};
+  // Prefer explicit total fields in priority order
+  if (p.total)       return Number(p.total);
+  if (p.finalTotal)  return Number(p.finalTotal);
+  if (p.grandTotal)  return Number(p.grandTotal);
+  // Compute from subtotal / discount / tax if available
+  if (p.subtotal !== undefined) {
+    return Math.max(0, Number(p.subtotal || 0) - Number(p.discount || 0) + Number(p.tax || 0));
+  }
+  // Last resort: sum item line totals
   const items = Array.isArray(order.items) ? order.items : [];
   if (items.length > 0) {
     return items.reduce((sum, item) => {
       const qty = Number(item.quantity ?? item.qty ?? 1) || 1;
-      const price = Number(item.price ?? item.totalPrice ?? 0) || 0;
-      return sum + qty * price;
+      const price = Number(item.finalUnitPrice ?? item.price ?? 0) || 0;
+      const lineTotal = Number(item.totalPrice ?? (qty * price));
+      return sum + (Number.isFinite(lineTotal) ? lineTotal : 0);
     }, 0);
   }
   return Number(order.totalAmount ?? order.grandTotal ?? 0) || 0;
 };
 
-const getOrderItemCount = (order) => {
-  const items = Array.isArray(order.items) ? order.items : [];
-  return items.reduce((sum, item) => sum + (Number(item.quantity ?? item.qty ?? 1) || 1), 0);
+const getOrderType = (order) => {
+  const raw = String(order.placedBy || "customer").toLowerCase();
+  if (raw === "customer") return "Dine-In";
+  if (raw === "billing")  return "Counter";
+  // Return as-is for any other value already stored (e.g. "takeaway")
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+};
+
+const STATUS_CLASSES = {
+  COMPLETED:   "bg-emerald-100 text-emerald-700",
+  CANCELLED:   "bg-red-100 text-red-600",
+  IN_PROGRESS: "bg-amber-100 text-amber-800",
+  SUCCESS:     "bg-emerald-100 text-emerald-700",
+  CLOSED:      "bg-gray-100 text-gray-600",
+};
+
+const STATUS_LABELS = {
+  COMPLETED:   "Completed",
+  CANCELLED:   "Cancelled",
+  IN_PROGRESS: "In Progress",
+  SUCCESS:     "Success",
+  CLOSED:      "Closed",
 };
 
 export default function OrderHistoryCard({ order, onViewDetails }) {
   const items = Array.isArray(order.items) ? order.items : [];
   const total = getOrderTotal(order);
-  const itemCount = getOrderItemCount(order);
-  const date = toDate(order.closedAt || order.archivedAt || order.createdAt);
+  const date = pickDate(order);
+  const orderType = getOrderType(order);
 
-  // Determine order type
-  const placedBy = order.placedBy || "customer";
-  const orderType = placedBy === "customer" ? "Dine-In" : "Counter";
+  // Resolve status from the field actually written by closeSession
+  const rawStatus = String(
+    order.orderLifecycleStatus || order.status || "COMPLETED"
+  ).toUpperCase();
+  const statusLabel = STATUS_LABELS[rawStatus] || rawStatus;
+  const statusClass = STATUS_CLASSES[rawStatus] || "bg-gray-100 text-gray-600";
 
-  // Status
-  const status = String(order.status || order.orderLifecycleStatus || "COMPLETED").toUpperCase();
-  const statusLabel = status === "COMPLETED" ? "Delivered" : status;
-  const statusClass = status === "COMPLETED"
-    ? "bg-emerald-100 text-emerald-700"
-    : "bg-amber-100 text-amber-800";
-
-  // Show max 3 items, then "+N more"
+  // Show max 3 item rows, then "+N more"
   const visibleItems = items.slice(0, 3);
   const remainingCount = items.length - 3;
 
@@ -67,14 +107,25 @@ export default function OrderHistoryCard({ order, onViewDetails }) {
               {statusLabel}
             </span>
           </div>
+          {/* Real order/invoice reference */}
           <p className="text-xs text-gray-400 font-mono mt-1">
             #{(order.orderId || order.id || "").slice(0, 10).toUpperCase()}
           </p>
-          <p className="text-[11px] text-gray-500 mt-0.5">
-            {date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-            {" · "}
-            {date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-          </p>
+          {/* Date — only show if valid (not epoch) */}
+          {date.getTime() > 0 && (
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              {date.toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+              {" · "}
+              {date.toLocaleTimeString("en-IN", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+          )}
         </div>
       </div>
 
@@ -84,7 +135,21 @@ export default function OrderHistoryCard({ order, onViewDetails }) {
           {visibleItems.map((item, idx) => {
             const qty = Number(item.quantity ?? item.qty ?? 1);
             const displayName = item.name || "Item";
-            const isOffer = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday;
+            // An item is an offer item when ANY offer flag is present
+            const isOffer =
+              !!item.offerId ||
+              !!item.offerType ||
+              !!item.isCombo ||
+              !!item.isManualB1G1 ||
+              !!item.isDiscount ||
+              !!item.isBirthday;
+            const offerLabel =
+              item.isCombo       ? "Combo"    :
+              item.isManualB1G1  ? "B1G1"     :
+              item.isDiscount    ? "Discount" :
+              item.isBirthday    ? "Birthday" :
+              item.offerType     ? item.offerType :
+              "Offer";
 
             return (
               <div key={idx} className="flex items-center gap-2 text-sm">
@@ -93,9 +158,9 @@ export default function OrderHistoryCard({ order, onViewDetails }) {
                   {displayName}
                   {!isOffer && qty > 1 && <span className="text-gray-400"> ×{qty}</span>}
                 </span>
-                {isOffer && item.offerTitle && (
+                {isOffer && (
                   <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold shrink-0">
-                    Offer
+                    {offerLabel}
                   </span>
                 )}
               </div>

@@ -1,7 +1,6 @@
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { getOrderById } from "../../lib/backendApi";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 
 const currency = new Intl.NumberFormat("en-IN", {
@@ -28,16 +27,16 @@ export default function OrderDetails() {
   const [order, setOrder] = useState(state?.order || null);
   const [loading, setLoading] = useState(!state?.order);
 
-  // Fetch from Firestore if not passed via navigation state
+  // Fetch from Backend API if not passed via navigation state
   useEffect(() => {
     if (order || !orderId) return;
     let isMounted = true;
 
     const fetchOrder = async () => {
       try {
-        const snap = await getDoc(doc(db, "ordersHistory", orderId));
-        if (snap.exists() && isMounted) {
-          setOrder({ id: snap.id, ...snap.data() });
+        const data = await getOrderById(orderId);
+        if (data && data.length > 0 && isMounted) {
+          setOrder(data[0]);
         }
       } catch (err) {
         console.error("Failed to fetch order:", err);

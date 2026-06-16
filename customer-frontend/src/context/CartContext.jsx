@@ -89,6 +89,8 @@ export function CartProvider({ children }) {
     }
 
     // ✅ NEW: Check for auto-applied registration offer ONLY over normal items
+    console.log("[OFFERS] User Passed To Registration Offer:", user);
+    console.log("[TRACE] allOffers passed to getAutoRegistrationOffer:", offers);
     const regOffer = getAutoRegistrationOffer(offers, user);
 
     // Check if normal (non-combo, non-B1G1, non-free) items exist in cart
@@ -120,9 +122,11 @@ export function CartProvider({ children }) {
         title: regOffer.title || "First Order Offer"
       });
     } else {
+      console.log("[CART] NOT applying auto offer. Conditions failed.");
       setAutoAppliedOffer(null);
     }
   }, [cart, couponCodes, offers, fullUser, products, appliedOffers, revalidate]);
+
 
   // ✅ ADD TO CART
   const addToCart = (product) => {

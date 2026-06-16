@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   signInWithEmailAndPassword,
   signInWithPopup,
   EmailAuthProvider,
   linkWithCredential,
   fetchSignInMethodsForEmail,
+  signInAnonymously,
 } from "firebase/auth";
 import { auth, googleProvider } from "../../lib/firebase";
 import { getCurrentUserProfile, upsertUserProfile } from "../../lib/backendApi";
@@ -129,17 +130,13 @@ const LinkPasswordModal = ({ email, user, onSuccess, onClose }) => {
 // ─── Navigate after successful login ──────────────────────────────────────────
 const navigateAfterLogin = async (uid, setShowOutletPopup, navigate) => {
   const profile = await getCurrentUserProfile();
-  if (!profile) {
+  if (!profile || !profile.isProfileComplete) {
     navigate("/complete-profile");
     return;
   }
 
-  if (!profile.isProfileComplete) {
-    navigate("/complete-profile");
-  } else {
-    if (setShowOutletPopup) setShowOutletPopup(true);
-    else navigate("/select-outlet");
-  }
+  if (setShowOutletPopup) setShowOutletPopup(true);
+  else navigate("/select-outlet");
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -158,6 +155,14 @@ const Login_Page = ({ setShowOutletPopup }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     clearMessages();
   };
+
+  const location = useLocation();
+
+  React.useEffect(() => {
+    if (location.state?.proximityError) {
+      setErrorMsg(location.state.proximityError);
+    }
+  }, [location.state]);
 
   React.useEffect(() => {
     const authError = localStorage.getItem("auth_error");
@@ -183,10 +188,24 @@ const Login_Page = ({ setShowOutletPopup }) => {
     } catch (error) {
       console.error(error);
       // If the account was created with Google, guide them
-      if (error.code === "auth/invalid-credential" || error.code === "auth/user-not-found") {
+      if (
+        error.code === "auth/invalid-credential" ||
+        error.code === "auth/user-not-found" ||
+        error.code === "auth/wrong-password"
+      ) {
         try {
           const methods = await fetchSignInMethodsForEmail(auth, formData.email);
           if (methods.includes("google.com")) {
+            setErrorMsg("This email is linked to Google. Please use 'Continue with Google' to login.");
+            setLoading(false);
+            return;
+          }
+        } catch (_) { /* ignore */ }
+
+        try {
+          const response = await fetch(`${API_BASE}/readAppData?resource=checkGoogleUser&email=${encodeURIComponent(formData.email)}`);
+          const result = await response.json().catch(() => ({}));
+          if (result?.success && result?.data?.[0]?.isGoogle) {
             setErrorMsg("This email is linked to Google. Please use 'Continue with Google' to login.");
             setLoading(false);
             return;
@@ -238,10 +257,18 @@ const Login_Page = ({ setShowOutletPopup }) => {
   };
 
   // ── Guest login ──────────────────────────────────────────────────────────
-  const handleGuestLogin = () => {
+  const handleGuestLogin = async () => {
+    clearMessages();
+    setLoading(true);
+    try {
+      await signInAnonymously(auth);
+    } catch (err) {
+      console.warn("Guest sign in failed", err);
+    }
     localStorage.setItem("userType", "guest");
     if (setShowOutletPopup) setShowOutletPopup(true);
     else navigate("/select-outlet");
+    setLoading(false);
   };
 
   // ── Link modal callbacks ─────────────────────────────────────────────────
@@ -251,7 +278,11 @@ const Login_Page = ({ setShowOutletPopup }) => {
     // Navigate after a brief delay so user sees the success message
     setTimeout(async () => {
       if (auth.currentUser) {
-        await navigateAfterLogin(auth.currentUser.uid, setShowOutletPopup, navigate);
+        try {
+          await navigateAfterLogin(auth.currentUser.uid, setShowOutletPopup, navigate);
+        } catch (e) {
+          // Error already handled and set in navigateAfterLogin
+        }
       }
     }, 1800);
   };
@@ -260,7 +291,11 @@ const Login_Page = ({ setShowOutletPopup }) => {
     const user = linkModal?.user;
     setLinkModal(null);
     if (user) {
-      await navigateAfterLogin(user.uid, setShowOutletPopup, navigate);
+      try {
+        await navigateAfterLogin(user.uid, setShowOutletPopup, navigate);
+      } catch (e) {
+        // Error already handled
+      }
     }
   };
 
