@@ -1,8 +1,11 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { getSessionById, getTableById } from "../lib/backendApi";
+import { db } from "../lib/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
 
 const LocationContext = createContext();
 
+// Keys to clear when a session ends. Menu cache (menu_*) is intentionally excluded.
 const LOCATION_KEYS = [
     "selectedOutlet",
     "outletName",
@@ -12,6 +15,7 @@ const LOCATION_KEYS = [
     "tableNumber",
     "locationLastSeenAt",
     "selectedSessionId",
+    "sessionSelectedAt",
     "isClosingSession",
     "paymentLockSessionId",
     "paymentLockTableId",
@@ -20,26 +24,32 @@ const LOCATION_KEYS = [
 
 const SESSION_SELECTION_GRACE_MS = 5000;
 
-// Cookie utilities for sessionId (7-day persistence)
+// ── Cookie helpers ────────────────────────────────────────────────────────────
+
 const setCookie = (name, value) => {
-    const cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; Path=/; Max-Age=${86400 * 7}`;
-    document.cookie = cookie;
+    document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; Path=/; Max-Age=${86400 * 7}`;
 };
 
 const getCookie = (name) => {
     const nameEQ = `${encodeURIComponent(name)}=`;
-    const cookies = document.cookie.split(";");
-    for (let cookie of cookies) {
-        cookie = cookie.trim();
-        if (cookie.startsWith(nameEQ)) {
-            return decodeURIComponent(cookie.substring(nameEQ.length));
-        }
+    for (let c of document.cookie.split(";")) {
+        c = c.trim();
+        if (c.startsWith(nameEQ)) return decodeURIComponent(c.substring(nameEQ.length));
     }
     return null;
 };
 
 const deleteCookie = (name) => {
     document.cookie = `${encodeURIComponent(name)}=; Path=/; Max-Age=-1`;
+};
+
+// Wipes every location-related key + session cookie, then hard-reloads.
+const wipeSessionAndReload = () => {
+    console.info("[customer/location] session closed remotely — wiping storage and reloading");
+    LOCATION_KEYS.forEach((key) => localStorage.removeItem(key));
+    deleteCookie("selectedSessionId");
+    window.dispatchEvent(new CustomEvent("demitasse:session-ended"));
+    window.location.reload();
 };
 
 const clearStoredLocation = () => {
@@ -59,31 +69,24 @@ export function LocationProvider({ children }) {
     const [selectedOutlet, setSelectedOutletState] = useState(
         localStorage.getItem("selectedOutlet") || ""
     );
-
     const [outletName, setOutletNameState] = useState(
         localStorage.getItem("outletName") || ""
     );
-
     const [tableNumber, setTableNumberState] = useState(
         localStorage.getItem("tableNumber") || ""
     );
-
     const [selectedTableId, setSelectedTableIdState] = useState(
         localStorage.getItem("selectedTableId") || ""
     );
-
     const [selectedTableName, setSelectedTableNameState] = useState(
         localStorage.getItem("selectedTableName") || localStorage.getItem("tableNumber") || ""
     );
-
     const [selectedTableOwnerId, setSelectedTableOwnerIdState] = useState(
         localStorage.getItem("selectedTableOwnerId") || ""
     );
-
     const [selectedSessionId, setSelectedSessionIdState] = useState(
         localStorage.getItem("selectedSessionId") || getCookie("selectedSessionId") || ""
     );
-
     const [paymentLockActive, setPaymentLockActive] = useState(
         localStorage.getItem("isClosingSession") === "true"
     );
@@ -98,6 +101,7 @@ export function LocationProvider({ children }) {
         setSelectedSessionIdState("");
     };
 
+    // ── On-mount: verify stored session is still active ──────────────────────
     useEffect(() => {
         let cancelled = false;
 
@@ -106,33 +110,18 @@ export function LocationProvider({ children }) {
             const storedTableId = localStorage.getItem("selectedTableId") || "";
             const storedOutletId = localStorage.getItem("selectedOutlet") || "";
 
-            console.info("[customer/location] verify stored session", {
-                storedSessionId: storedSessionId || null,
-                storedTableId: storedTableId || null,
-                storedOutletId: storedOutletId || null,
-            });
-
-            // Verify table exists and outlet matches
-            if (!storedTableId || !storedOutletId) {
-                return;
-            }
+            if (!storedTableId || !storedOutletId) return;
 
             try {
                 const tableDocs = await getTableById(storedTableId);
                 const tableData = tableDocs[0] || null;
                 if (cancelled) return;
 
-                if (!tableData) {
-                    clearStoredLocation();
-                    resetSelectionState();
-                    return;
-                }
+                if (!tableData) { clearStoredLocation(); resetSelectionState(); return; }
 
                 const tableOutletId = typeof tableData.outletId === "string" ? tableData.outletId : "";
                 if (tableOutletId && tableOutletId !== storedOutletId) {
-                    clearStoredLocation();
-                    resetSelectionState();
-                    return;
+                    clearStoredLocation(); resetSelectionState(); return;
                 }
 
                 const ownerId = typeof tableData.owner === "string" ? tableData.owner : "";
@@ -146,15 +135,10 @@ export function LocationProvider({ children }) {
                 const tableSessionId = typeof tableData.activeSessionId === "string" ? tableData.activeSessionId : storedSessionId || "";
 
                 if (tableStatus === "BILL") {
-                    requestPaymentLock({
-                        sessionId: tableSessionId,
-                        tableId: storedTableId,
-                        tableName,
-                    });
+                    requestPaymentLock({ sessionId: tableSessionId, tableId: storedTableId, tableName });
                     return;
                 }
 
-                // Verify session is still active (if stored)
                 if (storedSessionId) {
                     try {
                         const sessionDocs = await getSessionById(storedSessionId);
@@ -164,16 +148,12 @@ export function LocationProvider({ children }) {
                             const sessionDocId = typeof sessionData.id === "string" ? sessionData.id : "";
                             const sessionFieldId = String(sessionData.sessionId || "").trim();
                             const sessionTableId = typeof sessionData.tableId === "string" ? sessionData.tableId : "";
-                            if (sessionStatus === "ACTIVE" && (!sessionTableId || sessionTableId === storedTableId) && (sessionDocId === storedSessionId || sessionFieldId === storedSessionId)) {
-                                // Session is still active, restore it
+                            if (
+                                sessionStatus === "ACTIVE" &&
+                                (!sessionTableId || sessionTableId === storedTableId) &&
+                                (sessionDocId === storedSessionId || sessionFieldId === storedSessionId)
+                            ) {
                                 if (cancelled) return;
-                                console.info("[customer/location] restored stored session", {
-                                    storedSessionId,
-                                    sessionDocId,
-                                    sessionFieldId,
-                                    sessionTableId,
-                                    sessionStatus,
-                                });
                                 localStorage.setItem("selectedSessionId", storedSessionId);
                                 setCookie("selectedSessionId", storedSessionId);
                                 setSelectedSessionIdState(storedSessionId);
@@ -185,9 +165,6 @@ export function LocationProvider({ children }) {
                     }
                 }
 
-                // Session is closed/invalid - clear it but keep table selection
-                // This allows users to still generate bills for previous orders
-                console.warn("Stored session is no longer active; cleared sessionId but table selection preserved for fallback");
                 localStorage.removeItem("selectedSessionId");
                 deleteCookie("selectedSessionId");
                 if (cancelled) return;
@@ -198,18 +175,139 @@ export function LocationProvider({ children }) {
         };
 
         verifyStoredSession();
+        return () => { cancelled = true; };
+    }, []);
+
+    // ── Real-time listener: session document ─────────────────────────────────
+    // Listens on outlets/{outletId}/sessions/{sessionId}.
+    // Fires immediately when status → "CLOSED". Covered by Firestore rules that
+    // allow the owning customer to read their session.
+    useEffect(() => {
+        const sessionId = selectedSessionId;
+        const outletId = localStorage.getItem("selectedOutlet") || "";
+        if (!sessionId || !outletId) return;
+
+        console.info("[customer/location] attaching session listener", { sessionId, outletId });
+
+        const sessionRef = doc(db, "outlets", outletId, "sessions", sessionId);
+        let didFire = false; // prevent double-reload on fast unmount
+
+        const unsubscribe = onSnapshot(
+            sessionRef,
+            (snapshot) => {
+                if (didFire) return;
+
+                if (!snapshot.exists()) {
+                    // Doc deleted — treat as closed
+                    didFire = true;
+                    wipeSessionAndReload();
+                    return;
+                }
+
+                const data = snapshot.data() || {};
+                const status = typeof data.status === "string" ? data.status.trim().toUpperCase() : "";
+
+                if (status === "CLOSED") {
+                    didFire = true;
+                    wipeSessionAndReload();
+                }
+            },
+            (error) => {
+                // Permission denied or unavailable — fall through to table listener
+                console.warn("[customer/location] session snapshot error (falling back to table listener):", error.code, error.message);
+            }
+        );
+
         return () => {
-            cancelled = true;
+            console.info("[customer/location] detaching session listener", { sessionId });
+            unsubscribe();
+        };
+    }, [selectedSessionId]);
+
+    // ── Real-time listener: table document ───────────────────────────────────
+    // Customers already need read access to the tables collection (used via
+    // getTableById throughout the app). This is the definitive fallback:
+    // the moment the admin clears activeSessionId / sets occupied=false, we wipe
+    // and reload. No polling delay, no debounce — instant Firestore push.
+    useEffect(() => {
+        const tableId = selectedTableId;
+        const outletId = localStorage.getItem("selectedOutlet") || "";
+        const sessionId = selectedSessionId;
+        if (!tableId || !outletId || !sessionId) return;
+
+        console.info("[customer/location] attaching table listener", { tableId, outletId, sessionId });
+
+        const tableRef = doc(db, "outlets", outletId, "tables", tableId);
+        let didFire = false;
+
+        const unsubscribe = onSnapshot(
+            tableRef,
+            (snapshot) => {
+                if (didFire) return;
+
+                if (!snapshot.exists()) {
+                    didFire = true;
+                    wipeSessionAndReload();
+                    return;
+                }
+
+                const data = snapshot.data() || {};
+                const activeSessionId = typeof data.activeSessionId === "string" ? data.activeSessionId : "";
+                const occupied = !!data.occupied;
+                const tableStatus = typeof data.status === "string" ? data.status.trim().toUpperCase() : "";
+
+                // Handle billing lock
+                if (tableStatus === "BILL") {
+                    requestPaymentLock({
+                        sessionId: activeSessionId || sessionId,
+                        tableId,
+                        tableName: typeof data.name === "string" ? data.name : "",
+                    });
+                    return;
+                }
+
+                // Grace period: ignore changes in the first 5 seconds after selecting
+                const selectedAt = Number(localStorage.getItem("sessionSelectedAt") || 0);
+                const isFreshSelection = selectedAt > 0 && Date.now() - selectedAt < SESSION_SELECTION_GRACE_MS;
+                if (isFreshSelection) return;
+
+                // Session was closed: table is now idle / session changed
+                const sessionWasReplaced = activeSessionId && activeSessionId !== sessionId;
+                const sessionWasCleared = !activeSessionId && !occupied;
+
+                if (sessionWasCleared || sessionWasReplaced) {
+                    didFire = true;
+                    wipeSessionAndReload();
+                }
+            },
+            (error) => {
+                console.warn("[customer/location] table snapshot error:", error.code, error.message);
+            }
+        );
+
+        return () => {
+            console.info("[customer/location] detaching table listener", { tableId });
+            unsubscribe();
+        };
+    }, [selectedTableId, selectedSessionId]);
+
+    // ── Touch lastSeenAt on window focus ─────────────────────────────────────
+    useEffect(() => {
+        const touch = () => localStorage.setItem("locationLastSeenAt", String(Date.now()));
+        window.addEventListener("focus", touch);
+        document.addEventListener("visibilitychange", touch);
+        return () => {
+            window.removeEventListener("focus", touch);
+            document.removeEventListener("visibilitychange", touch);
         };
     }, []);
 
-    // Listen for remote table resets. If an admin closes the session or resets the table
-    // (clears `activeSessionId` or marks `occupied=false`), clear the client's stored
-    // outlet/table/session so they must re-select.
+    // ── Payment lock polling (BILL status) ───────────────────────────────────
+    // Keep the REST-based poll only for the payment lock scenario, since the
+    // table onSnapshot already handles the session-closed case.
     useEffect(() => {
-        if (!selectedTableId) return undefined;
+        if (!paymentLockActive || !selectedTableId) return undefined;
         const pollToken = ++sessionPollTokenRef.current;
-        let clearTimer = null;
         let cancelled = false;
 
         const pollTable = async () => {
@@ -218,98 +316,29 @@ export function LocationProvider({ children }) {
                 if (cancelled || pollToken !== sessionPollTokenRef.current) return;
 
                 const data = tableDocs[0] || null;
-                if (!data) {
-                    clearLocation();
-                    resetSelectionState();
-                    return;
-                }
+                if (!data) { clearLocation(); resetSelectionState(); return; }
 
                 const activeSessionId = typeof data.activeSessionId === "string" ? data.activeSessionId : "";
-                const tableStatus = typeof data.status === "string" ? data.status.trim().toUpperCase() : "";
                 const occupied = !!data.occupied;
-                const selectedAt = Number(localStorage.getItem("sessionSelectedAt") || 0);
-                const isFreshSelection = selectedAt > 0 && Date.now() - selectedAt < SESSION_SELECTION_GRACE_MS;
-
-                const isPaymentLocked = localStorage.getItem("isClosingSession") === "true";
                 const lockSessionId = localStorage.getItem("paymentLockSessionId") || selectedSessionId || "";
 
-                if (tableStatus === "BILL") {
-                    requestPaymentLock({
-                        sessionId: activeSessionId || lockSessionId || selectedSessionId || "",
-                        tableId: selectedTableId,
-                        tableName: typeof data.name === "string" ? data.name : selectedTableName || tableNumber || "",
-                    });
-                    return;
-                }
-
-                if (isPaymentLocked) {
-                    const lockStillActive = Boolean(activeSessionId && activeSessionId === lockSessionId && occupied);
-                    if (lockStillActive) {
-                        if (clearTimer) {
-                            clearTimeout(clearTimer);
-                            clearTimer = null;
-                        }
-                        return;
-                    }
-
+                const lockStillActive = Boolean(activeSessionId && activeSessionId === lockSessionId && occupied);
+                if (!lockStillActive) {
                     clearPaymentLock();
                     clearLocation();
                     resetSelectionState();
-                    return;
-                }
-
-                const currentStoredSessionId =
-                    localStorage.getItem("selectedSessionId") ||
-                    getCookie("selectedSessionId") ||
-                    selectedSessionId ||
-                    "";
-
-                const shouldClear =
-                    !isFreshSelection &&
-                    currentStoredSessionId !== "" &&
-                    (!activeSessionId || activeSessionId !== currentStoredSessionId || !occupied);
-
-                if (shouldClear) {
-                    if (!clearTimer) {
-                        clearTimer = setTimeout(() => {
-                            if (cancelled || pollToken !== sessionPollTokenRef.current) return;
-                            notifySessionEnded();
-                            clearLocation();
-                            resetSelectionState();
-                        }, 3000);
-                    }
-                } else if (clearTimer) {
-                    clearTimeout(clearTimer);
-                    clearTimer = null;
                 }
             } catch (err) {
-                console.warn("Table polling error:", err);
+                console.warn("Payment lock poll error:", err);
             }
         };
 
         pollTable();
         const intervalId = setInterval(pollTable, 5000);
+        return () => { cancelled = true; clearInterval(intervalId); };
+    }, [paymentLockActive, selectedTableId, selectedSessionId]);
 
-        return () => {
-            cancelled = true;
-            clearInterval(intervalId);
-            if (clearTimer) clearTimeout(clearTimer);
-        };
-    }, [selectedTableId, selectedSessionId, paymentLockActive]);
-
-    useEffect(() => {
-        const touchLastSeen = () => {
-            localStorage.setItem("locationLastSeenAt", String(Date.now()));
-        };
-
-        window.addEventListener("focus", touchLastSeen);
-        document.addEventListener("visibilitychange", touchLastSeen);
-
-        return () => {
-            window.removeEventListener("focus", touchLastSeen);
-            document.removeEventListener("visibilitychange", touchLastSeen);
-        };
-    }, []);
+    // ── Setters ───────────────────────────────────────────────────────────────
 
     const setOutlet = (outletId, name) => {
         setSelectedOutletState(outletId);
@@ -322,7 +351,6 @@ export function LocationProvider({ children }) {
     };
 
     const setTableNumber = (tableNum) => {
-        // Backward-compatible setter used by older screens.
         setTableNumberState(tableNum);
         setSelectedTableNameState(tableNum);
         setSelectedTableIdState("");
@@ -350,13 +378,10 @@ export function LocationProvider({ children }) {
         localStorage.setItem("tableNumber", resolvedName);
         localStorage.setItem("locationLastSeenAt", String(Date.now()));
 
-        // Store sessionId in both localStorage and cookies
         if (sessionId) {
             console.info("[customer/location] set table selection with session", {
-                tableId: resolvedId,
-                tableName: resolvedName,
-                ownerId: resolvedOwnerId || null,
-                sessionId,
+                tableId: resolvedId, tableName: resolvedName,
+                ownerId: resolvedOwnerId || null, sessionId,
             });
             localStorage.setItem("sessionSelectedAt", String(Date.now()));
             localStorage.setItem("selectedSessionId", sessionId);

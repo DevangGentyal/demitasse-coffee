@@ -32,8 +32,6 @@ const startOfCurrentMonthIso = () => {
 export default function DailySalesReportPage() {
   const router = useRouter()
   const { isLoggedIn, isLoading } = useAuth()
-  const [outlets, setOutlets] = useState<OutletOption[]>([])
-  const [selectedOutletId, setSelectedOutletId] = useState<string>('')
   const [startDate, setStartDate] = useState<string>(startOfCurrentMonthIso())
   const [endDate, setEndDate] = useState<string>(todayIso())
   const [status, setStatus] = useState<string>('all')
@@ -51,41 +49,11 @@ export default function DailySalesReportPage() {
   useEffect(() => {
     if (isLoading || !isLoggedIn) return
 
-    const loadOutlets = async () => {
-      try {
-        const outletList = (await getOutlets())
-          .slice()
-          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
-          .map((outlet) => ({ id: outlet.id, name: String(outlet.name || outlet.id) }))
-        
-        // Add an "All Outlets" option if possible, but backend requires specific outletId or default.
-        // Let's list individual ones first
-        setOutlets(outletList)
-
-        try {
-          const currentOutletId = await getOutletIdForCurrentUser()
-          setSelectedOutletId(currentOutletId || outletList[0]?.id || '')
-        } catch {
-          setSelectedOutletId(outletList[0]?.id || '')
-        }
-      } catch (loadError) {
-        console.error('Error fetching outlets:', loadError)
-        setError('Failed to load outlets')
-      }
-    }
-
-    loadOutlets()
-  }, [isLoading, isLoggedIn])
-
-  useEffect(() => {
-    if (isLoading || !isLoggedIn || !selectedOutletId) return
-
     const loadReport = async () => {
       try {
         setLoading(true)
         setError(null)
         const data = await getDailySalesReport({
-          outletId: selectedOutletId,
           startDate,
           endDate,
           status,
@@ -101,7 +69,7 @@ export default function DailySalesReportPage() {
     }
 
     loadReport()
-  }, [isLoading, isLoggedIn, selectedOutletId, startDate, endDate, status])
+  }, [isLoading, isLoggedIn, startDate, endDate, status])
 
   const tableColumns = [
     { header: 'Restaurant', key: 'restaurant' },
@@ -162,24 +130,40 @@ export default function DailySalesReportPage() {
     }
   }
 
-  // Draw premium Bar Chart for revenue using Recharts
+  // Draw premium Stacked Bar Chart for revenue using Recharts
   const chartSvg = useMemo(() => {
     if (!report || report.rows.length === 0) return null
     
-    // Sort rows chronological for chart using actual Date objects
-    const chronRows = [...report.rows].map(r => {
-      const dateParts = r.date.split(' ')
+    // Group rows by date
+    const dateGroups = new Map<string, { [key: string]: any; date: string; _dateObj: Date }>()
+    const restaurantsSet = new Set<string>()
+    
+    report.rows.forEach(r => {
+      restaurantsSet.add(r.restaurant)
+      const existing = dateGroups.get(r.date) || { date: r.date, _dateObj: new Date(r.date) }
+      existing[r.restaurant] = (existing[r.restaurant] || 0) + r.finalAmount
+      dateGroups.set(r.date, existing)
+    })
+    
+    // Sort dates chronologically
+    const sortedData = Array.from(dateGroups.values()).sort((a, b) => a._dateObj.getTime() - b._dateObj.getTime())
+    
+    // Map display label
+    const chartData = sortedData.map(d => {
+      const dateParts = d.date.split(' ')
       const label = dateParts[0] + ' ' + (dateParts[1] || '')
       return {
-        ...r,
-        label,
-        _dateObj: new Date(r.date)
+        ...d,
+        label
       }
-    }).sort((a, b) => a._dateObj.getTime() - b._dateObj.getTime())
+    })
+    
+    const uniqueRestaurants = Array.from(restaurantsSet)
+    const OUTLET_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#06b6d4', '#8b5cf6', '#ef4444', '#14b8a6']
     
     return (
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chronRows} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+        <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis 
             dataKey="label" 
@@ -200,22 +184,41 @@ export default function DailySalesReportPage() {
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 const data = payload[0].payload
+                const total = uniqueRestaurants.reduce((sum, name) => sum + (data[name] || 0), 0)
                 return (
-                  <div className="bg-white border border-slate-200 p-2 rounded shadow-sm text-sm">
-                    <p className="font-semibold text-slate-800">{data.date}</p>
-                    <p className="text-amber-600 font-bold">INR {data.finalAmount}</p>
+                  <div className="bg-white border border-slate-200 p-3 rounded-lg shadow-md text-xs space-y-1">
+                    <p className="font-bold text-slate-800 border-b border-slate-100 pb-1 mb-1">{data.date}</p>
+                    {uniqueRestaurants.map((name, index) => {
+                      const value = data[name] || 0
+                      if (value === 0) return null
+                      const color = OUTLET_COLORS[index % OUTLET_COLORS.length]
+                      return (
+                        <div key={name} className="flex justify-between gap-4">
+                          <span style={{ color }} className="font-medium">{name}:</span>
+                          <span className="font-semibold text-slate-700">INR {value.toFixed(2)}</span>
+                        </div>
+                      )
+                    })}
+                    <div className="flex justify-between gap-4 font-bold border-t border-slate-100 pt-1 mt-1 text-slate-900">
+                      <span>Total:</span>
+                      <span>INR {total.toFixed(2)}</span>
+                    </div>
                   </div>
                 )
               }
               return null
             }}
           />
-          <Bar 
-            dataKey="finalAmount" 
-            fill="#f59e0b" 
-            radius={[4, 4, 0, 0]} 
-            maxBarSize={50}
-          />
+          {uniqueRestaurants.map((name, index) => (
+            <Bar 
+              key={name}
+              dataKey={name} 
+              stackId="a"
+              fill={OUTLET_COLORS[index % OUTLET_COLORS.length]} 
+              radius={index === uniqueRestaurants.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+              maxBarSize={50}
+            />
+          ))}
         </BarChart>
       </ResponsiveContainer>
     )
@@ -256,11 +259,11 @@ export default function DailySalesReportPage() {
         <ReportFilters
           startDate={startDate}
           endDate={endDate}
-          selectedOutletId={selectedOutletId}
-          outlets={outlets}
+          selectedOutletId=""
+          outlets={[]}
           onStartDateChange={setStartDate}
           onEndDateChange={setEndDate}
-          onOutletChange={setSelectedOutletId}
+          onOutletChange={() => {}}
           status={status}
           onStatusChange={setStatus}
           statusOptions={[

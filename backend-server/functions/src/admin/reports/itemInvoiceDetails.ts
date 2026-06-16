@@ -175,7 +175,11 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 	const endDate = parseDateInput(filters.endDate, "end");
 
 	// Fetch all successPayments for paymentMode lookup fallback
-	const paymentsSnap = await db.collection("successPayments").get();
+	const paymentsSnap = await db
+		.collection("outlets")
+		.doc(outletId)
+		.collection("successPayments")
+		.get();
 	const paymentsCache = new Map<string, string>();
 	paymentsSnap.docs.forEach((doc) => {
 		const pData = doc.data();
@@ -184,8 +188,14 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 		}
 	});
 
-	let ordersQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection("ordersHistory");
-	if (outletId) ordersQuery = ordersQuery.where("outletId", "==", outletId);
+	if (!outletId) {
+		throw new Error("outletId is required");
+	}
+
+	const outletRef = db.collection("outlets").doc(outletId);
+
+	let ordersQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> =
+		outletRef.collection("ordersHistory");
 
 	const ordersSnap = await ordersQuery.get();
 	const orderDocs = ordersSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
@@ -210,12 +220,12 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 			if (offerId) offerIds.add(offerId);
 		}
 	}
-	const productDocs = await getProductDocs(productIds);
+	const productDocs = await getProductDocs(productIds, outletId);
 	const productsCache = new Map<string, any>();
-	productDocs.forEach((doc) => {
-		productsCache.set(doc.id, doc.data);
+	productDocs.forEach((doc, id) => {
+		productsCache.set(id, doc.data);
 	});
-	const offerDocs = await getOfferDocs(offerIds);
+	const offerDocs = await getOfferDocs(offerIds, outletId);
 	const offersCache = new Map<string, any>();
 	offerDocs.forEach((doc, id) => {
 		offersCache.set(id, doc);
@@ -291,7 +301,7 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 			line.items.forEach(item => {
 				const qty = safeNumber(item.qty ?? item.quantity) || 1;
 				const unitPrice = safeNumber(item.price ?? item.finalUnitPrice ?? item.basePrice);
-				
+
 				let itemGross = 0;
 				if (item.pricing?.subtotal !== undefined && item.pricing?.subtotal !== null && Number.isFinite(Number(item.pricing.subtotal))) {
 					itemGross = safeNumber(item.pricing.subtotal);
@@ -392,7 +402,7 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 					const nameStr = readString(child.name || child.title || "Unnamed Item");
 					return `• ${nameStr}${addOnStr ? ` (+ ${addOnStr})` : ""}`;
 				}).join("\n");
-				
+
 				itemName = `${offerTitle}\n${childNames}`;
 				lineCategory = "COMBO";
 				lineGroup = "COMBO";
@@ -461,7 +471,7 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
 		existing.tax += safeNumber(row.taxAmount);
 		existing.finalPaidAmount += safeNumber(row.finalPaidAmount);
 		groupMap.set(key, existing);
-		
+
 		if (!invoiceGroupMap.has(key)) invoiceGroupMap.set(key, new Set());
 		invoiceGroupMap.get(key)?.add(row.invoiceNo);
 	}

@@ -78,21 +78,23 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
             />
           </div>
 
-          <div className="flex-1 min-w-[240px] space-y-2">
-            <Label className="text-slate-700 font-medium">Outlet Name</Label>
-            <Select value={selectedOutletId} onValueChange={onOutletChange}>
-              <SelectTrigger className="w-full bg-white border-slate-200 text-slate-900">
-                <SelectValue placeholder="Select outlet" />
-              </SelectTrigger>
-              <SelectContent className="bg-white border-slate-200 text-slate-900">
-                {outlets.map((outlet) => (
-                  <SelectItem key={outlet.id} value={outlet.id}>
-                    {outlet.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {outlets && outlets.length > 0 && (
+            <div className="flex-1 min-w-[240px] space-y-2">
+              <Label className="text-slate-700 font-medium">Outlet Name</Label>
+              <Select value={selectedOutletId} onValueChange={onOutletChange}>
+                <SelectTrigger className="w-full bg-white border-slate-200 text-slate-900">
+                  <SelectValue placeholder="Select outlet" />
+                </SelectTrigger>
+                <SelectContent className="bg-white border-slate-200 text-slate-900">
+                  {outlets.map((outlet) => (
+                    <SelectItem key={outlet.id} value={outlet.id}>
+                      {outlet.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {onAllTime && (
             <Button

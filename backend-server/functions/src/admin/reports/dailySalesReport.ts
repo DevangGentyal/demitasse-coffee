@@ -9,7 +9,6 @@ import {
 	readNumber,
 	resolveLifecycleStatus,
 	resolveRestaurantName,
-	fetchDocById,
 } from "./helpers";
 
 const db = admin.firestore();
@@ -31,19 +30,17 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 		const startTimestamp = parseDateInput(startDate, "start");
 		const endTimestamp = parseDateInput(endDate, "end");
 
-		let query: admin.firestore.Query;
-		if (outletId) {
-			query = db.collection("outlets").doc(outletId).collection("orderHistory");
-		} else {
-			query = db.collectionGroup("orderHistory");
-		}
+		const outletsSnap = await db.collection("outletDetails").get();
+		const allOrdersPromises = outletsSnap.docs.map(async (outletDoc) => {
+			const ordersSnap = await db.collection("outlets").doc(outletDoc.id).collection("ordersHistory").get();
+			return ordersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as any));
+		});
 
-		const snap = await query.get();
-		const orders = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as any));
+		const ordersArrays = await Promise.all(allOrdersPromises);
+		const orders = ordersArrays.flat();
 
-		// Filter in memory for outletId, status, and dates to respect fallbacks safely
+		// Filter in memory for status and dates to respect fallbacks safely
 		const filteredOrders = orders.filter((order) => {
-			if (outletId && order.outletId !== outletId) return false;
 			const lifecycle = resolveLifecycleStatus(order);
 			if (statusFilter === "success" && lifecycle !== "success") return false;
 			if (statusFilter === "canceled" && lifecycle !== "canceled") return false;
@@ -82,17 +79,14 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 
 		const invoiceTotalsMap = new Map<string, number>();
 		const outletsCache = new Map<string, any>();
+		outletsSnap.docs.forEach((doc) => {
+			outletsCache.set(doc.id, doc.data());
+		});
 
 		for (const order of filteredOrders) {
 			const oId = readString(order.outletId || "unknown");
-
-			if (!outletsCache.has(oId) && oId !== "unknown") {
-				const outletDoc = await fetchDocById("outlets", oId);
-				outletsCache.set(oId, outletDoc);
-			}
-
 			const outletData = outletsCache.get(oId) || null;
-			const restaurantName = resolveRestaurantName(outletData, order);
+			const restaurantName = readString(outletData?.name) || resolveRestaurantName(outletData, order);
 
 			// Date formatting
 			let dateObj = new Date();

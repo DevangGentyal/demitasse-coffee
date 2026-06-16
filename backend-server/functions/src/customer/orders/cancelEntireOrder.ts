@@ -26,19 +26,27 @@ export const cancelEntireOrder = functions.https.onRequest(async (req: Request, 
 	}
 
 	try {
-		const { orderId, password, reason } = req.body as { orderId?: string; password?: string; reason?: string };
-		if (!orderId || !password || !reason) { res.status(400).json({ success: false, message: "Missing required fields: orderId, password, and reason" }); return; }
+		const { outletId, orderId, password, reason } = req.body as { outletId?: string; orderId?: string; password?: string; reason?: string };
+		if (!outletId || !orderId || !password || !reason) { res.status(400).json({ success: false, message: "Missing required fields: outletId, orderId, password, and reason" }); return; }
 
 		const passwordSnap = await db.collection("securityPasswords").doc("orderCancel").get();
 		if (!passwordSnap.exists) { res.status(500).json({ success: false, message: "Cancellation password is not configured. Set it in the admin panel first." }); return; }
+
 		const { password: passkeyHash } = passwordSnap.data() || {}; if (!passkeyHash) { res.status(500).json({ success: false, message: "Invalid configuration: Cancellation password hash is missing." }); return; }
+
+		console.log("INPUT PASSWORD:", JSON.stringify(password));
+		console.log("HASH FROM DB:", passkeyHash);
+		const match = bcrypt.compareSync(password, passkeyHash);
+		console.log("PASSWORD MATCH:", match);
+
 		if (!bcrypt.compareSync(password, passkeyHash)) { res.status(401).json({ success: false, message: "Incorrect cancellation password" }); return; }
 
-		let orderSnap = null;
-		const orderQuery = await db.collectionGroup("orders").where(admin.firestore.FieldPath.documentId(), "==", orderId).limit(1).get();
-		if (!orderQuery.empty) {
-			orderSnap = orderQuery.docs[0];
-		} else {
+		const outletRef = db.collection("outlets").doc(outletId);
+		const ordersRef = outletRef.collection("orders");
+		const orderCancelRef = outletRef.collection("orderCancel");
+
+		const orderSnap = await ordersRef.doc(orderId).get();
+		if (!orderSnap.exists) {
 			res.status(404).json({ success: false, message: "Order not found" });
 			return;
 		}
@@ -48,9 +56,9 @@ export const cancelEntireOrder = functions.https.onRequest(async (req: Request, 
 
 		const sessionId = orderData.sessionId || "";
 		const tableId = orderData.tableId || "";
-		const outletId = orderData.outletId || "";
 		const customerUserId = orderData.userId || orderData.ownerId || orderData.customerId || null;
-		const ordersToCancelSnap = sessionId ? await db.collection("outlets").doc(outletId).collection("orders").where("sessionId", "==", sessionId).get() : null;
+
+		const ordersToCancelSnap = sessionId ? await ordersRef.where("sessionId", "==", sessionId).get() : null;
 		const ordersToCancel = ordersToCancelSnap && !ordersToCancelSnap.empty ? ordersToCancelSnap.docs.filter((doc) => isOrderActive(doc.data())) : [orderSnap];
 		const orderSnapshots = ordersToCancel.map((doc) => ({ orderId: doc.id, ...sanitizeOrderSnapshot(doc.data() || {}) }));
 		const totalOrdersCost = ordersToCancel.reduce((sum, doc) => sum + getOrderTotal(doc.data() || {}), 0);
@@ -59,7 +67,7 @@ export const cancelEntireOrder = functions.https.onRequest(async (req: Request, 
 		ordersToCancel.forEach((doc) => batch.delete(doc.ref));
 		await batch.commit();
 
-		await db.collection("outlets").doc(outletId).collection("orderCancel").doc(sessionId || tableId || orderId).set({ custId: customerUserId, billerId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp() }, { merge: true });
+		await orderCancelRef.doc(sessionId || tableId || orderId).set({ custId: customerUserId, billerId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp() }, { merge: true });
 
 		res.status(200).json({ success: true, message: "Order cancelled successfully" });
 	} catch (error) {

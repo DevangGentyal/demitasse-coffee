@@ -3,9 +3,10 @@ import { resolveOrderStatus } from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
-export const getLiveOrderItems = async (outletId: string): Promise<{ inProgress: number; completed: number }> => {
+export const getLiveOrderItems = async (outletId: string): Promise<{ inProgress: number; completed: number; cancelled: number }> => {
 	let inProgress = 0;
 	let completed = 0;
+	let cancelled = 0;
 
 	const snap = await db.collection("outlets").doc(outletId).collection("orders").get();
 
@@ -16,8 +17,10 @@ export const getLiveOrderItems = async (outletId: string): Promise<{ inProgress:
 			completed++;
 		} else if (status === "in-progress" || status === "in_progress" || status === "pending" || status === "ready") {
 			inProgress++;
+		} else {
+			cancelled++;
 		}
 	});
 
-	return { inProgress, completed };
+	return { inProgress, completed, cancelled };
 };

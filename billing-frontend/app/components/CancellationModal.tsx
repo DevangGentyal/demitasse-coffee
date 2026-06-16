@@ -9,12 +9,13 @@ import { cancelEntireOrder } from '@/lib/services/orderService'
 interface CancellationModalProps {
   isOpen: boolean
   onClose: () => void
+  outletId: string
   orderId: string
   cancelledItems?: any[]
   onSuccess?: () => void
 }
 
-export function CancellationModal({ isOpen, onClose, orderId, cancelledItems, onSuccess }: CancellationModalProps) {
+export function CancellationModal({ isOpen, onClose, outletId, orderId, cancelledItems, onSuccess }: CancellationModalProps) {
   const [password, setPassword] = useState('')
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -38,14 +39,14 @@ export function CancellationModal({ isOpen, onClose, orderId, cancelledItems, on
 
     try {
       console.log(`[CANCELLATION] Sending cancellation request for order ${orderId}...`)
-      await cancelEntireOrder(orderId, password, reason, cancelledItems)
-      
+      await cancelEntireOrder(outletId, orderId, password, reason, cancelledItems)
+
       toast.success('Order cancelled and session closed successfully')
-      
+
       if (onSuccess) {
         onSuccess()
       }
-      
+
       setPassword('')
       setReason('')
       onClose()
@@ -61,7 +62,7 @@ export function CancellationModal({ isOpen, onClose, orderId, cancelledItems, on
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-2xl w-[480px] max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
-        
+
         {/* Header */}
         <div className="px-6 py-5 flex items-center justify-between border-b border-gray-100 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -73,8 +74,8 @@ export function CancellationModal({ isOpen, onClose, orderId, cancelledItems, on
               <p className="text-xs text-muted-foreground">Order ID: #{orderId.slice(0, 8).toUpperCase()}</p>
             </div>
           </div>
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
           >
             <X size={20} />
@@ -83,7 +84,7 @@ export function CancellationModal({ isOpen, onClose, orderId, cancelledItems, on
 
         {/* Content & Form */}
         <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-5">
-          
+
           <div className="text-sm text-gray-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/40 p-4 rounded-lg border border-slate-100 dark:border-slate-800/80">
             This action will mark the active order as <strong>CANCELLED</strong>, archive it, and automatically close the table session. It requires authorization and is logged for auditing.
           </div>

@@ -34,9 +34,9 @@ export const getProductSalesReport = functions.https.onRequest(async (req: Reque
 
 		let query: admin.firestore.Query;
 		if (outletId) {
-			query = db.collection("outlets").doc(outletId).collection("orderHistory");
+			query = db.collection("outlets").doc(outletId).collection("ordersHistory");
 		} else {
-			query = db.collectionGroup("orderHistory");
+			query = db.collectionGroup("ordersHistory");
 		}
 		if (startTimestamp) {
 			query = query.where("archivedAt", ">=", startTimestamp);
@@ -69,10 +69,10 @@ export const getProductSalesReport = functions.https.onRequest(async (req: Reque
 				if (pId) productIds.add(pId);
 			}
 		}
-		const productDocs = await getProductDocs(productIds);
+		const productDocs = await getProductDocs(productIds, outletId);
 		const productsCache = new Map<string, any>();
-		productDocs.forEach((doc) => {
-			productsCache.set(doc.id, doc.data);
+		productDocs.forEach((doc, id) => {
+			productsCache.set(id, doc.data);
 		});
 
 		// Grouping key: `${productName}__${outletId}`

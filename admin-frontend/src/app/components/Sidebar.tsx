@@ -27,9 +27,9 @@ export function Sidebar() {
     { label: 'Outlets', href: '/outlets', icon: Store },
     { label: 'Offers', href: '/offers', icon: Tag },
     { label: 'Reports', href: '/reports', icon: BarChart3 },
-    { label: 'Customers', href: '/customers', icon: Users },
+    // { label: 'Customers', href: '/customers', icon: Users },
     { label: 'Menu', href: '/menu', icon: MenuIcon },
-    { label: 'Security', href: '/admin/order-cancellation-access', icon: Lock },
+    { label: 'Security', href: '/security', icon: Lock },
   ]
 
   return (
@@ -47,11 +47,10 @@ export function Sidebar() {
             <button
               key={item.href}
               onClick={() => router.push(item.href)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                isActive
-                  ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent/20'
-              }`}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
+                ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+                : 'text-sidebar-foreground hover:bg-sidebar-accent/20'
+                }`}
             >
               <Icon size={20} />
               <span className="font-medium">{item.label}</span>

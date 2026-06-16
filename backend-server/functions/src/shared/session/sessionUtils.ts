@@ -123,17 +123,15 @@ export const createOrGetSession = async (
 	return { sessionId: sessionRef.id, created: true, ownerId, participants };
 };
 
-export const closeSession = async (sessionId: string, closedBy?: UserBrief) => {
+export const closeSession = async (sessionId: string, outletId: string, closedBy?: UserBrief) => {
 	if (!sessionId) return;
 	console.info('[sessionUtils:closeSession]', { sessionId, closedBy: closedBy || null });
 
-	const querySnap = await db.collectionGroup('sessions').where('sessionId', '==', sessionId).limit(1).get();
-	if (querySnap.empty) return;
 
-	const sessionSnap = querySnap.docs[0];
+	const sessionSnap = await db.collection('outlets').doc(outletId).collection('sessions').doc(sessionId).get();
+
 	const sessionRef = sessionSnap.ref;
 	const sessionData = sessionSnap.data() || {};
-	const outletId = sessionData.outletId;
 	if (!outletId) return;
 	const tableId = sessionData.tableId;
 

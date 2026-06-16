@@ -59,6 +59,11 @@ export default function OrderCancellationAccessPage() {
     if (!isLoading && isLoggedIn) load()
   }, [isLoading, isLoggedIn])
 
+  const availableTypeOptions = useMemo(() => {
+    const existingIds = new Set(securityItems.map((item) => item.id))
+    return typeOptions.filter((opt) => opt.value === 'other' || !existingIds.has(opt.value))
+  }, [securityItems])
+
   const selectedType = useMemo(() => {
     return type === 'other' ? otherType.trim() : type
   }, [type, otherType])
@@ -82,6 +87,16 @@ export default function OrderCancellationAccessPage() {
     setEditingId(null)
     setShowModal(true)
     resetForm()
+    
+    // Set default type to first available option
+    const existingIds = new Set(securityItems.map((item) => item.id))
+    if (!existingIds.has('orderCancel')) {
+      setType('orderCancel')
+    } else if (!existingIds.has('outletRegister')) {
+      setType('outletRegister')
+    } else {
+      setType('other')
+    }
   }
 
   const openUpdateModal = async (item: SecurityItem) => {
@@ -303,7 +318,7 @@ export default function OrderCancellationAccessPage() {
                       onChange={(e) => setType(e.target.value as SecurityType)}
                       className="w-full h-10 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 text-sm"
                     >
-                      {typeOptions.map((opt) => (
+                      {availableTypeOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}
                         </option>

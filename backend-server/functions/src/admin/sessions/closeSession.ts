@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
+import { isOrderCancelled } from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -24,6 +25,21 @@ const normalizePaymentMode = (value: unknown): string => {
 const readNumber = (value: unknown, fallback = 0): number => {
 	const numeric = Number(value);
 	return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+/**
+ * Mark all non-cancelled items within an order's items array as 'completed'.
+ * Items that are individually cancelled keep their status; all others are set to 'completed'.
+ */
+const markItemsCompleted = (items: unknown[]): unknown[] => {
+	if (!Array.isArray(items)) return [];
+	return items.map((rawItem) => {
+		const item = (rawItem || {}) as Record<string, unknown>;
+		const currentStatus = String(item.status || "").trim().toLowerCase();
+		// Preserve cancelled items; mark everything else as completed
+		if (currentStatus === "cancelled") return item;
+		return { ...item, status: "completed" };
+	});
 };
 
 const computePricingFromItems = (items: unknown[]): { subtotal: number; discount: number; tax: number; total: number } => {
@@ -104,35 +120,34 @@ export const closeSession = functions.https.onRequest(
 			let sessionSnap = null;
 			let sessionRef = null;
 
-			if (resolvedSessionId) {
-				const sessionQuery = await db.collectionGroup("sessions").where("sessionId", "==", resolvedSessionId).limit(1).get();
-				if (!sessionQuery.empty) {
-					sessionSnap = sessionQuery.docs[0];
-					sessionRef = sessionSnap.ref;
-					if (!outletId) outletId = readString(sessionSnap.data()?.outletId);
-				}
-			}
-
-			if (!outletId && resolvedTableId) {
-				const tableQuery = await db.collectionGroup("tables").where("id", "==", resolvedTableId).limit(1).get();
-				if (!tableQuery.empty) {
-					outletId = readString(tableQuery.docs[0].data()?.outletId);
-				}
-			}
-
 			if (!outletId) {
-				res.status(400).json({ success: false, message: "outletId could not be resolved" });
+				res.status(400).json({
+					success: false,
+					message: "outletId is required"
+				});
 				return;
 			}
+
+			if (resolvedSessionId) {
+				sessionSnap = await db
+					.collection("outlets")
+					.doc(outletId)
+					.collection("sessions")
+					.doc(resolvedSessionId)
+					.get();
+
+				sessionRef = sessionSnap.ref;
+			}
+
 
 			const sessionData = sessionSnap?.data() || {};
 			const resolvedSessionTableId = readString(sessionData?.tableId);
 			const tableRef = db.collection("outlets").doc(outletId).collection("tables").doc(resolvedTableId || resolvedSessionTableId);
-			
+
 			const orderSnap = resolvedSessionId
 				? await db.collection("outlets").doc(outletId).collection("orders").where("sessionId", "==", resolvedSessionId).get()
 				: await db.collection("outlets").doc(outletId).collection("orders").where("tableId", "==", resolvedTableId).limit(50).get();
-			
+
 			const candidateOrderDocs = orderSnap.docs;
 			const allItems: any[] = [];
 			let primaryOrderDoc = candidateOrderDocs[0];
@@ -178,8 +193,6 @@ export const closeSession = functions.https.onRequest(
 						tableId: resolvedTableId || resolvedSessionTableId || null,
 						sessionId: resolvedSessionId || null,
 						userId: customerId || null,
-						pricing,
-						items: allItems,
 						status: "FAILED",
 						settlementStatus: "FAILED",
 						paymentMode: resolvedPaymentMode,
@@ -189,7 +202,22 @@ export const closeSession = functions.https.onRequest(
 					});
 
 					for (const doc of candidateOrderDocs) {
-						tx.set(db.collection("outlets").doc(outletId).collection("orderHistory").doc(doc.id), { ...doc.data(), closedAt: archiveTimestamp, archivedAt: archiveTimestamp, source: "admin.closeSession.failed" }, { merge: true });
+						const docData = doc.data();
+						const isCancelled = isOrderCancelled(docData);
+						const completedItems = markItemsCompleted(Array.isArray(docData.items) ? docData.items : []);
+						tx.set(
+							db.collection("outlets").doc(outletId).collection("ordersHistory").doc(doc.id),
+							{
+								...docData,
+								items: completedItems,
+								status: isCancelled ? "cancelled" : "completed",
+								orderLifecycleStatus: isCancelled ? "CANCELLED" : "COMPLETED",
+								closedAt: archiveTimestamp,
+								archivedAt: archiveTimestamp,
+								source: "admin.closeSession.failed",
+							},
+							{ merge: true }
+						);
 						tx.delete(doc.ref);
 					}
 
@@ -224,8 +252,6 @@ export const closeSession = functions.https.onRequest(
 					tableId: resolvedTableId || null,
 					sessionId: resolvedSessionId || null,
 					userId: customerId || null,
-					pricing,
-					items: allItems,
 					status: "SUCCESS",
 					settlementStatus: "PAID",
 					paymentMode: resolvedPaymentMode,
@@ -235,7 +261,22 @@ export const closeSession = functions.https.onRequest(
 				});
 
 				for (const doc of candidateOrderDocs) {
-					tx.set(db.collection("outlets").doc(outletId).collection("orderHistory").doc(doc.id), { ...doc.data(), closedAt: archiveTimestamp, archivedAt: archiveTimestamp, source: "admin.closeSession" }, { merge: true });
+					const docData = doc.data();
+					const isCancelled = isOrderCancelled(docData);
+					const completedItems = markItemsCompleted(Array.isArray(docData.items) ? docData.items : []);
+					tx.set(
+						db.collection("outlets").doc(outletId).collection("ordersHistory").doc(doc.id),
+						{
+							...docData,
+							items: completedItems,
+							status: isCancelled ? "cancelled" : "completed",
+							orderLifecycleStatus: isCancelled ? "CANCELLED" : "COMPLETED",
+							closedAt: archiveTimestamp,
+							archivedAt: archiveTimestamp,
+							source: "admin.closeSession",
+						},
+						{ merge: true }
+					);
 					tx.delete(doc.ref);
 				}
 

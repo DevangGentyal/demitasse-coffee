@@ -144,6 +144,7 @@ interface PaymentRecord {
 	paymentMethod?: string;
 	payAt?: string;
 	orderId?: string;
+	sessionId?: string;
 }
 
 const resolvePaymentMode = (
@@ -151,6 +152,7 @@ const resolvePaymentMode = (
 	orderId: string,
 	byPaymentId: Map<string, PaymentRecord>,
 	byOrderId: Map<string, PaymentRecord>,
+	bySessionId: Map<string, PaymentRecord>,
 ): string => {
 	// 1. Direct order fields
 	const direct = readString(order.paymentMode || order.paymentType || order.paymentMethod).trim();
@@ -176,7 +178,18 @@ const resolvePaymentMode = (
 		if (payAt) return payAt.toUpperCase();
 	}
 
-	// 4. order.payAt
+	// 4. Lookup by sessionId
+	if (order.sessionId) {
+		const recBySession = bySessionId.get(String(order.sessionId));
+		if (recBySession) {
+			const mode = readString(recBySession.paymentMode || recBySession.paymentType || recBySession.paymentMethod).trim();
+			if (mode) return mode.toUpperCase();
+			const payAt = readString(recBySession.payAt).trim();
+			if (payAt) return payAt.toUpperCase();
+		}
+	}
+
+	// 5. order.payAt
 	const orderPayAt = readString(order.payAt).trim();
 	if (orderPayAt) return orderPayAt.toUpperCase();
 
@@ -198,31 +211,35 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
 		const startDateInput = readString(req.query.startDate);
 		const endDateInput = readString(req.query.endDate);
 
+		if (!outletId) {
+			res.status(400).json({ success: false, message: "outletId is required" });
+			return;
+		}
+
 		const startDate = parseDateInputLocal(startDateInput, "start");
 		const endDate = parseDateInputLocal(endDateInput, "end");
 
-		// ── Outlet names cache ────────────────────────────────────────────────
-		const outletsSnap = await db.collection("outlets").get();
-		const outletsCache = new Map<string, string>();
-		outletsSnap.docs.forEach((doc) => {
-			const d = doc.data();
-			if (d?.name) outletsCache.set(doc.id, readString(d.name));
-		});
+		const outletRef = db.collection("outlets").doc(outletId);
 
-		// ── successPayments cache (indexed by paymentId AND orderId) ──────────
-		const paymentsSnap = await db.collection("successPayments").get();
+		// ── Outlet name ───────────────────────────────────────────────────────
+		const outletDoc = await outletRef.get();
+		const outletData = outletDoc.exists ? outletDoc.data() : null;
+		const currentOutletName = readString(outletData?.name) || outletId;
+
+		// ── successPayments cache (subcollection inside outlet) ───────────────
+		const paymentsSnap = await outletRef.collection("successPayments").get();
 		const byPaymentId = new Map<string, PaymentRecord>();
 		const byOrderId = new Map<string, PaymentRecord>();
+		const bySessionId = new Map<string, PaymentRecord>();
 		paymentsSnap.docs.forEach((doc) => {
 			const pData = doc.data() as PaymentRecord;
 			byPaymentId.set(doc.id, pData);
 			if (pData.orderId) byOrderId.set(String(pData.orderId), pData);
+			if (pData.sessionId) bySessionId.set(String(pData.sessionId), pData);
 		});
 
-		// ── Fetch ordersHistory ───────────────────────────────────────────────
-		let query: admin.firestore.Query = db.collection("ordersHistory");
-		if (outletId) query = query.where("outletId", "==", outletId);
-		const snap = await query.get();
+		// ── Fetch ordersHistory (subcollection inside outlet) ─────────────────
+		const snap = await outletRef.collection("ordersHistory").get();
 
 		// ── Filter: exact same logic as itemInvoiceDetails.ts ─────────────────
 		const filteredOrders = snap.docs
@@ -251,7 +268,7 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
 		}[] = [];
 
 		for (const { id, data: order } of filteredOrders) {
-			const paymentMode = resolvePaymentMode(order, id, byPaymentId, byOrderId);
+			const paymentMode = resolvePaymentMode(order, id, byPaymentId, byOrderId, bySessionId);
 
 			// Use IDENTICAL calculation to itemInvoiceDetails.ts so totals match exactly
 			const amountPaid = calcOrderFinalPaidAmount(order);
@@ -272,7 +289,7 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
 			existing.amountCollected += amountPaid;
 
 			const outletName =
-				outletsCache.get(readString(order.outletId)) ||
+				readString(outletData?.name) ||
 				readString(order.outletName) ||
 				"Unknown Outlet";
 
@@ -300,7 +317,6 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
 			.sort((a, b) => a.paymentMode.localeCompare(b.paymentMode));
 
 		const totalPaymentSources = paymentSummary.length;
-		const currentOutletName = outletId ? (outletsCache.get(outletId) || "Unknown Outlet") : "All Outlets";
 		const roundedTotal = Math.round(totalCollection * 100) / 100;
 
 		// Validation: sum(paymentSummary.amountCollected) must equal totalCollection

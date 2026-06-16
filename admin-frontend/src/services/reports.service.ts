@@ -533,8 +533,7 @@ export const getCashCardPaymentReport = async (filters: {
   endDate?: string
 }): Promise<CashCardPaymentReportResponse> => {
   const token = await getIdToken()
-  // The emulator doesn't expose `adminReportCashCardPayment`; use `adminReportPayment` which provides payment breakdowns.
-  const response = await fetch(buildCloudFunctionsUrl('adminReportPayment', filters), {
+  const response = await fetch(buildCloudFunctionsUrl('adminReportCashCardPayment', filters), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,

@@ -151,7 +151,7 @@ export default function DashboardPage() {
             {/* Active Live Orders */}
             <Card className="hover:shadow-md transition-shadow">
               <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                <CardTitle className="text-sm font-medium">Active Live Orders</CardTitle>
+                <CardTitle className="text-sm font-medium">Today's Live Orders</CardTitle>
                 <ClipboardList size={20} className="text-orange-500" />
               </CardHeader>
               <CardContent className="pt-2">
@@ -163,6 +163,10 @@ export default function DashboardPage() {
                   <div className="flex justify-between items-center text-sm border-t border-muted/20 pt-2">
                     <span className="text-muted-foreground font-medium">- Completed:</span>
                     <span className="text-3xl font-bold text-foreground">{stats ? stats.activeLiveOrders.completed : 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm border-t border-muted/20 pt-2">
+                    <span className="text-muted-foreground font-medium">- Cancelled:</span>
+                    <span className="text-3xl font-bold text-foreground">{stats ? stats.activeLiveOrders.cancelled : 0}</span>
                   </div>
                 </div>
               </CardContent>
@@ -182,7 +186,7 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Today's Orders */}
+            {/* Today's Orders
             <Card className="hover:shadow-md transition-shadow">
               <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                 <CardTitle className="text-sm font-medium">Today&apos;s Orders</CardTitle>
@@ -200,7 +204,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
+            </Card> */}
 
             {/* Active Offers */}
             <Card className="hover:shadow-md transition-shadow">

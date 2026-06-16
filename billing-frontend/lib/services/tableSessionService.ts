@@ -8,13 +8,13 @@ const getIdToken = async (): Promise<string> => {
 }
 
 export const tableSessionService = {
-  async closeSession(payload: { sessionId?: string; tableId?: string; status?: string; paymentMode?: string }) {
+  async closeSession(payload: { sessionId?: string; tableId?: string; status?: string; paymentMode?: string; outletId?: string }) {
     if (!payload?.sessionId && !payload?.tableId) {
       throw new Error('sessionId or tableId is required')
     }
 
     const idToken = await getIdToken()
-    const tryClose = async (requestPayload: { sessionId?: string; tableId?: string; status?: string; paymentMode?: string }) => {
+    const tryClose = async (requestPayload: { sessionId?: string; tableId?: string; status?: string; paymentMode?: string; outletId?: string }) => {
       const responseResult = await fetch(buildCloudFunctionsUrl('billingSessionsClose'), {
         method: 'POST',
         headers: {

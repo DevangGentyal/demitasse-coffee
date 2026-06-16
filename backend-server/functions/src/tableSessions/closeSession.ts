@@ -12,6 +12,21 @@ const readNumber = (value: unknown, fallback = 0): number => {
   return Number.isFinite(numeric) ? numeric : fallback;
 };
 
+/**
+ * Mark all non-cancelled items within an order's items array as 'completed'.
+ * Items that are individually cancelled keep their status; all others are set to 'completed'.
+ */
+const markItemsCompleted = (items: unknown[]): unknown[] => {
+  if (!Array.isArray(items)) return [];
+  return items.map((rawItem) => {
+    const item = (rawItem || {}) as Record<string, unknown>;
+    const currentStatus = String(item.status || "").trim().toLowerCase();
+    // Preserve cancelled items; mark everything else as completed
+    if (currentStatus === "cancelled") return item;
+    return { ...item, status: "completed" };
+  });
+};
+
 const computePricingFromItems = (items: unknown[]): { subtotal: number; discount: number; tax: number; total: number } => {
   const normalizedItems = Array.isArray(items) ? items : [];
   const subtotal = normalizedItems.reduce<number>((sum, rawItem) => {
@@ -78,7 +93,7 @@ export const closeSession = functions.https.onRequest(
         return;
       }
 
-      const { sessionId, tableId, status } = req.body as { sessionId?: string; tableId?: string; status?: string };
+      const { sessionId, tableId, status, outletId } = req.body as { sessionId?: string; tableId?: string; status?: string, outletId: string };
       const closeStatus = readString(status).toUpperCase();
 
       // Validate input
@@ -90,19 +105,28 @@ export const closeSession = functions.https.onRequest(
         return;
       }
 
+      const outletRef = db.collection("outlets").doc(outletId);
+
+      const sessionsRef = outletRef.collection("sessions");
+      const ordersRef = outletRef.collection("orders");
+      const paymentsRef = outletRef.collection("payments");
+      const ordersHistoryRef = outletRef.collection("ordersHistory");
+      const tablesRef = outletRef.collection("tables");
+      const offersRef = outletRef.collection("offers");
+      const sessionCloseLogsRef = outletRef.collection("sessionCloseLogs");
+
       let resolvedSessionId = "";
-      let sessionRef: FirebaseFirestore.DocumentReference | null = null;
       let sessionSnap: FirebaseFirestore.DocumentSnapshot | null = null;
+      let sessionRef: FirebaseFirestore.DocumentReference | null = null;
       let allowTableForceClose = false;
 
       if (sessionId) {
         resolvedSessionId = readString(sessionId);
-        sessionRef = db.collection("sessions").doc(resolvedSessionId);
+        sessionRef = sessionsRef.doc(sessionId);
         sessionSnap = await sessionRef.get();
       } else {
         const resolvedTableId = readString(tableId);
-        const activeSessionQuery = db
-          .collection("sessions")
+        const activeSessionQuery = sessionsRef
           .where("tableId", "==", resolvedTableId)
           .where("status", "==", "ACTIVE")
           .limit(1);
@@ -142,17 +166,17 @@ export const closeSession = functions.https.onRequest(
       const resolvedTableId = allowTableForceClose
         ? readString(tableId)
         : readString(sessionData?.tableId);
-      const tableRef = db.collection("tables").doc(resolvedTableId);
+      const tableRef = tablesRef.doc(resolvedTableId);
 
       // Atomic update: finalize billing records + close session + free/reset table
       await db.runTransaction(async (tx) => {
-        const tableOrderQuery = db.collection("orders").where("tableId", "==", resolvedTableId).limit(50);
+        const tableOrderQuery = ordersRef.where("tableId", "==", resolvedTableId).limit(50);
         const tableOrderSnap = await tx.get(tableOrderQuery);
 
         const candidateOrderDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
         tableOrderSnap.docs.forEach((doc) => candidateOrderDocs.set(doc.id, doc));
         if (resolvedSessionId) {
-          const sessionOrderQuery = db.collection("orders").where("sessionId", "==", resolvedSessionId);
+          const sessionOrderQuery = ordersRef.where("sessionId", "==", resolvedSessionId);
           const sessionOrderSnap = await tx.get(sessionOrderQuery);
           sessionOrderSnap.docs.forEach((doc) => candidateOrderDocs.set(doc.id, doc));
         }
@@ -161,13 +185,13 @@ export const closeSession = functions.https.onRequest(
         for (const orderDoc of candidateOrderDocs.values()) {
           const orderData = orderDoc.data();
           if (readString(orderData.paymentId)) {
-            paymentRefs.set(orderDoc.id, db.collection("payments").doc(readString(orderData.paymentId)));
+            paymentRefs.set(orderDoc.id, paymentsRef.doc(readString(orderData.paymentId)));
             continue;
           }
 
-          const paymentQuery = db.collection("payments").where("orderId", "==", orderDoc.id).limit(1);
+          const paymentQuery = paymentsRef.where("orderId", "==", orderDoc.id).limit(1);
           const paymentSnap = await tx.get(paymentQuery);
-          const paymentRef = paymentSnap.empty ? db.collection("payments").doc() : paymentSnap.docs[0].ref;
+          const paymentRef = paymentSnap.empty ? paymentsRef.doc() : paymentSnap.docs[0].ref;
           paymentRefs.set(orderDoc.id, paymentRef);
         }
 
@@ -184,7 +208,8 @@ export const closeSession = functions.https.onRequest(
 
           const isCancelled = isOrderCancelled(orderData);
 
-          const paymentRef = paymentRefs.get(orderDoc.id) || db.collection("payments").doc();
+          const paymentRef = paymentRefs.get(orderDoc.id) || paymentsRef.doc();
+          const completedItems = markItemsCompleted(Array.isArray(orderData.items) ? orderData.items : []);
           if (!isCancelled) {
             closedPaymentIds.push(paymentRef.id);
 
@@ -195,14 +220,6 @@ export const closeSession = functions.https.onRequest(
               tableId: resolvedTableId || null,
               sessionId: resolvedSessionId || readString(orderData.sessionId) || null,
               ownerId,
-              customer: {
-                id: ownerId,
-                name: orderData.customerName || null,
-                phone: orderData.customerPhone || null,
-              },
-              items: Array.isArray(orderData.items) ? orderData.items : [],
-              pricing: resolvedPricing,
-              appliedOffers: Array.isArray(orderData.appliedOffers) ? orderData.appliedOffers : [],
               paymentStatus: "PENDING_COUNTER",
               settlementStatus: "UNPAID",
               payAt: "COUNTER",
@@ -213,7 +230,7 @@ export const closeSession = functions.https.onRequest(
             }, { merge: true });
           }
 
-          const historyRef = db.collection("ordersHistory").doc(orderDoc.id);
+          const historyRef = ordersHistoryRef.doc(orderDoc.id);
           tx.set(historyRef, {
             orderId: orderDoc.id,
             outletId: orderData.outletId || null,
@@ -222,7 +239,8 @@ export const closeSession = functions.https.onRequest(
             placedBy: orderData.placedBy || null,
             ownerId,
             paymentId: !isCancelled ? paymentRef.id : null,
-            items: Array.isArray(orderData.items) ? orderData.items : [],
+            items: completedItems,
+            status: isCancelled ? "cancelled" : "completed",
             orderLifecycleStatus: isCancelled ? "CANCELLED" : "COMPLETED",
             pricing: resolvedPricing,
             appliedOffers: Array.isArray(orderData.appliedOffers) ? orderData.appliedOffers : [],
@@ -243,7 +261,7 @@ export const closeSession = functions.https.onRequest(
             // ✅ Increment offer usage counters
             const appliedOffers = Array.isArray(orderData.appliedOffers) ? orderData.appliedOffers : [];
             const orderItems = Array.isArray(orderData.items) ? orderData.items : [];
-            
+
             console.log(`[OFFER_INCREMENT_DEBUG] candidateOrdersCount=${candidateOrderDocs.size}, orderId=${orderDoc.id}, appliedOffers=${JSON.stringify(appliedOffers)}, itemsCount=${orderItems.length}`);
 
             // Collect all offer IDs from order-level and item-level
@@ -255,8 +273,8 @@ export const closeSession = functions.https.onRequest(
             if (offerIdsToProcess.size > 0) {
               for (const offerId of offerIdsToProcess) {
                 console.log(`[OFFER_INCREMENT_START] offerId=${offerId}, source=admin.closeSession`);
-                
-                const offerRef = db.collection("offers").doc(offerId);
+
+                const offerRef = offersRef.doc(offerId);
                 // Use a transaction get to log current count
                 const offerSnap = await tx.get(offerRef);
                 const currentUsedCount = readNumber(offerSnap.data()?.usedCount, 0);
@@ -300,10 +318,12 @@ export const closeSession = functions.https.onRequest(
         // If there was an actual bill (> 0), set needsPaymentCollection flag
         // so the manager dashboard can show a notification/highlight.
         const tableResetPayload: Record<string, unknown> = {
+          status: "IDLE",
           isOccupied: false,
           occupied: false,
           activeSessionId: null,
           owner: null,
+          participants: FieldValue.delete(),
           billAmount: 0,
           ownerAssignedAt: FieldValue.delete(),
           updatedAt: FieldValue.serverTimestamp(),
@@ -319,7 +339,7 @@ export const closeSession = functions.https.onRequest(
 
         tx.update(tableRef, tableResetPayload);
 
-        const closeLogRef = db.collection("sessionCloseLogs").doc();
+        const closeLogRef = sessionCloseLogsRef.doc();
         tx.set(closeLogRef, {
           sessionId: resolvedSessionId || null,
           tableId: resolvedTableId || null,

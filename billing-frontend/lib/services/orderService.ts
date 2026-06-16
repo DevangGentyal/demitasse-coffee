@@ -146,7 +146,7 @@ export const createOrder = async (
 ): Promise<string> => {
   try {
     if (!outletId) throw new Error('Outlet ID is required')
-    
+
     const idToken = await getIdToken()
 
     const resolvedStatus = orderData.status || orderData.orderStatus || 'in-progress'
@@ -312,6 +312,7 @@ export const removeOrderItem = async (
  * Cancel an entire order and close its table session
  */
 export const cancelEntireOrder = async (
+  outletId: string,
   orderId: string,
   password: string,
   reason: string,
@@ -329,6 +330,7 @@ export const cancelEntireOrder = async (
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
+        outletId,
         orderId,
         password,
         reason,

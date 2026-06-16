@@ -102,6 +102,7 @@ export const getOrdersByOutletId = async <T = unknown>(outletId: string): Promis
 
 export interface LiveDashboardStats {
   activeLiveOrders: {
+    cancelled: number
     inProgress: number
     completed: number
   }
