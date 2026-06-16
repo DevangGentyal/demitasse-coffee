@@ -5,12 +5,14 @@ import { parseJsonOrFallback } from './httpUtils'
 /**
  * Create a new printer configuration via Cloud Function
  */
-export const createPrinterConfig = async (
+export const createPrinterConfig = async (outletId: any,
   printerConfig: any
 ): Promise<any> => {
   try {
     const idToken = await auth.currentUser?.getIdToken()
     if (!idToken) throw new Error('User not authenticated')
+
+    // console.log("outletId: ", outletId);
 
     const response = await fetch(buildCloudFunctionsUrl('billingPrinterConfigCreate'), {
       method: 'POST',
@@ -19,8 +21,8 @@ export const createPrinterConfig = async (
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
-        outletId: '', // Can be empty; not required for printer configs
-        printerConfig,
+        outletId: outletId, // Can be empty; not required for printer configs
+        printerConfig: printerConfig,
       }),
     })
 
@@ -40,7 +42,7 @@ export const createPrinterConfig = async (
 /**
  * Update an existing printer configuration via Cloud Function
  */
-export const updatePrinterConfig = async (
+export const updatePrinterConfig = async (outletId: any,
   printerId: string,
   updates: any
 ): Promise<any> => {
@@ -55,7 +57,7 @@ export const updatePrinterConfig = async (
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
-        outletId: '',
+        outletId: outletId,
         printerId,
         updates,
       }),
@@ -77,7 +79,7 @@ export const updatePrinterConfig = async (
 /**
  * Delete a printer configuration via Cloud Function
  */
-export const deletePrinterConfig = async (
+export const deletePrinterConfig = async (outletId: any,
   printerId: string
 ): Promise<void> => {
   try {
@@ -91,7 +93,7 @@ export const deletePrinterConfig = async (
         'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
-        outletId: '',
+        outletId: outletId,
         printerId,
       }),
     })

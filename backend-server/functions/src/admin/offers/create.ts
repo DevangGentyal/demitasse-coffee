@@ -102,6 +102,24 @@ const normalizeOfferConfig = (type: string, config: any) => {
 			loyalty: null,
 		};
 	}
+	if (normalizedType === "BIRTHDAY") {
+		return {
+			combo: null,
+			comboPrice: null,
+			b1g1: null,
+			discount: null,
+			freeItems: {
+				productIds: Array.isArray(config?.freeItems?.productIds)
+					? config.freeItems.productIds
+						.map((id: unknown) => readString(id))
+						.filter(Boolean)
+					: [],
+				minSelect: readNumber(config?.freeItems?.minSelect, 1),
+				maxSelect: readNumber(config?.freeItem?.maxSelect, 1),
+			},
+			loyalty: null,
+		};
+	}
 
 	if (normalizedType === "DISCOUNT") {
 		const discountMode = readString(config?.discount?.mode || config?.discount?.type || "PRODUCT").toUpperCase();
@@ -155,7 +173,7 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 
 		const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 		const data = body;
-		if (!data.outletId || !data.title || (!data.type && !data.offerType) || !data.startDate || !data.endDate) { res.status(400).json({ success: false, message: "Missing required fields" }); return; }
+		if (!data.outletId || !data.title || (!data.type && !data.offerType)) { res.status(400).json({ success: false, message: "Missing required fields" }); return; }
 
 		const offerType = normalizeOfferType(data.offerType || data.type);
 		if (!validOfferTypes.includes(offerType as any)) { res.status(400).json({ success: false, message: "Invalid offer type" }); return; }
@@ -169,9 +187,22 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 			if (data.config?.discount) data.config.discount.discountValue = discountVal;
 		}
 
-		const startDate = parseOfferDateInput(data.startDate, "startDate");
-		const endDate = parseOfferDateInput(data.endDate, "endDate");
-		if (startDate >= endDate) { res.status(400).json({ success: false, message: "startDate must be before endDate" }); return; }
+		const startDate = data.startDate
+			? parseOfferDateInput(data.startDate, "startDate")
+			: null;
+
+		const endDate = data.endDate
+			? parseOfferDateInput(data.endDate, "endDate")
+			: null;
+
+		// Only validate when both dates are present
+		if (startDate && endDate && startDate >= endDate) {
+			res.status(400).json({
+				success: false,
+				message: "startDate must be before endDate",
+			});
+			return;
+		}
 
 		const normalizedConfig = normalizeOfferConfig(offerType, data.config);
 		const offerRef = db.collection("outlets").doc(data.outletId).collection("offers").doc();
@@ -180,11 +211,8 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 			: null;
 		// Normalize userRules to include perUserLimit if provided top-level
 		let normalizedUserRules = data.userRules && typeof data.userRules === 'object' ? { ...(data.userRules || {}) } : null;
-		const perUserLimitVal = readPositiveInt(data.perUserLimit ?? data.userRules?.perUserLimit);
-		if (perUserLimitVal !== null) {
-			if (!normalizedUserRules) normalizedUserRules = {} as any;
-			(normalizedUserRules as any).perUserLimit = perUserLimitVal;
-		}
+		const perUserLimitVal = readPositiveInt(data.perUserLimit);
+
 
 		await offerRef.set({
 			id: offerRef.id,
@@ -197,10 +225,13 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 			autoApply: !!data.autoApply,
 			isStackable: !!data.isStackable,
 			priority: Number(data.priority || 0),
-			startDate,
-			endDate,
+
+			startDate, // null if not provided
+			endDate,   // null if not provided
+
 			minOrderValue: Number(data.minOrderValue || 0),
 			usageLimit: Number(data.usageLimit || 0),
+			perUserLimit: perUserLimitVal,
 			usedCount: 0,
 			config: normalizedConfig,
 			userRules: normalizedUserRules || null,
@@ -209,7 +240,9 @@ export const createOffer = functions.https.onRequest(async (req, res) => {
 				canonical: true,
 				createdByAdmin: true,
 			},
-			createdAt: data.createdAt ? new Date(data.createdAt) : FieldValue.serverTimestamp(),
+			createdAt: data.createdAt
+				? new Date(data.createdAt)
+				: FieldValue.serverTimestamp(),
 			updatedAt: FieldValue.serverTimestamp(),
 		});
 

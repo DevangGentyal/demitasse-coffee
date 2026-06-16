@@ -6,8 +6,8 @@ import { Card } from '@/components/ui/card'
 import { X, ChevronRight, Check, Power } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { useState } from 'react'
-import { 
-  updateOrder as updateOrderService, 
+import {
+  updateOrder as updateOrderService,
   deleteOrder as deleteOrderService,
   removeOrderItem as removeOrderItemService
 } from '@/lib/services/orderService'
@@ -47,7 +47,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
     try {
       await removeOrderItemService(outletId || '', order.id, itemId)
       toast.success('Item removed successfully')
-      
+
       const updatedItems = order.items.filter((i: any) => i.id !== itemId)
       updateOrder(order.id, { items: updatedItems })
 
@@ -88,14 +88,14 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       ready: 'completed',
       completed: 'in-progress',
     }
-    
+
     const currentStatus = status || order.status || order.orderStatus || 'in-progress';
     const newStatus = statusFlow[currentStatus] || 'ready'
-    
+
     setIsUpdating(true)
     try {
       console.log(`[FRONTEND] 📤 Attempting to update order ${order.id} from ${currentStatus} to ${newStatus}`);
-      
+
       // Update via cloud function if outletId is available
       if (outletId) {
         console.log('[FRONTEND] 📤 Calling updateOrder service...');
@@ -106,14 +106,14 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
       } else {
         console.warn('[FRONTEND] ⚠️ No outletId available for order update');
       }
-      
+
       // Update in local context for immediate UI update
       console.log(`[FRONTEND] 🛠️ Triggering optimistic update for ${order.id} to ${newStatus}`);
-      updateOrder(order.id, { 
+      updateOrder(order.id, {
         orderStatus: newStatus as any,
-        status: newStatus as any 
+        status: newStatus as any
       })
-      
+
       // Trigger refetch if callback provided
       if (onOrderUpdated) {
         onOrderUpdated()
@@ -173,10 +173,10 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
         console.log('📤 Deleting order via cloud function')
         await deleteOrderService(outletId, order.id)
       }
-      
+
       // Delete from local context
       deleteOrder(order.id)
-      
+
       // Trigger refetch if callback provided
       if (onOrderUpdated) {
         onOrderUpdated()
@@ -312,12 +312,12 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                           const variationValues = getVariationValues(item)
                           const directCustomizations = Array.isArray(item.customizations) ? item.customizations : []
                           const directSelected = directCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
-                          
+
                           const subItems = Array.isArray(item.items) ? item.items : []
-                          
+
                           const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
                           const hasAddOns = Array.isArray(item.addOns) && item.addOns.length > 0
-                          
+
                           if (variationValues.length === 0 && !hasVariations && directSelected.length === 0 && subItems.length === 0 && !hasAddOns) return null
 
                           return (
@@ -345,7 +345,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                               {subItems.map((sub: any, i: number) => {
                                 const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : []
                                 const subSelected = subCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
-                                
+
                                 return (
                                   <div key={`sub-${i}`} className="flex flex-col gap-0.5">
                                     <span>- {sub.name}</span>
@@ -397,12 +397,12 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                       const variationValues = getVariationValues(item)
                       const directCustomizations = Array.isArray(item.customizations) ? item.customizations : []
                       const directSelected = directCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
-                      
+
                       const subItems = Array.isArray(item.items) ? item.items : []
-                      
+
                       const hasVariations = Array.isArray(item.variations) && item.variations.length > 0
                       const hasAddOns = Array.isArray(item.addOns) && item.addOns.length > 0
-                      
+
                       if (variationValues.length === 0 && !hasVariations && directSelected.length === 0 && subItems.length === 0 && !hasAddOns) return null
 
                       return (
@@ -430,7 +430,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
                           {subItems.map((sub: any, i: number) => {
                             const subCustomizations = Array.isArray(sub.customizations) ? sub.customizations : []
                             const subSelected = subCustomizations.flatMap((g: any) => (g.options || []).filter((o: any) => o.isSelected))
-                            
+
                             return (
                               <div key={`sub-${i}`} className="flex flex-col gap-0.5">
                                 <span>- {sub.name}</span>
@@ -450,7 +450,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
 
                     {/* Offer Display */}
                     {item.offerTitle && (
-                        <div className="ml-6 mt-0.5 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                      <div className="ml-6 mt-0.5 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
                         <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{getOfferBadgeLabel(item)}</span>
                         <span className="truncate">{item.offerTitle}</span>
                       </div>
@@ -505,6 +505,7 @@ export function OrderCard({ order, status, outletId, onOrderUpdated }: OrderCard
             isOpen={isCancelModalOpen}
             onClose={() => setIsCancelModalOpen(false)}
             orderId={order.id}
+            outletId={outletId!}
             onSuccess={() => {
               setIsCancelModalOpen(false)
               deleteOrder(order.id)

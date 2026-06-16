@@ -5,7 +5,7 @@ import { useLocationContext } from "../../context/LocationContext";
 import { useOffers } from "../../context/OfferContext";
 import { auth } from "../../lib/firebase";
 import { getProductById } from "../../lib/backendApi";
-import { revalidateCart } from "../../lib/offerUtils";
+import { revalidateCart, validateOffer } from "../../lib/offerUtils";
 
 import CartHeader from "../../components/cart_screen/CartHeader.jsx";
 import CartItem from "../../components/cart_screen/CartItem.jsx";
@@ -148,6 +148,8 @@ const Cart = () => {
     // COMBO: price already calculated correctly in cart item
   });
 
+
+
   // ✅ AUTO REGISTRATION OFFER DISCOUNT (Calculates ONLY on normal items)
   let autoDiscount = 0;
   if (autoAppliedOffer) {
@@ -158,10 +160,15 @@ const Cart = () => {
     autoDiscount = Math.round((eligibleTotal * autoAppliedOffer.discountValue) / 100);
   }
 
+  // ✅ NEW_USER offer dynamic discount
+  const newUserOffer = cart.find(i => i.offerType === "NEW_USER");
+  const newUserDiscount = newUserOffer ? (Number(newUserOffer.discountAmount) || 0) : 0;
+
   const totalDiscount = autoDiscount;
   // Special offer rows already store the final item/group price in `totalPrice`.
   // Only the auto-registration offer is subtracted here.
-  const grandTotal = Math.max(0, totalPrice - totalDiscount);
+  // NEW_USER offer deduction is also applied here.
+  const grandTotal = Math.max(0, totalPrice - totalDiscount - newUserDiscount);
 
   // Helper config string to detect remaining valid normal items for banner UI
   const hasEligibleItems = cart.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1).length > 0;
@@ -256,12 +263,31 @@ const Cart = () => {
 
       const { validAppliedOffers, cleanCart } = revalidateCart(cart, offers, userObj, couponCodes);
 
-      const stateFreeItems = cart.filter(i => i.isFree && !i.isManualB1G1).length;
-      const validFreeItems = (cart.length - cleanCart.filter(i => !i.isManualB1G1).length);
+      const birthdayItemsInCart = cart.filter(
+        item => item.isBirthday || item.offerType === "BIRTHDAY"
+      );
 
-      if (stateFreeItems > validFreeItems) {
-        setValidationError("Cart validation failed. Some offers are no longer valid. Please check your cart.");
-        return;
+      for (const birthdayItem of birthdayItemsInCart) {
+        const offer = offers.find(o => o.id === birthdayItem.offerId);
+
+        if (!offer) {
+          setValidationError("Birthday offer is no longer available.");
+          return;
+        }
+
+        const validation = validateOffer(
+          offer,
+          fullUser || {},
+          cart,
+          totalPrice
+        );
+
+        if (!validation.valid) {
+          setValidationError(
+            validation.message || "Birthday offer is no longer valid."
+          );
+          return;
+        }
       }
 
       const comboItems = cart.filter(i => i.isCombo);
@@ -509,6 +535,11 @@ const Cart = () => {
     }
   };
 
+  console.log(
+    "Birthday Item",
+    cart.find(i => i.isBirthday)
+  );
+
   return (
     <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-28">
       <CartHeader />
@@ -566,31 +597,39 @@ const Cart = () => {
           </div>
         )}
 
-        {/* ✅ Applied Offers Display */}
-        {appliedOffers.length > 0 && (
-          <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 flex flex-col gap-1">
-            <p className="text-xs text-green-700 font-semibold uppercase tracking-wide mb-1">Applied Offers</p>
-            {appliedOffers.map((applied, idx) => {
-              const offer = offers.find((o) => o.id === applied.offerId);
-              if (!offer) return null;
-              return (
-                <div key={idx} className="flex items-center gap-2 text-sm text-green-700 font-medium">
-                  <span>🏷️</span>
-                  <span>{offer.title}</span>
+          {/* Applied Offers Display */}
+          {(appliedOffers.length > 0 || newUserOffer) && (
+            <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 flex flex-col gap-1">
+              <p className="text-xs text-green-700 font-semibold uppercase tracking-wide mb-1">Applied Offers</p>
+              {appliedOffers.map((applied, idx) => {
+                const offer = offers.find((o) => o.id === applied.offerId);
+                if (!offer) return null;
+                return (
+                  <div key={idx} className="flex items-center gap-2 text-sm text-green-700 font-medium">
+                    <span>🏷️</span>
+                    <span>{offer.title}</span>
+                    <span className="ml-auto bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">Applied ✓</span>
+                  </div>
+                );
+              })}
+              {/* Birthday offers in list */}
+              {cart.filter(i => i.isBirthday).map((item, idx) => (
+                <div key={`bday-list-${idx}`} className="flex items-center gap-2 text-sm text-pink-700 font-medium">
+                  <span>🎂</span>
+                  <span>{item.offerTitle}</span>
+                  <span className="ml-auto bg-pink-100 text-pink-800 text-xs px-2 py-0.5 rounded-full">Applied ✓</span>
+                </div>
+              ))}
+              {/* NEW_USER offer in list */}
+              {newUserOffer && (
+                <div className="flex items-center gap-2 text-sm text-green-700 font-medium">
+                  <span>🎉</span>
+                  <span>{newUserOffer.offerTitle}</span>
                   <span className="ml-auto bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">Applied ✓</span>
                 </div>
-              );
-            })}
-            {/* ✅ Birthday offers in list */}
-            {cart.filter(i => i.isBirthday).map((item, idx) => (
-              <div key={`bday-list-${idx}`} className="flex items-center gap-2 text-sm text-pink-700 font-medium">
-                <span>🎂</span>
-                <span>{item.offerTitle}</span>
-                <span className="ml-auto bg-pink-100 text-pink-800 text-xs px-2 py-0.5 rounded-full">Applied ✓</span>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+            </div>
+          )}
 
         {cart.length > 0 && (
           <div className="bg-white rounded-2xl p-4 shadow-md">
@@ -653,6 +692,14 @@ const Cart = () => {
               </div>
             )}
 
+            {/* ✅ New User Offer Discount Row */}
+            {newUserOffer && newUserDiscount > 0 && (
+              <div className="flex justify-between text-sm text-green-600 mt-1 font-medium">
+                <span>🎉 {newUserOffer.offerTitle} ({newUserOffer.discountValue}%)</span>
+                <span>-₹{newUserDiscount}</span>
+              </div>
+            )}
+
             <hr className="my-3" />
 
             <div className="flex justify-between font-semibold text-lg">
@@ -670,27 +717,31 @@ const Cart = () => {
           </div>
         )}
 
-        <div className="flex gap-4">
-          <button
-            onClick={() => { clearCart(); navigate("/menu"); }}
-            className="flex-1 bg-red-500 text-white py-3 rounded-full font-semibold"
-          >
-            Cancel
-          </button>
+
+
+        <div className="space-y-3">
           <button
             onClick={() => navigate("/offers")}
-            className="flex-1 bg-blue-600 text-white py-3 rounded-full font-semibold"
+            className="w-full py-3 rounded-full font-semibold border-2 border-dashed border-blue-400 text-black bg-blue-100 hover:border-blue-500 hover:text-blue-600 transition-all"
           >
-            Apply Offer
+            Apply Offers
           </button>
 
-          <button
-            disabled={cart.length === 0 || isValidating}
-            onClick={handlePlaceOrder}
-            className="flex-1 bg-green-500 text-white py-3 rounded-full font-semibold disabled:opacity-50"
-          >
-            {isValidating ? "Validating..." : `Place Order (${totalItems})`}
-          </button>
+          <div className="flex gap-4">
+            <button
+              onClick={() => { clearCart(); navigate("/menu"); }}
+              className="flex-1 bg-red-500 text-white py-3 rounded-full font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={cart.length === 0 || isValidating}
+              onClick={handlePlaceOrder}
+              className="flex-1 bg-green-500 text-white py-3 rounded-full font-semibold disabled:opacity-50"
+            >
+              {isValidating ? "Validating..." : `Place Order (${totalItems})`}
+            </button>
+          </div>
         </div>
       </div>
     </div>

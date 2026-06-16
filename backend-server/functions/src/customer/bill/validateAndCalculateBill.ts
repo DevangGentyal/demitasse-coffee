@@ -17,17 +17,46 @@ const readNumber = (value: unknown, fallback = 0): number => {
 
 const readString = (value: unknown): string => String(value ?? '').trim();
 
+/**
+ * Detects a NEW_USER offer wrapper item — these have offerType=NEW_USER but no
+ * real products (items array is empty). They represent a cart-level % discount
+ * and should NOT be normalised as regular order items. Instead we capture their
+ * offerId so the NEW_USER discount is applied to the rest of the cart.
+ */
+const isSyntheticNewUserItem = (item: Record<string, unknown>): boolean => {
+	const offerType = String(item.offerType || '').trim().toUpperCase();
+	const productId = String(item.productId || item.id || '').trim();
+	return (
+		offerType === 'NEW_USER' &&
+		(!productId || productId.startsWith('new_user_') || productId.startsWith('discount_')) &&
+		(!Array.isArray(item.items) || (item.items as unknown[]).length === 0)
+	);
+};
+
+interface NormalizeResult {
+	items: NormalisedOrderItem[];
+	capturedNewUserOfferIds: string[];
+}
+
 const normalizeItemsForValidation = (
 	rawItems: unknown[],
 	inheritedOffer?: { offerId?: string; offerType?: string; offerTitle?: string },
-): NormalisedOrderItem[] => {
-	if (!Array.isArray(rawItems)) return [];
+): NormalizeResult => {
+	if (!Array.isArray(rawItems)) return { items: [], capturedNewUserOfferIds: [] };
 
 	const normalized: NormalisedOrderItem[] = [];
+	const capturedNewUserOfferIds: string[] = [];
 
 	for (const rawItem of rawItems) {
 		const item = (rawItem || {}) as Record<string, unknown>;
 		const nestedItems = Array.isArray(item.items) ? item.items : [];
+
+		// ✅ NEW_USER offer items have no products — capture their offerId and skip normalization
+		if (isSyntheticNewUserItem(item)) {
+			const offerId = readString(item.offerId);
+			if (offerId) capturedNewUserOfferIds.push(offerId);
+			continue;
+		}
 
 		const currentOfferId = readString(item.offerId || inheritedOffer?.offerId) || null;
 		const currentOfferType = readString(item.offerType || inheritedOffer?.offerType) || null;
@@ -35,11 +64,13 @@ const normalizeItemsForValidation = (
 
 		if (nestedItems.length > 0) {
 			if (String(currentOfferType).toUpperCase() === 'COMBO' || Boolean(item.isCombo)) {
-				const nestedNormalized = normalizeItemsForValidation(nestedItems, {
+				const nestedResult = normalizeItemsForValidation(nestedItems, {
 					offerId: currentOfferId || undefined,
 					offerType: currentOfferType || undefined,
 					offerTitle: currentOfferTitle || undefined,
 				});
+				capturedNewUserOfferIds.push(...nestedResult.capturedNewUserOfferIds);
+				const nestedNormalized = nestedResult.items;
 				const rawTotalPrice = readNumber(item.totalPrice ?? item.discountedPrice ?? item.price, Number.NaN);
 				const fallbackTotalPrice = nestedNormalized.reduce((sum, nested) => sum + nested.totalPrice, 0);
 				const comboPrice = readNumber(item.comboPrice ?? item.comboBasePrice ?? item.price, 0);
@@ -75,13 +106,13 @@ const normalizeItemsForValidation = (
 					tax: 0,
 				});
 			} else {
-				normalized.push(
-					...normalizeItemsForValidation(nestedItems, {
-						offerId: currentOfferId || undefined,
-						offerType: currentOfferType || undefined,
-						offerTitle: currentOfferTitle || undefined,
-					}),
-				);
+				const nestedResult = normalizeItemsForValidation(nestedItems, {
+					offerId: currentOfferId || undefined,
+					offerType: currentOfferType || undefined,
+					offerTitle: currentOfferTitle || undefined,
+				});
+				capturedNewUserOfferIds.push(...nestedResult.capturedNewUserOfferIds);
+				normalized.push(...nestedResult.items);
 			}
 			continue;
 		}
@@ -122,7 +153,7 @@ const normalizeItemsForValidation = (
 			isOfferItem: Boolean(currentOfferId || currentOfferType || item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday),
 			isCombo: Boolean(item.isCombo || currentOfferType?.toUpperCase() === 'COMBO'),
 			isManualB1G1: Boolean(item.isManualB1G1 || currentOfferType?.toUpperCase() === 'B1G1'),
-			isDiscount: Boolean(item.isDiscount || currentOfferType?.toUpperCase() === 'DISCOUNT'),
+			isDiscount: Boolean(item.isDiscount || currentOfferType?.toUpperCase() === 'DISCOUNT' || currentOfferType?.toUpperCase() === 'NEW_USER'),
 			isBirthday: Boolean(item.isBirthday || currentOfferType?.toUpperCase() === 'BIRTHDAY'),
 			isFree: Boolean(item.isFree),
 			status: readString(item.status) || 'in-progress',
@@ -134,7 +165,10 @@ const normalizeItemsForValidation = (
 		});
 	}
 
-	return normalized.filter((item) => readString(item.productId));
+	return {
+		items: normalized.filter((item) => readString(item.productId)),
+		capturedNewUserOfferIds,
+	};
 };
 
 export const validateAndCalculateBill = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {
@@ -168,7 +202,10 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			autoAppliedOfferId: autoAppliedOfferId || null,
 		});
 
-		const items = normalizeItemsForValidation(Array.isArray(cartItems) ? cartItems : []);
+		const normalizeResult = normalizeItemsForValidation(Array.isArray(cartItems) ? cartItems : []);
+		const items = normalizeResult.items;
+		const capturedNewUserOfferIds = normalizeResult.capturedNewUserOfferIds;
+
 		if (items.length === 0) {
 			res.status(400).json({ success: false, message: 'cartItems is required' });
 			return;
@@ -206,6 +243,7 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 
 		enrichItemsTree(items);
 
+		// ── Resolve all offer IDs (including captured NEW_USER offer IDs) ──
 		const requestedOfferId = String(autoAppliedOfferId || '').trim();
 		const uniqueOfferIds = new Set<string>();
 		if (requestedOfferId) uniqueOfferIds.add(requestedOfferId);
@@ -213,7 +251,44 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			const offerId = String(item.offerId || '').trim();
 			if (offerId) uniqueOfferIds.add(offerId);
 		}
+		// ✅ Also add NEW_USER offer IDs captured from synthetic wrapper items
+		for (const offerId of capturedNewUserOfferIds) {
+			if (offerId) uniqueOfferIds.add(offerId);
+		}
+
 		const offerDocsById = await getOfferDocs(uniqueOfferIds, String(outletId || ''));
+
+		// ── Validate NEW_USER offer minOrderValue server-side ─────────────
+		for (const newUserOfferId of capturedNewUserOfferIds) {
+			const offerDoc = offerDocsById.get(newUserOfferId);
+			if (!offerDoc) continue;
+			const minOrderValue = Number(offerDoc.minOrderValue || 0);
+			if (minOrderValue > 0) {
+				const regularSubtotal = items
+					.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1 && !i.isBirthday)
+					.reduce((sum, i) => sum + i.totalPrice, 0);
+				if (regularSubtotal < minOrderValue) {
+					res.status(400).json({
+						success: false,
+						message: `Minimum order value ₹${minOrderValue} required for ${offerDoc.title || 'this offer'}.`,
+					});
+					return;
+				}
+			}
+		}
+
+		// ── Apply NEW_USER offerId to all regular items that don't already have an offerId ──
+		// This allows applyOfferPricingByGroup to apply the discount correctly.
+		for (const newUserOfferId of capturedNewUserOfferIds) {
+			for (const item of items) {
+				if (!item.offerId && !item.isFree && !item.isCombo && !item.isManualB1G1 && !item.isBirthday) {
+					item.offerId = newUserOfferId;
+					item.offerType = 'NEW_USER' as any;
+					item.isDiscount = true;
+				}
+			}
+		}
+
 		const orderType = offerDocsById.size > 0 ? 'MIXED' : 'BASIC';
 		let subtotal = Math.round(items.reduce((sum, item) => sum + readNumber(item.totalPrice, 0), 0));
 		const offerResult = applyOffer(
@@ -236,6 +311,7 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 			tax,
 			total,
 			orderType,
+			capturedNewUserOfferIds,
 		});
 
 		res.status(200).json({

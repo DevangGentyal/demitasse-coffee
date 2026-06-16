@@ -132,7 +132,7 @@ export const isBirthday = (dob?: string) => {
     const parts = dob.split("-");
     if (parts.length !== 3) return false;
 
-    const month = parseInt(parts[1], 10) - 1; 
+    const month = parseInt(parts[1], 10) - 1;
     const day = parseInt(parts[2], 10);
 
     return (
@@ -179,19 +179,38 @@ export const validateOffer = (
         if (user.hasPlacedFirstOrder) return { valid: false, message: "Only for first-time orders" };
     }
 
-    if (
-        offer.applicableFor === "birthday" || offerKind === "BIRTHDAY" ||
+    // Birthday Check
+    const isBirthdayOffer =
+        offer.applicableFor === "birthday" ||
+        offerKind === "BIRTHDAY" ||
         (offerKind === "REWARD" && offer.category === "BIRTHDAY") ||
-        offer.userRules?.birthdayOnly
-    ) {
-        if (!isBirthday(user.dob)) return { valid: false, message: "Only valid on your birthday 🎂" };
-        // Year-based usage check
-        const currentYear = new Date().getFullYear();
-        if (user.lastBirthdayOfferYear === currentYear) {
-            return { valid: false, message: "Birthday offer already used this year" };
+        offer.userRules?.birthdayOnly;
+
+    if (isBirthdayOffer) {
+        if (!isBirthday(user.dob)) {
+            return {
+                valid: false,
+                message: "Only valid on your birthday 🎂"
+            };
         }
-        if (user.hasUsedBirthdayOffer && !user.lastBirthdayOfferYear) {
-            return { valid: false, message: "Birthday offer already used" };
+
+        const currentYear = new Date().getFullYear();
+
+        if (user.lastBirthdayOfferYear === currentYear) {
+            return {
+                valid: false,
+                message: "Birthday offer already used this year"
+            };
+        }
+
+        if (
+            user.hasUsedBirthdayOffer &&
+            !user.lastBirthdayOfferYear
+        ) {
+            return {
+                valid: false,
+                message: "Birthday offer already used"
+            };
         }
     }
 
@@ -206,9 +225,9 @@ export const validateOffer = (
     // Product/category requirements (legacy and new config)
     if (discountMode === 'PRODUCT' || discountMode === 'CATEGORY' || (offer.products && offer.products.length > 0)) {
 
-        const matchingItems = cartItems.filter(item => 
+        const matchingItems = cartItems.filter(item =>
             !item.isFree && (
-                (item.id && requiredProductIds.includes(item.id)) || 
+                (item.id && requiredProductIds.includes(item.id)) ||
                 requiredNames.includes(item.name.toLowerCase()) ||
                 (discountMode === 'CATEGORY' && requiredCategory && String(item.category || item.productCategory || '').toLowerCase() === requiredCategory)
             )
@@ -221,9 +240,9 @@ export const validateOffer = (
         const totalQty = matchingItems.reduce((sum: number, item: any) => sum + item.qty, 0);
 
         // BOGO specific logic (Buy 1 Get 1)
-           const isBogo = offer.discountType === "BOGO" || (offer.title && offer.title.toLowerCase().includes("buy 1 get 1"));
+        const isBogo = offer.discountType === "BOGO" || (offer.title && offer.title.toLowerCase().includes("buy 1 get 1"));
         if (isBogo && totalQty < 1) { // Assuming user needs at least 1 to get 1 free
-             return { valid: false, message: "Add at least 1 item for BOGO" };
+            return { valid: false, message: "Add at least 1 item for BOGO" };
         }
     }
 
@@ -268,7 +287,15 @@ export const revalidateCart = (
     appliedCouponCodes: string[] = []
 ) => {
     // 1. Remove all free items (but keep combo, manual B1G1, birthday, and discount items intact)
-    let newCart = currentCart.filter(item => !item.isFree || item.isCombo || item.isManualB1G1 || item.isBirthday || item.isDiscount);
+    let newCart = currentCart.filter(
+        item =>
+            !item.isFree ||
+            item.isCombo ||
+            item.isManualB1G1 ||
+            item.isBirthday ||
+            item.isDiscount ||
+            String(item.offerType || "").toUpperCase() === "BIRTHDAY"
+    );
     let itemTotal = newCart.reduce((sum, item) => {
         if (item.isCombo || item.isManualB1G1) return sum + (item.price || 0);
         return sum + (item.price * item.qty);
@@ -290,7 +317,7 @@ export const revalidateCart = (
                 if (offerKind === "COMBO" || offer.discountType === "COMBO" || offer.config?.combo) return;
 
                 // ✅ PRIORITY: If combo is in cart, skip registration offer
-                const isRegistrationOffer = offer.userRules?.firstOrderOnly || 
+                const isRegistrationOffer = offer.userRules?.firstOrderOnly ||
                     offer.applicableFor === "new_user" || offerKind === "NEW_USER" || offerKind === "FIRSTORDER";
                 if (isRegistrationOffer && hasComboInCart) return;
 
@@ -312,7 +339,7 @@ export const revalidateCart = (
 
     // 3. Validate Manual Coupon Offers
     appliedCouponCodes.forEach(code => {
-        const offer = allOffers.find(o => 
+        const offer = allOffers.find(o =>
             (o.couponCode || o.code)?.toLowerCase() === code.toLowerCase()
         );
         if (offer) {
@@ -330,7 +357,7 @@ export const revalidateCart = (
         }
     });
 
-    return { 
+    return {
         validAppliedOffers: appliedOffers,
         cleanCart: newCart
     };
@@ -372,8 +399,8 @@ export const filterOffers = (
 
         if (
             (offer.applicableFor === "birthday" || offerKind === "BIRTHDAY" ||
-             (offerKind === "REWARD" && offer.category === "BIRTHDAY") ||
-             offer.userRules?.birthdayOnly) &&
+                (offerKind === "REWARD" && offer.category === "BIRTHDAY") ||
+                offer.userRules?.birthdayOnly) &&
             isBirthday(user?.dob)
         ) {
             // Year-based usage check

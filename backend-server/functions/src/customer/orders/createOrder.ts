@@ -223,6 +223,7 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				if (violation) throw new Error('OFFER_USAGE_LIMIT_REACHED');
 
 				tx.set(userRef, {
+					hasPlacedFirstOrder: true,
 					appliedOffers: mergeAppliedOfferUsages(userData.appliedOffers, consumedOfferUsages),
 					updatedAt: FieldValue.serverTimestamp(),
 				}, { merge: true });
@@ -258,8 +259,8 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 						offerUsageCounted: true,
 					}
 					: consumedOfferUsages.length > 0
-					? { consumedOfferUsages, offerUsageCounted: true }
-					: {}),
+						? { consumedOfferUsages, offerUsageCounted: true }
+						: {}),
 				timeOfOrder: FieldValue.serverTimestamp(),
 				createdAt: FieldValue.serverTimestamp(),
 				updatedAt: FieldValue.serverTimestamp(),

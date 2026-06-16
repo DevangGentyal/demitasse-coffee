@@ -49,15 +49,32 @@ export default function EditOfferPage() {
     autoApply: false,
     isStackable: false,
 
-    // config fields (flat in form, nested on submit)
+    // DISCOUNT
     discountValue: '',
     discountScope: 'PRODUCT' as 'PRODUCT' | 'CATEGORY',
     discountProductIds: [] as string[],
     discountCategory: '',
+
+    // COMBO
     comboPrice: '',
     comboGroupCount: '1',
+    comboGroups: [] as {
+      categoryName: string
+      groupName: string
+      isFree: boolean
+      selectionType: 'ONE' | 'MULTIPLE'
+      items: { productId: string; isCustomizable: boolean }[]
+    }[],
+
+    // B1G1
     b1g1ProductIds: [] as string[],
-    comboGroups: [] as { categoryName: string; groupName: string; isFree: boolean; selectionType: "ONE" | "MULTIPLE"; items: { productId: string; isCustomizable: boolean }[] }[],
+
+    // BIRTHDAY
+    birthdayFreeItemCount: '1',
+    birthdayProductIds: [] as string[],
+
+    // NEW USER
+    newUserDiscountValue: '',
   })
 
   // FETCH DATA + populate form from existing offer
@@ -108,6 +125,18 @@ export default function EditOfferPage() {
             isActive: offer.isActive ?? true,
             autoApply: offer.autoApply ?? false,
             isStackable: offer.isStackable ?? false,
+            birthdayFreeItemCount:
+              offer.config?.freeItems?.maxSelect
+                ? String(offer.config.freeItems.maxSelect)
+                : '1',
+
+            birthdayProductIds:
+              offer.config?.freeItems?.productIds || [],
+
+            newUserDiscountValue:
+              offer.config?.discount?.discountValue
+                ? String(offer.config.discount.discountValue)
+                : '',
 
             // Populate config fields from nested structure
             discountScope: offer.config?.discount?.mode || offer.config?.discount?.type || 'PRODUCT',
@@ -141,7 +170,17 @@ export default function EditOfferPage() {
   }
 
   // Check if step 2 (product selection) is needed
-  const needsStep2 = formData.type === 'B1G1' || formData.type === 'COMBO' || (formData.type === 'DISCOUNT' && formData.discountScope === 'PRODUCT')
+  const needsStep2 =
+    formData.type === 'B1G1' ||
+    formData.type === 'COMBO' ||
+    formData.type === 'BIRTHDAY' ||
+    formData.type === 'NEW_USER' ||
+    (formData.type === 'DISCOUNT' &&
+      formData.discountScope === 'PRODUCT')
+
+  const noDates =
+    formData.type === 'BIRTHDAY' ||
+    formData.type === 'NEW_USER'
 
   // VALIDATION & NAVIGATION
   const handleNext = () => {
@@ -152,14 +191,21 @@ export default function EditOfferPage() {
         setError("Title must be at least 3 characters")
         return
       }
-      if (!formData.startDate || !formData.endDate) {
-        setError("Start Date and End Date are required")
-        return
+      if (!noDates) {
+        if (!formData.startDate || !formData.endDate) {
+          setError('Start Date and End Date are required')
+          return
+        }
+
+        if (
+          new Date(formData.startDate) >=
+          new Date(formData.endDate)
+        ) {
+          setError('Start date must be before end date')
+          return
+        }
       }
-      if (new Date(formData.startDate) >= new Date(formData.endDate)) {
-        setError("Start date must be before end date")
-        return
-      }
+
       if (formData.type === 'DISCOUNT') {
         const disc = Number(formData.discountValue)
         if (isNaN(disc) || disc <= 0 || disc > 100) {
@@ -208,6 +254,31 @@ export default function EditOfferPage() {
           return
         }
       }
+      else if (formData.type === 'BIRTHDAY') {
+        const count = Number(formData.birthdayFreeItemCount)
+
+        if (!count || count < 1) {
+          setError('Number of free items must be at least 1')
+          return
+        }
+
+        if (formData.birthdayProductIds.length === 0) {
+          setError(
+            'Add at least 1 product for the birthday reward'
+          )
+          return
+        }
+      }
+      else if (formData.type === 'NEW_USER') {
+        const d = Number(formData.newUserDiscountValue)
+
+        if (isNaN(d) || d <= 0 || d > 100) {
+          setError(
+            'First User discount must be > 0 and ≤ 100'
+          )
+          return
+        }
+      }
     }
 
     setCurrentStep(prev => prev + 1)
@@ -225,47 +296,96 @@ export default function EditOfferPage() {
       const config: any = {
         combo: null,
         b1g1: null,
-        discountValue: 0,
-        freeItem: null,
-        loyalty: null,
+        discount: null,
+        reward: null,
       }
 
       if (formData.type === 'DISCOUNT') {
         config.discount = {
           mode: formData.discountScope,
-          productIds: formData.discountScope === 'PRODUCT' ? formData.discountProductIds : [],
-          categoryName: formData.discountScope === 'CATEGORY' ? formData.discountCategory : null,
-          discountValue: Number(formData.discountValue) || 0,
+          productIds:
+            formData.discountScope === 'PRODUCT'
+              ? formData.discountProductIds
+              : [],
+          categoryName:
+            formData.discountScope === 'CATEGORY'
+              ? formData.discountCategory
+              : null,
+          discountValue:
+            Number(formData.discountValue) || 0,
         }
       }
+
       if (formData.type === 'B1G1') {
         config.b1g1 = {
           productIds: formData.b1g1ProductIds,
-          type: "CHEAPEST_FREE",
+          type: 'CHEAPEST_FREE',
         }
       }
+
       if (formData.type === 'COMBO') {
         config.combo = {
-          productIds: formData.comboGroups.flatMap(group => group.items.map(item => item.productId)),
+          productIds: formData.comboGroups.flatMap(g =>
+            g.items.map(i => i.productId)
+          ),
           groups: formData.comboGroups,
           comboPrice: Number(formData.comboPrice) || 0,
         }
       }
 
-      const payload = {
+      if (formData.type === 'BIRTHDAY') {
+        config.freeItems = {
+          productIds: formData.birthdayProductIds,
+          minSelect: 1,
+          maxSelect:
+            Number(formData.birthdayFreeItemCount) || 1,
+        }
+      }
+
+      if (formData.type === 'NEW_USER') {
+        config.discount = {
+          mode: 'ORDER',
+          discountValue:
+            Number(formData.newUserDiscountValue) || 0,
+          productIds: [],
+          categoryName: null,
+        }
+      }
+
+      const payload: any = {
         title: formData.title,
         description: formData.description,
         offerType: formData.type,
         category: formData.type,
-        startDate: formData.startDate,
-        endDate: formData.endDate,
-        minOrderValue: formData.minOrderValue ? Number(formData.minOrderValue) : 0,
+
+        minOrderValue: formData.minOrderValue
+          ? Number(formData.minOrderValue)
+          : 0,
+
         priority: Number(formData.priority) || 0,
+
         isActive: formData.isActive,
         autoApply: formData.autoApply,
         isStackable: formData.isStackable,
+
         config,
-        perUserLimit: formData.perUserLimit ? Number(formData.perUserLimit) : undefined,
+
+        perUserLimit: formData.perUserLimit
+          ? Number(formData.perUserLimit)
+          : undefined,
+
+        userRules: {
+          firstOrderOnly:
+            formData.type === 'NEW_USER',
+
+          birthdayOnly:
+            formData.type === 'BIRTHDAY',
+        },
+      }
+
+      if (!noDates) {
+        payload.startDate = formData.startDate
+        payload.endDate = formData.endDate
       }
 
       await updateOffer(offerId, outletId, payload)
@@ -442,16 +562,41 @@ export default function EditOfferPage() {
                 </div>
               )}
 
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <Label className="text-xs text-gray-500">Start Date *</Label>
-                  <Input type="date" value={formData.startDate} onChange={e => handleChange("startDate", e.target.value)} />
+              {/* BIRTHDAY info banner */}
+              {formData.type === 'BIRTHDAY' && (
+                <div className="rounded-2xl border border-pink-200 bg-pink-50 px-4 py-3 text-sm text-pink-700">
+                  🎂 Birthday offers are automatically shown to users on their birthday.
                 </div>
-                <div className="flex-1">
-                  <Label className="text-xs text-gray-500">End Date *</Label>
-                  <Input type="date" value={formData.endDate} onChange={e => handleChange("endDate", e.target.value)} />
+              )}
+
+              {/* NEW_USER info banner */}
+              {formData.type === 'NEW_USER' && (
+                <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                  🎉 New User offers apply automatically on the first order at checkout.
                 </div>
-              </div>
+              )}
+
+              {!noDates && (
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Label className="text-xs text-gray-500">Start Date *</Label>
+                    <Input
+                      type="date"
+                      value={formData.startDate}
+                      onChange={e => handleChange("startDate", e.target.value)}
+                    />
+                  </div>
+
+                  <div className="flex-1">
+                    <Label className="text-xs text-gray-500">End Date *</Label>
+                    <Input
+                      type="date"
+                      value={formData.endDate}
+                      onChange={e => handleChange("endDate", e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
@@ -481,6 +626,118 @@ export default function EditOfferPage() {
           {/* ═══════════ STEP 2: Product Selection (B1G1 / COMBO / DISCOUNT-PRODUCT only) ═══════════ */}
           {currentStep === 2 && needsStep2 && (
             <div className="space-y-4 rounded-3xl border border-[#ead6c2] bg-white p-5 shadow-sm">
+
+              {/* ── BIRTHDAY config ── */}
+              {formData.type === 'BIRTHDAY' && (
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-pink-200 bg-pink-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-pink-800">🎂 Birthday Reward Items</p>
+                    <p className="mt-1 text-xs text-pink-700">
+                      Choose which products users can claim for free on their birthday, and how many they can select.
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs text-gray-500 mb-1 block">Number of free items user can claim *</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      placeholder="e.g. 1"
+                      value={formData.birthdayFreeItemCount}
+                      onChange={e => handleChange('birthdayFreeItemCount', e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[#8b6f5e]">
+                      User can pick up to this many items from the list below for free.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-4">
+                    <p className="text-xs font-semibold text-[#5C4033] uppercase tracking-wide">Add Birthday Reward Products</p>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <Label className="text-xs text-gray-500 mb-1 block">Filter by Category</Label>
+                        <Select value={appCategory} onValueChange={setAppCategory}>
+                          <SelectTrigger><SelectValue placeholder="All Categories" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Categories</SelectItem>
+                            {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-500 mb-1 block">Select Product</Label>
+                        <Select
+                          onValueChange={v => handleChange('birthdayProductIds', addUniqueProductId(
+                            formData.birthdayProductIds,
+                            v
+                          ))}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Pick a product" /></SelectTrigger>
+                          <SelectContent>
+                            {filteredAppProducts.map(p => (
+                              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Selected products */}
+                    {formData.birthdayProductIds.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {formData.birthdayProductIds.map(id => (
+                          <span
+                            key={id}
+                            className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-[#5C4033] ring-1 ring-[#ead6c2]"
+                          >
+                            {getProductLabel(id)}
+                            <button
+                              type="button"
+                              className="text-[#AE7A65] hover:text-red-500"
+                              onClick={() => handleChange('birthdayProductIds', removeProductId(formData.birthdayProductIds, id))}
+                            >×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-xs text-[#8b6f5e]">
+                      {formData.birthdayProductIds.length} product{formData.birthdayProductIds.length !== 1 ? 's' : ''} added. User can freely select up to{' '}
+                      <strong>{formData.birthdayFreeItemCount || 1}</strong> of these.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* ── NEW_USER config ── */}
+              {formData.type === 'NEW_USER' && (
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-blue-800">🎉 First Order Discount</p>
+                    <p className="mt-1 text-xs text-blue-700">
+                      This discount is applied automatically to the entire bill when a new user places their first order. No product selection needed.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-[#ead6c2] bg-[#fffaf6] p-5 space-y-2">
+                    <Label className="text-xs text-gray-500 mb-1 block">Discount on entire bill (%) *</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      placeholder="e.g. 10"
+                      value={formData.newUserDiscountValue}
+                      onChange={e => handleChange('newUserDiscountValue', e.target.value)}
+                    />
+                    {formData.newUserDiscountValue && Number(formData.newUserDiscountValue) > 0 && (
+                      <p className="text-xs text-[#16a34a] font-medium mt-1">
+                        ✓ New users will get {formData.newUserDiscountValue}% off their first order total.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
 
               {/* ── DISCOUNT (PRODUCT Scope): Select applicable products ── */}
               {formData.type === 'DISCOUNT' && formData.discountScope === 'PRODUCT' && (
@@ -644,8 +901,40 @@ export default function EditOfferPage() {
                     <p><strong>Combo Price:</strong> ₹{formData.comboPrice}</p>
                   </>
                 )}
+                {formData.type === 'BIRTHDAY' && (
+                  <>
+                    <p>
+                      <strong>Free Items Allowed:</strong>{' '}
+                      {formData.birthdayFreeItemCount}
+                    </p>
+                    <p>
+                      <strong>Reward Products:</strong>{' '}
+                      {formData.birthdayProductIds.length}
+                    </p>
+                    <p>
+                      <strong>Applicable:</strong> User Birthday
+                    </p>
+                  </>
+                )}
 
-                <p><strong>Dates:</strong> {formData.startDate} to {formData.endDate}</p>
+                {formData.type === 'NEW_USER' && (
+                  <>
+                    <p>
+                      <strong>First Order Discount:</strong>{' '}
+                      {formData.newUserDiscountValue}%
+                    </p>
+                    <p>
+                      <strong>Applicable:</strong> First Order Only
+                    </p>
+                  </>
+                )}
+
+                {!noDates && (
+                  <p>
+                    <strong>Dates:</strong>
+                    {formData.startDate} to {formData.endDate}
+                  </p>
+                )}
                 {formData.minOrderValue && <p><strong>Min Order:</strong> ₹{formData.minOrderValue}</p>}
                 <p><strong>Priority:</strong> {formData.priority}</p>
 

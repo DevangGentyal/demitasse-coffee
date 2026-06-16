@@ -37,6 +37,17 @@ const readNumber = (value: unknown): number => {
 
 const readString = (v: unknown): string => String(v ?? '').trim();
 
+const isSyntheticNewUserItem = (item: unknown): boolean => {
+	const v = (item || {}) as Record<string, unknown>;
+	const offerType = String(v.offerType || '').trim().toUpperCase();
+	const productId = String(v.productId || v.id || '').trim();
+	return (
+		offerType === 'NEW_USER' &&
+		(!productId || productId.startsWith('new_user_') || productId.startsWith('discount_')) &&
+		(!Array.isArray(v.items) || (v.items as unknown[]).length === 0)
+	);
+};
+
 const summarizeIncomingItem = (item: InputItem | unknown) => {
 	const value = (item || {}) as Record<string, unknown>;
 	const nestedItems = Array.isArray(value.items) ? value.items : [];
@@ -106,8 +117,24 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			};
 
 			// ── Normalise & validate new items ────────────────────────────────
+			// Filter out synthetic NEW_USER offer wrapper items (they have no products),
+			// capture their offerId to use as the effective offer.
+			const syntheticNewUserOfferIds: string[] = [];
+			const realItems = items.filter((incomingItem) => {
+				if (isSyntheticNewUserItem(incomingItem)) {
+					const oid = readString((incomingItem as unknown as Record<string, unknown>).offerId);
+					if (oid) syntheticNewUserOfferIds.push(oid);
+					return false;
+				}
+				return true;
+			});
+
+			// If a NEW_USER offer came from a synthetic wrapper and no effectiveOfferId exists yet, use it
+			const resolvedEffectiveOfferId: string | null =
+				effectiveOfferId || syntheticNewUserOfferIds[0] || null;
+
 			const newNormalized: NormalisedOrderItem[] = [];
-			for (const incomingItem of items) {
+			for (const incomingItem of realItems) {
 				console.info('[addItemsToOrder] normalizing incoming item', summarizeIncomingItem(incomingItem));
 				const normalisedItems = await normalizeOrderItemsForPricing([incomingItem], resolveProductPrice);
 				for (const normalised of normalisedItems) {
@@ -131,7 +158,7 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 					normalised.status = 'in-progress';
 					normalised.createdBy = actorId;
 					normalised.addedAt = new Date();
-					normalised.offerId = readString(normalised.offerId) || readString(incomingItem.offerId) || effectiveOfferId;
+					normalised.offerId = readString(normalised.offerId) || readString(incomingItem.offerId) || resolvedEffectiveOfferId;
 					newNormalized.push(normalised);
 				}
 			}
@@ -148,7 +175,7 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const mergedItems = [...existingItems, ...newNormalized];
 
 			const offerIds = new Set<string>();
-			if (effectiveOfferId) offerIds.add(effectiveOfferId);
+			if (resolvedEffectiveOfferId) offerIds.add(resolvedEffectiveOfferId);
 			for (const item of mergedItems) {
 				const itemOfferId = readString(item.offerId);
 				if (itemOfferId) offerIds.add(itemOfferId);
@@ -157,12 +184,38 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 
 			// ── subTotal ──────────────────────────────────────────────────────
 			const subTotal = calculateSubtotal(mergedItems);
+			const currentOffer =
+				resolvedEffectiveOfferId
+					? offerDocsById.get(resolvedEffectiveOfferId)
+					: null;
+
+			if (
+				currentOffer &&
+				(
+					currentOffer.offerType === "NEW_USER" ||
+					currentOffer.type === "NEW_USER"
+				)
+			) {
+
+				if (mergedItems.length === 0) {
+					throw new Error("EMPTY_CART");
+				}
+
+				const minOrder =
+					Number(currentOffer.minOrderValue || 0);
+
+				if (subTotal < minOrder) {
+					throw new Error(
+						`MIN_ORDER_VALUE_NOT_REACHED:${minOrder}`
+					);
+				}
+			}
 
 			// ── Apply offer to items individually ──────────────────────────────
 			const itemsWithPricing = applyOfferPricingByGroup(mergedItems, offerDocsById as any, applyTax);
 
 			// ── Get order type ───────────────────────────────────────────────
-			const { orderType } = applyOffer({ subTotal, items: itemsWithPricing }, effectiveOfferId ? (offerDocsById.get(effectiveOfferId) || null) : null);
+			const { orderType } = applyOffer({ subTotal, items: itemsWithPricing }, resolvedEffectiveOfferId ? (offerDocsById.get(resolvedEffectiveOfferId) || null) : null);
 
 			// ── Grand total ───────────────────────────────────────────────────
 			const pricing = buildPricingSummaryFromItems(itemsWithPricing);
@@ -201,8 +254,8 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const updatePayload = {
 				orderType,
 				items: itemsWithPricing,
-				autoAppliedOfferId: effectiveOfferId,
-				offerId: effectiveOfferId,
+				autoAppliedOfferId: resolvedEffectiveOfferId,
+				offerId: resolvedEffectiveOfferId,
 				subTotal: pricing.subTotal,
 				discount: pricing.discount,
 				discountedPrice: pricing.discountedPrice,

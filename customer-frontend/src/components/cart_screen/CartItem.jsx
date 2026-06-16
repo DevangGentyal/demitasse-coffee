@@ -6,16 +6,21 @@ export default function CartItem({ item, onQtyChange }) {
   if (item.isBirthday) {
     return (
       <div className="bg-white rounded-2xl p-4 shadow-md border border-pink-200">
+
+        {/* Header */}
         <div className="flex justify-between items-start mb-2">
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full font-bold uppercase tracking-wide">
                 🎂 Birthday Treat
               </span>
-              <h3 className="font-semibold text-[#5C4033]">{item.offerTitle || item.name}</h3>
+
+              <h3 className="font-semibold text-[#5C4033]">
+                {item.offerTitle || item.name}
+              </h3>
             </div>
-            <p className="text-xs font-medium text-[#AE7A65] mt-1 ml-1">{item.name}</p>
           </div>
+
           <button
             onClick={() => onQtyChange(0)}
             className="text-xs bg-red-50 text-red-500 px-2.5 py-1 rounded-full font-semibold border border-red-200 hover:bg-red-100 transition"
@@ -24,25 +29,41 @@ export default function CartItem({ item, onQtyChange }) {
           </button>
         </div>
 
-        {/* Customizations & Add-ons */}
-        <div className="text-xs text-gray-500 mt-2 ml-1 space-y-0.5">
-          {Object.values(item.variation || {}).map((v, i) => (
-            <div key={`v-${i}`}>• {String(v)}</div>
-          ))}
-          {Object.values(item.addons || {}).flat().map((a, i) => (
-            <div key={`a-${i}`}>+ {String(a)} (FREE 🎂)</div>
+        {/* Birthday Products */}
+        <div className="space-y-2 mt-2">
+          {(item.freeItems || item.items || []).map((product, idx) => (
+            <div
+              key={idx}
+              className="bg-pink-50 rounded-lg px-3 py-2 text-sm"
+            >
+              <div className="font-medium text-[#5C4033]">
+                {product.itemName || product.name}
+              </div>
+
+              {product.originalPrice > 0 && (
+                <div className="text-xs text-gray-400 line-through">
+                  ₹{product.originalPrice}
+                </div>
+              )}
+
+              <div className="text-xs text-pink-500 font-bold">
+                FREE 🎂
+              </div>
+            </div>
           ))}
         </div>
 
+        {/* Footer */}
         <div className="mt-3 pt-2 border-t border-pink-100 flex justify-between items-center">
-          <div className="text-xs text-gray-500 font-medium tracking-tight">Applied on: {item.name}</div>
-          <div className="flex items-center gap-2">
-            {item.originalPrice > 0 && (
-              <span className="text-xs text-gray-400 line-through">₹{item.originalPrice}</span>
-            )}
-            <span className="text-sm font-bold text-pink-500">FREE 🎂</span>
+          <div className="text-xs text-gray-500 font-medium">
+            Birthday Offer Applied
           </div>
+
+          <span className="text-sm font-bold text-pink-500">
+            FREE 🎂
+          </span>
         </div>
+
       </div>
     );
   }
@@ -120,7 +141,7 @@ export default function CartItem({ item, onQtyChange }) {
   if (item.isManualB1G1) {
     return (
       <div className="bg-white rounded-2xl p-4 shadow-md border border-orange-100">
-        
+
         {/* B1G1 Header */}
         <div className="flex justify-between items-start mb-2">
           <div>

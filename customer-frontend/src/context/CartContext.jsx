@@ -9,13 +9,13 @@ export const useCart = () => useContext(CartContext);
 
 export function CartProvider({ children }) {
   const [cart, setCart] = useState([]);
-  const [appliedOffers, setAppliedOffers] = useState([]); 
-  const [couponCodes, setCouponCodes] = useState([]); 
+  const [appliedOffers, setAppliedOffers] = useState([]);
+  const [couponCodes, setCouponCodes] = useState([]);
   const [autoAppliedOffer, setAutoAppliedOffer] = useState(null); // ✅ NEW: Track auto-applied registration offer
 
   const offerContext = useOffers();
   const menuContext = useMenu();
-  
+
   const offers = offerContext?.offers || [];
   const fullUser = offerContext?.fullUser || null;
   const products = menuContext?.products || [];
@@ -24,7 +24,7 @@ export function CartProvider({ children }) {
   const isSameItem = useCallback((a, b) => {
     return (
       a.id === b.id &&
-      !!a.isFree === !!b.isFree && 
+      !!a.isFree === !!b.isFree &&
       !!a.isCombo === !!b.isCombo &&
       !!a.isManualB1G1 === !!b.isManualB1G1 &&
       JSON.stringify(a.variation || {}) === JSON.stringify(b.variation || {}) &&
@@ -66,7 +66,7 @@ export function CartProvider({ children }) {
     });
 
     return { finalItems, validAppliedOffers };
-  }, []); 
+  }, []);
 
   // Main Effect: Watch factors and update state
   useEffect(() => {
@@ -90,15 +90,32 @@ export function CartProvider({ children }) {
 
     // ✅ NEW: Check for auto-applied registration offer ONLY over normal items
     const regOffer = getAutoRegistrationOffer(offers, user);
-    
+
     // Check if normal (non-combo, non-B1G1, non-free) items exist in cart
     const normalItemsCount = finalItems.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1).length;
-    
+    console.log("AUTO EFFECT", {
+      regOffer,
+      normalItemsCount,
+      hasPlacedFirstOrder: user.hasPlacedFirstOrder,
+      autoAppliedOffer
+    });
+
+    // Manual NEW_USER offer already selected — skip auto registration offer
+    if (cart.some(i => i.offerType === "NEW_USER")) {
+      return;
+    }
+    if (autoAppliedOffer?.offerType === "NEW_USER") {
+      return;
+    }
+
     if (regOffer && normalItemsCount > 0 && !user.hasPlacedFirstOrder) {
       setAutoAppliedOffer({
         offerId: regOffer.id,
-        offerType: regOffer.discountType || "PERCENT",
-        discountValue: regOffer.discountValue || 0,
+        offerType: "PERCENT",
+        discountValue:
+          regOffer?.config?.discount?.discountValue ||
+          regOffer?.discountValue ||
+          0,
         autoApplied: true,
         title: regOffer.title || "First Order Offer"
       });
@@ -215,7 +232,7 @@ export function CartProvider({ children }) {
       originalTotal: originalTotal,
       discount: discount,
       qty: 1,
-      isFree: false, 
+      isFree: false,
       isManualB1G1: true,
       variation: {},
       addOns: [],
@@ -238,18 +255,13 @@ export function CartProvider({ children }) {
 
   // ✅ NEW: ADD DISCOUNT OFFER TO CART (INTERACTIVE)
   const addDiscountToCart = (discountData) => {
-    /*
-      discountData = {
-        offerId, offerType: "DISCOUNT", offerTitle,
-        originalPrice, discountAmount, finalPrice,
-        discountType, discountValue,
-        items: [{ productId, name, price, customizations, addOns, addOnsCost }]
-      }
-    */
+    console.log("ADD DISCOUNT CALLED", discountData);
+    // NEW USER OFFER
+
     const discountCartItem = {
       id: `discount_${discountData.offerId}_${Date.now()}`,
       offerId: discountData.offerId,
-      offerType: "DISCOUNT",
+      offerType: discountData.offerType || "DISCOUNT",
       offerTitle: discountData.offerTitle || "Discount Offer",
       name: discountData.offerTitle || "Discount Deal",
       price: discountData.finalPrice,
@@ -265,6 +277,7 @@ export function CartProvider({ children }) {
       addOns: [],
       totalPrice: discountData.finalPrice,
       discountedPrice: discountData.finalPrice,
+
       items: discountData.items.map(item => ({
         productId: item.productId,
         name: item.name,
@@ -280,30 +293,68 @@ export function CartProvider({ children }) {
 
   // ✅ NEW: ADD BIRTHDAY FREE ITEM TO CART
   const addBirthdayToCart = (birthdayData) => {
-    /*
-      birthdayData = {
-        offerId, offerTitle,
-        productId, itemName, originalPrice
-      }
-    */
     const birthdayCartItem = {
       id: `birthday_${birthdayData.offerId}_${Date.now()}`,
       offerId: birthdayData.offerId,
       offerType: "BIRTHDAY",
       offerTitle: birthdayData.offerTitle || "Birthday Treat 🎂",
-      name: birthdayData.itemName,
-      price: 0,
-      originalPrice: birthdayData.originalPrice || 0,
-      qty: 1,
+
       isFree: true,
       isBirthday: true,
-      variation: birthdayData.customizations || {},
-      addOns: birthdayData.addOns || [],
-      addOnsCost: 0,
+
+      qty: 1,
+      price: 0,
+      originalPrice: 0,
+
+      // ✅ store all selected birthday products
+      freeItems: birthdayData.freeItems || [],
+      items: birthdayData.items || [],
     };
 
     setCart(prev => [...prev, birthdayCartItem]);
   };
+
+  // ✅ NEW: ADD NEW_USER (first-order) OFFER TO CART — no products, pure discount metadata
+  const addNewUserOfferToCart = (offerData) => {
+    setCart(prev => {
+      const regularItems = prev.filter(
+        i => !i.isFree && !i.isCombo && !i.isManualB1G1 && !i.isDiscount && !i.isBirthday && i.offerType !== "NEW_USER"
+      );
+      const regularTotal = regularItems.reduce(
+        (sum, item) => sum + (Number(item.totalPrice ?? (item.price * item.qty)) || 0),
+        0
+      );
+      const discountValue = Number(offerData.discountValue || 0);
+      const discountAmount = Math.round((regularTotal * discountValue) / 100);
+      const finalPrice = Math.max(regularTotal - discountAmount, 0);
+
+      const newUserCartItem = {
+        id: `new_user_${offerData.offerId}`,
+        offerId: offerData.offerId,
+        offerType: "NEW_USER",
+        offerTitle: offerData.offerTitle || "Welcome Offer",
+        name: offerData.offerTitle || "Welcome Offer",
+        discountType: offerData.discountType || "PERCENT",
+        discountValue,
+        originalPrice: regularTotal,
+        discountAmount,
+        finalPrice,
+        price: 0,
+        totalPrice: 0,
+        discountedPrice: finalPrice,
+        qty: 1,
+        isFree: false,
+        isDiscount: true,
+        variation: {},
+        addOns: [],
+        items: [],  // no products — NEW_USER is a cart-level % discount
+      };
+
+      // Remove any existing NEW_USER offer item, then add updated one
+      return [...prev.filter(i => i.offerType !== "NEW_USER"), newUserCartItem];
+    });
+  };
+
 
   // ❌ REMOVE
   const removeFromCart = (target) => {
@@ -344,8 +395,44 @@ export function CartProvider({ children }) {
     setAutoAppliedOffer(null);
   };
 
+  // ✅ Dynamically recompute NEW_USER discount whenever regular cart items change
+  useEffect(() => {
+    setCart(prev => {
+      const newUserItem = prev.find(i => i.offerType === "NEW_USER");
+      if (!newUserItem) return prev;
+
+      const regularItems = prev.filter(
+        i => !i.isFree && !i.isCombo && !i.isManualB1G1 && !i.isDiscount && !i.isBirthday && i.offerType !== "NEW_USER"
+      );
+      if (regularItems.length === 0) {
+        // No regular items left — remove the NEW_USER offer
+        return prev.filter(i => i.offerType !== "NEW_USER");
+      }
+
+      const regularTotal = regularItems.reduce(
+        (sum, item) => sum + (Number(item.totalPrice ?? (item.price * item.qty)) || 0),
+        0
+      );
+      const discountValue = Number(newUserItem.discountValue || 0);
+      const discountAmount = Math.round((regularTotal * discountValue) / 100);
+      const finalPrice = Math.max(regularTotal - discountAmount, 0);
+
+      const updated = { ...newUserItem, originalPrice: regularTotal, discountAmount, finalPrice };
+      if (
+        updated.discountAmount === newUserItem.discountAmount &&
+        updated.originalPrice === newUserItem.originalPrice
+      ) {
+        return prev; // no change — avoid loop
+      }
+
+      return prev.map(i => i.offerType === "NEW_USER" ? updated : i);
+    });
+  }, [cart.filter(i => i.offerType !== "NEW_USER").map(i => `${i.id}:${i.qty}`).join(",")]);
+
   // 💰 TOTAL PRICE (handles combos, B1G1, discount — price already correct for special items)
+  // NEW_USER items have totalPrice=0 (the discount deduction is shown separately in Cart.jsx)
   const totalPrice = cart.reduce((total, item) => {
+    if (item.offerType === "NEW_USER") return total; // NEW_USER discount shown separately
     if (item.isFree && !item.isManualB1G1) return total;
     if (item.isCombo || item.isManualB1G1 || item.isDiscount) return total + Number(item.totalPrice ?? item.price ?? 0);
     return total + Number(item.totalPrice ?? (item.price * item.qty) ?? 0);
@@ -361,7 +448,8 @@ export function CartProvider({ children }) {
         addComboToCart,
         addB1G1ToCart,
         addDiscountToCart,
-        addBirthdayToCart, // ✅ NEW
+        addNewUserOfferToCart, // ✅ NEW
+        addBirthdayToCart,
         removeFromCart,
         updateQty,
         clearCart,

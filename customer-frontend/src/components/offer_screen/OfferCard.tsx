@@ -166,15 +166,34 @@ const getOfferB1G1ProductIds = (offer: Offer | null | undefined): string[] => {
   return normalizeProductIds(rawIds);
 };
 
-const getOfferBirthdayProductIds = (offer: Offer | null | undefined): string[] => {
-  const rewardConfig: any = offer?.config?.reward || {};
-  const rawIds = rewardConfig.productIds || offer?.rewardItems || [];
+const getOfferBirthdayProductIds = (offer: any) => {
+  const freeItemsConfig: any =
+    offer?.config?.freeItems ||
+    offer?.config?.reward ||
+    {};
+
+  const rawIds =
+    freeItemsConfig.productIds ||
+    offer?.rewardItems ||
+    [];
+
   return normalizeProductIds(rawIds);
+};
+const getBirthdaySelectionRules = (offer: any) => {
+  const cfg =
+    offer?.config?.freeItems ||
+    offer?.config?.reward ||
+    {};
+
+  return {
+    minSelect: Number(cfg.minSelect ?? 1),
+    maxSelect: Number(cfg.maxSelect ?? 1),
+  };
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = false }) => {
-  const { cart, appliedOffers, addComboToCart, addB1G1ToCart, addDiscountToCart, addBirthdayToCart } = useCart();
+  const { cart, addComboToCart, addB1G1ToCart, addDiscountToCart, addBirthdayToCart, addNewUserOfferToCart, totalPrice: cartTotalPrice, appliedOffers } = useCart();
   const { fullUser } = useOffers();
   const { products } = useMenu();
   const navigate = useNavigate();
@@ -186,6 +205,9 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showBirthdayModal, setShowBirthdayModal] = useState(false);
   const [addedMsg, setAddedMsg] = useState("");
+  const shouldAutoApply = offer?.autoApply === true;
+
+
 
   // ─── Product lookup map (from MenuContext) ──────────────────────────────────
   const productsMap: Record<string, any> = useMemo(() => {
@@ -210,6 +232,25 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const b1g1Config = offer?.config?.b1g1 || null;
   const isB1G1 = offer?.discountType === "BOGO" || offer?.discountType === "B1G1" || resolvedOfferType === "B1G1" || resolvedOfferType === "BOGO" || Boolean(offer?.config?.b1g1);
 
+
+
+  // ─── Birthday Offer detection ───────────────────────────────────────────
+  const isBirthdayOffer = offer ? (
+    (resolvedOfferType === "REWARD" && offer.category === "BIRTHDAY") ||
+    resolvedOfferType === "BIRTHDAY" ||
+    offer.applicableFor === "birthday" ||
+    offer.userRules?.birthdayOnly === true
+  ) : false;
+
+  const perUserLimit = offer.userRules?.perUserLimit ?? (offer as any).perUserLimit;
+
+  // First Order Offer detection
+  const isFirstOrder = offer.userRules?.firstOrderOnly;
+
+  const isNewUserOffer =
+    resolvedOfferType === "NEW_USER" ||
+    offer.userRules?.firstOrderOnly === true;
+
   // ─── Interactive Discount detection ──────────────────────────────────────────
   const rawProductIds = getOfferDiscountProductIds(offer);
   const isProductOffer = rawProductIds.length > 0;
@@ -221,30 +262,24 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
     Boolean(offer?.category && offer?.category !== "all")
   );
 
+  const canApplyDiscount =
+    isNewUserOffer ||
+    isProductOffer ||
+    isCategoryOffer ||
+    offer?.config?.selection?.enabled === true;
+
   const isInteractiveDiscount =
-    (resolvedOfferType === "DISCOUNT" || isCategoryOffer || offer?.discountType === "PERCENT" || offer?.discountType === "FLAT" || offer?.config?.discount) &&
-    (isProductOffer || isCategoryOffer || offer?.config?.selection?.enabled === true) &&
-    !isCombo && !isB1G1;
-
-  if (resolvedOfferType === "CATEGORY_DISCOUNT" || isCategoryOffer) {
-    console.log("=== APPLY BUTTON DEBUG ===");
-    console.log("Offer Type:", resolvedOfferType || offer?.type);
-    console.log("Product IDs:", rawProductIds);
-    console.log("Is Product Offer:", isProductOffer);
-    console.log("Is Category Offer:", isCategoryOffer);
-    console.log("Can Apply (isInteractiveDiscount):", isInteractiveDiscount);
-    console.log("==========================");
-  }
-
-  // ─── Birthday Offer detection ───────────────────────────────────────────
-  const isBirthdayOffer = offer ? (
-    (resolvedOfferType === "REWARD" && offer.category === "BIRTHDAY") ||
-    resolvedOfferType === "BIRTHDAY" ||
-    offer.applicableFor === "birthday" ||
-    offer.userRules?.birthdayOnly === true
-  ) : false;
-
-  const perUserLimit = offer.userRules?.perUserLimit ?? (offer as any).perUserLimit;
+    (
+      resolvedOfferType === "DISCOUNT" ||
+      resolvedOfferType === "NEW_USER" ||
+      isCategoryOffer ||
+      offer?.discountType === "PERCENT" ||
+      offer?.discountType === "FLAT" ||
+      offer?.config?.discount
+    ) &&
+    canApplyDiscount &&
+    !isCombo &&
+    !isB1G1;
 
   // ─── Discount badge text ────────────────────────────────────────────────────
   const resolvedDiscountValue = offer?.discountValue || offer?.config?.discountValue || 0;
@@ -265,17 +300,99 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   // ─── Handlers ───────────────────────────────────────────────────────────────
   const handleCTAClick = () => {
     const userType = localStorage.getItem("userType");
-    if (userType === "guest") { setShowLoginPopup(true); return; }
+
+    if (userType === "guest") {
+      setShowLoginPopup(true);
+      return;
+    }
+
+    if (isNewUserOffer) {
+      // Validate: cart must have at least 1 regular item
+      const regularItems = cart.filter(
+        (i: any) => !i.isFree && !i.isCombo && !i.isManualB1G1 && !i.isDiscount && !i.isBirthday && i.offerType !== "NEW_USER"
+      );
+      if (regularItems.length === 0) {
+        setApplyError("Add at least 1 item to your cart first.");
+        setTimeout(() => setApplyError(""), 3000);
+        return;
+      }
+
+      // Validate: cart total must meet minOrderValue
+      const minOrderVal = Number(offer.minOrderValue || 0);
+      const regularTotal = regularItems.reduce(
+        (sum: number, item: any) => sum + (Number(item.totalPrice ?? item.price) || 0) * (Number(item.qty) || 1),
+        0
+      );
+      if (minOrderVal > 0 && regularTotal < minOrderVal) {
+        setApplyError(`Minimum order value ₹${minOrderVal} required to apply this offer.`);
+        setTimeout(() => setApplyError(""), 3000);
+        return;
+      }
+
+      const discountValue =
+        offer?.config?.discount?.discountValue ||
+        offer?.discountValue ||
+        0;
+
+      // Compute dynamic discount amount from current cart total
+      const discountAmount = Math.round((regularTotal * discountValue) / 100);
+      const finalPrice = Math.max(regularTotal - discountAmount, 0);
+
+      addNewUserOfferToCart({
+        offerId: offer.id,
+        offerTitle: offer.title || "Welcome Offer",
+        discountType: "PERCENT",
+        discountValue,
+        originalPrice: regularTotal,
+        discountAmount,
+        finalPrice,
+      });
+      console.log("NEW USER CLICKED", offer, { regularTotal, discountAmount });
+      handleAdded("Welcome Offer");
+      return;
+    }
 
     if (isCombo) {
       setApplyError("");
       setShowComboModal(true);
-    } else if (isB1G1) {
+      return;
+    }
+
+    if (isB1G1) {
       setShowB1G1Modal(true);
-    } else if (isInteractiveDiscount) {
+      return;
+    }
+
+    if (isInteractiveDiscount) {
+      const cartTotal = cart.reduce(
+        (sum: any, item: any) => sum + (item.totalPrice || item.price || 0),
+        0
+      );
+
+      if (cart.length === 0) {
+        setApplyError("Add at least 1 item first");
+        return;
+      }
+
+      if (cartTotal < (offer.minOrderValue || 0)) {
+        setApplyError(
+          `Minimum order value ₹${offer.minOrderValue} required`
+        );
+        return;
+      }
+
       setShowDiscountModal(true);
-    } else if (isBirthdayOffer) {
+      return;
+    }
+
+    if (isBirthdayOffer) {
+      if (!fullUser?.dob || !isBirthday(fullUser.dob)) {
+        setApplyError("This offer is valid only on your birthday.");
+        setTimeout(() => setApplyError(""), 3000);
+        return;
+      }
       setShowBirthdayModal(true);
+      return;
     }
   };
 
@@ -395,28 +512,33 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
           </div>
 
           {/* ── CTA BUTTONS ──────────────────────────────────────────────────── */}
-          {(isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer) && (
-            <div className="mt-4 flex justify-center">
-              <button
-                disabled={isAddedInCart}
-                onClick={isAddedInCart ? undefined : handleCTAClick}
-                className={`w-full py-2.5 text-sm font-bold rounded-xl shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#16a34a]
-                ${isAddedInCart
-                    ? "bg-[#16a34a]/80 text-white cursor-not-allowed shadow-none"
-                    : "bg-[#16a34a] hover:bg-green-700 text-white active:scale-95"
-                  }`}
-              >
-                {isAddedInCart ? "Added ✅" : isCombo ? "Add Combo" : isInteractiveDiscount ? "Apply Offer" : isBirthdayOffer ? "Claim Free Item 🎂" : "Add Offer"}
-              </button>
-            </div>
-          )}
 
-          {/* ── Registration / First Order ──────────────────────── */}
-          {!isCombo && !isB1G1 && !isInteractiveDiscount && !isBirthdayOffer && offer.userRules?.firstOrderOnly && (
-            <div className="mt-4 text-center text-[#16a34a] text-xs font-bold bg-[#16a34a]/10 py-2.5 rounded-xl border border-[#16a34a]/20 flex items-center justify-center gap-2">
-              <span>🎉</span> Will apply automatically on checkout
-            </div>
-          )}
+          {!shouldAutoApply &&
+            (isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer || isFirstOrder) && (
+              <div className="mt-4 flex justify-center">
+                <button
+                  disabled={isAddedInCart}
+                  onClick={isAddedInCart ? undefined : handleCTAClick}
+                  className={`w-full py-2.5 text-sm font-bold rounded-xl shadow-sm transition-all
+        ${isAddedInCart
+                      ? "bg-[#16a34a]/80 text-white cursor-not-allowed"
+                      : "bg-[#16a34a] hover:bg-green-700 text-white"
+                    }`}
+                >
+                  {isAddedInCart
+                    ? "Added ✅"
+                    : isCombo
+                      ? "Add Combo"
+                      : isInteractiveDiscount
+                        ? "Apply Offer"
+                        : isBirthdayOffer
+                          ? "Claim Free Item 🎂"
+                          : "Add Offer"}
+                </button>
+              </div>
+            )}
+
+
         </div>
 
         {/* ── Combo Builder Modal ──────────────────────────────────────────────── */}
@@ -504,7 +626,8 @@ interface BirthdayBuilderProps {
 const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   offer, productsMap, onClose, onAdded, addBirthdayToCart
 }) => {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { minSelect, maxSelect } = getBirthdaySelectionRules(offer);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [fetchedProducts, setFetchedProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   // Customization state — same pattern as B1G1/Combo
@@ -571,7 +694,17 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
 
   const applicableProducts = fetchedProducts;
 
-  const selectedProduct = selectedId ? fetchedProducts.find((p: any) => p.id === selectedId) || productsMap[selectedId] || null : null;
+  const selectedProducts = selectedIds
+    .map(id =>
+      fetchedProducts.find((p: any) => p.id === id) ||
+      productsMap[id]
+    )
+    .filter(Boolean);
+
+  const selectedProduct =
+    selectedProducts.length > 0
+      ? selectedProducts[0]
+      : null;
 
   // Check if selected product has customizations
   const hasCustomizable = selectedProduct && (
@@ -580,34 +713,69 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   const hasCustomizationSaved = Object.keys(customization.variations).length > 0 || Object.keys(customization.addons).length > 0;
 
   const handleSelect = (id: string) => {
-    if (selectedId === id) return; // Already selected
-    setSelectedId(id);
-    // Reset customization when switching products
-    setCustomization({ variations: {}, addons: {} });
-    // Auto-open customization sheet if product has customizations
-    const product = fetchedProducts.find((p: any) => p.id === id) || productsMap[id];
-    if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) {
-      setCustomizingProduct(true);
+    const alreadySelected = selectedIds.includes(id);
+
+    if (alreadySelected) {
+      setSelectedIds(prev => prev.filter(pid => pid !== id));
+
+      if (selectedIds.length === 1) {
+        setCustomization({
+          variations: {},
+          addons: {}
+        });
+      }
+
+      return;
+    }
+
+    if (selectedIds.length >= maxSelect) {
+      return;
+    }
+
+    setSelectedIds(prev => [...prev, id]);
+
+    if (selectedIds.length === 0) {
+      setCustomization({
+        variations: {},
+        addons: {}
+      });
+
+      const product =
+        fetchedProducts.find((p: any) => p.id === id) ||
+        productsMap[id];
+
+      if (
+        product &&
+        ((product.variations?.length > 0) ||
+          (product.customizations?.length > 0))
+      ) {
+        setCustomizingProduct(true);
+      }
     }
   };
 
+
   const handleAddToCart = () => {
-    if (!selectedProduct) return;
+    if (selectedProducts.length < minSelect) return;
+
+    const freeItems = selectedProducts.map((product: any) => ({
+      productId: product.id,
+      name: product.name,
+      price: 0,
+      customizations: customization.variations,
+      addOns: transformAddOns(product, customization.addons),
+      addOnsCost: calcAddOnsCost(product, customization.addons)
+    }));
 
     addBirthdayToCart({
       offerId: offer.id,
-      offerTitle: offer.title || "Birthday Treat 🎂",
-      productId: selectedProduct.id,
-      itemName: selectedProduct.name,
-      originalPrice: selectedProduct.price || 0,
-      customizations: customization.variations,
-      addOns: transformAddOns(selectedProduct, customization.addons),
-      addOnsCost: 0, // Birthday add-ons are FREE
+      offerTitle: offer.title,
+      freeItems,
+      items: freeItems
     });
 
     onAdded();
   };
-
   // Show customization sheet (same as B1G1/Combo pattern)
   if (customizingProduct && selectedProduct) {
     return (
@@ -653,7 +821,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
           ) : applicableProducts.length > 0 ? (
             applicableProducts.map((p: any) => {
               const id = p.id;
-              const isSelected = selectedId === id;
+              const isSelected = selectedIds.includes(id);
               const isVeg = p.isVeg === true;
               const isNonVeg = p.isVeg === false;
               const productHasCustomizable = (p.variations?.length > 0) || (p.customizations?.length > 0);
@@ -704,19 +872,25 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
 
         {/* CTA */}
         <div className="px-5 py-4 border-t border-gray-100 bg-white shrink-0">
-          {selectedProduct && (
-            <div className="bg-pink-50 rounded-xl px-4 py-2.5 mb-3 flex justify-between items-center">
-              <span className="text-sm text-[#5C4033] font-medium">{selectedProduct.name}</span>
-              <div className="text-right">
-                <span className="text-xs text-gray-400 line-through mr-1.5">₹{selectedProduct.price}</span>
-                <span className="text-sm font-bold text-pink-500">FREE</span>
+          {selectedProducts.length > 0 && (
+            <div className="bg-pink-50 rounded-xl px-4 py-2.5 mb-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-[#5C4033] font-medium">
+                  {selectedProducts.length} item(s) selected
+                </span>
+
+                <span className="text-sm font-bold text-pink-500">
+                  FREE 🎂
+                </span>
               </div>
             </div>
           )}
-          <button onClick={handleAddToCart} disabled={!selectedId}
+          <button
+            onClick={handleAddToCart}
+            disabled={selectedIds.length < minSelect}
             className={`w-full py-3.5 rounded-full font-bold text-white shadow-lg transition-all
-              ${selectedId ? "bg-pink-500 hover:bg-pink-600" : "bg-gray-300 cursor-not-allowed"}`}>
-            {selectedId ? "Claim Birthday Treat 🎂" : "Select Your Free Item"}
+              ${selectedIds.length >= minSelect ? "bg-pink-500 hover:bg-pink-600" : "bg-gray-300 cursor-not-allowed"}`}>
+            {selectedIds.length >= minSelect ? "Claim Birthday Treat 🎂" : `Select Your Free Item (${minSelect - selectedIds.length} more)`}
           </button>
         </div>
       </div>
@@ -846,29 +1020,48 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
   const finalPrice = Math.max(0, basePrice + addOnsCost - discountAmount);
 
   const handleAddToCart = () => {
+
+    // NEW USER OFFER
+    if (resolvedOfferType === "NEW_USER") {
+
+      addDiscountToCart({
+        offerId: offer.id,
+        offerType: "NEW_USER",
+        offerTitle: offer.title || "Welcome Offer",
+        discountValue
+      });
+
+      onAdded();
+      return;
+    }
+
     if (selections.length === 0) return;
 
     const items = selections.map((id, idx) => {
       const p = productsMap[id];
       if (!p) return null;
-      const cust = customizations[idx] || { variations: {}, addons: {} };
-      const itemAddOnsCost = calcAddOnsCost(p, cust.addons);
+
+      const cust =
+        customizations[idx] ||
+        { variations: {}, addons: {} };
+
+      const itemAddOnsCost =
+        calcAddOnsCost(p, cust.addons);
+
       return {
         productId: id,
-        name: p.name || "Item",
-        price: p.price || 0,
+        name: p.name,
+        price: p.price,
         customizations: cust.variations,
         addOns: transformAddOns(p, cust.addons),
         addOnsCost: itemAddOnsCost
       };
-    }).filter(Boolean) as any[];
-
-    if (items.length === 0) return;
+    }).filter(Boolean);
 
     addDiscountToCart({
       offerId: offer.id,
       offerType: resolvedOfferType || "DISCOUNT",
-      offerTitle: offer.title || "Discount Offer",
+      offerTitle: offer.title,
       originalPrice: basePrice,
       discountAmount,
       finalPrice,

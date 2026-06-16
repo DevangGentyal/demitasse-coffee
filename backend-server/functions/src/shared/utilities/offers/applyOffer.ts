@@ -9,9 +9,10 @@
 //              (offer.comboPrice is the fixed bundle price stored on the offer doc)
 //   DISCOUNT → discount = floor(subTotal * offer.discountPercent / 100)
 
-export type OrderType = 'BASIC' | 'B1G1' | 'COMBO' | 'DISCOUNT';
+export type OrderType = 'BASIC' | 'B1G1' | 'COMBO' | 'DISCOUNT' | 'NEW_USER';
 
 export interface OfferDocument {
+	minOrderValue: number;
 	id: string;
 	offerType?: string;
 	type?: string;
@@ -155,6 +156,84 @@ export const applyOffer = (
 		}
 
 		case 'DISCOUNT': {
+			const discountConfig = offer.config?.discount || {};
+			const discountMode = String(discountConfig.mode || discountConfig.type || '').toUpperCase();
+			const percent = readNumber(discountConfig.discountValue ?? offer.config?.discountValue ?? offer.discountPercent ?? offer.discountValue, 0);
+
+			// Collect allowed product IDs and names
+			const allowedIds: string[] = [];
+			if (Array.isArray(discountConfig.productIds)) {
+				allowedIds.push(...discountConfig.productIds.map((id: any) => String(id || '').trim()));
+			} else if (Array.isArray(offer.applicableProductIds)) {
+				allowedIds.push(...offer.applicableProductIds.map((id: any) => String(id || '').trim()));
+			}
+			if (Array.isArray(offer.products)) {
+				offer.products.forEach((p: any) => {
+					if (p && p.productId) {
+						allowedIds.push(String(p.productId).trim());
+					}
+				});
+			}
+			const allowedNames = Array.isArray(offer.products)
+				? offer.products.map((p: any) => String(p?.name || '').trim().toLowerCase()).filter(Boolean)
+				: [];
+
+			// Collect allowed category name
+			const categoryName = String(discountConfig.categoryName || discountConfig.category || offer.applicableCategory || offer.category || '').trim().toLowerCase();
+
+			// Filter items that are normal and eligible
+			const eligibleItems = flatItems.filter((item) => {
+				// Must not be free or part of other non-discount offers.
+				// Items tagged with this same discount offerId are eligible.
+				if (item.isFree || item.isCombo || item.isManualB1G1 || item.isBirthday) {
+					return false;
+				}
+				if (item.offerId && item.offerId !== offer.id) {
+					return false;
+				}
+
+				if (discountMode === 'CATEGORY' && categoryName) {
+					const itemCat = String(item.category || '').trim().toLowerCase();
+					const itemSubCat = String(item.subcategory || '').trim().toLowerCase();
+					// Match category or subcategory. If product list is provided on the offer,
+					// also allow matching those productIds as a fallback.
+					if (itemCat === categoryName || itemSubCat === categoryName) return true;
+					if (Array.isArray(offer.products) && offer.products.length > 0) {
+						return offer.products.some((p: any) => String(p?.productId || '').trim() === String(item.productId || '').trim());
+					}
+					return false;
+				}
+
+				if (discountMode === 'PRODUCT' && (allowedIds.length > 0 || allowedNames.length > 0)) {
+					const itemId = String(item.productId).trim();
+					const itemName = String(item.name).trim().toLowerCase();
+					return allowedIds.includes(itemId) || allowedNames.includes(itemName);
+				}
+
+				// Fallback 1: if products list exists, treat as product discount
+				if (allowedIds.length > 0 || allowedNames.length > 0) {
+					const itemId = String(item.productId).trim();
+					const itemName = String(item.name).trim().toLowerCase();
+					return allowedIds.includes(itemId) || allowedNames.includes(itemName);
+				}
+
+				// Fallback 2: if category exists
+				if (categoryName && categoryName !== 'all') {
+					const itemCat = String(item.category || '').trim().toLowerCase();
+					const itemSubCat = String(item.subcategory || '').trim().toLowerCase();
+					return itemCat === categoryName || itemSubCat === categoryName;
+				}
+
+				return true;
+			});
+
+			const baseAmount = eligibleItems.reduce((sum, item) => sum + (item.unitPrice * item.qty), 0);
+			const discount = Math.floor(baseAmount * percent / 100);
+
+			return { orderType: 'DISCOUNT', discount, appliedOffers: [{ offerId: offer.id, title: offer.title || offer.id, type: 'DISCOUNT', amount: discount }] };
+		}
+
+		case 'NEW_USER': {
 			const discountConfig = offer.config?.discount || {};
 			const discountMode = String(discountConfig.mode || discountConfig.type || '').toUpperCase();
 			const percent = readNumber(discountConfig.discountValue ?? offer.config?.discountValue ?? offer.discountPercent ?? offer.discountValue, 0);

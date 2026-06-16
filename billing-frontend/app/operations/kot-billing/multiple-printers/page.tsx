@@ -21,6 +21,7 @@ import {
   getDocs,
 } from 'firebase/firestore'
 import { createPrinterConfig, updatePrinterConfig, deletePrinterConfig } from '@/lib/services/printerConfigService'
+import { getOutletIdForCurrentUser } from '@/lib/services/orderService'
 
 // ── Types ──────────────────────────────────────────────────────────
 interface PrinterMargins {
@@ -93,13 +94,33 @@ export default function MultiplePrintersPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [formData, setFormData] = useState(EMPTY_FORM)
 
-  // ── Fetch printers ───────────────────────────────────────────────
+  const [outletId, setOutletId] = useState<string | null>(null)
+
   useEffect(() => {
     if (isLoading || !isLoggedIn) return
 
+    const fetchData = async () => {
+      try {
+        const outlet = await getOutletIdForCurrentUser()
+        setOutletId(outlet)
+
+      } catch (e: any) {
+        setError(e.message)
+      }
+    }
+
+    fetchData()
+  }, [isLoading, isLoggedIn])
+
+  // ── Fetch printers ───────────────────────────────────────────────
+  useEffect(() => {
+    if (isLoading || !isLoggedIn || !outletId) return  // wait for outletId
+
     const fetchPrinters = async () => {
       try {
-        const snapshot = await getDocs(collection(db, 'printerConfigs'))
+        const snapshot = await getDocs(
+          collection(db, 'outlets', outletId, 'printerConfigs')  // ✅ correct path
+        )
         const list: PrinterConfig[] = []
         snapshot.forEach(d => {
           list.push({ id: d.id, ...d.data() } as PrinterConfig)
@@ -114,7 +135,7 @@ export default function MultiplePrintersPage() {
     }
 
     fetchPrinters()
-  }, [isLoading, isLoggedIn])
+  }, [isLoading, isLoggedIn, outletId])
 
   // ── Auth guards (match menu page pattern) ────────────────────────
   if (isLoading) {
@@ -215,7 +236,7 @@ export default function MultiplePrintersPage() {
       if (isEditing && editingId) {
         // Update existing via cloud function
         const updateData = { ...formData }
-        await updatePrinterConfig(editingId, updateData)
+        await updatePrinterConfig(outletId, editingId, updateData)
 
         setPrinters(prev =>
           prev.map(p => (p.id === editingId ? { ...p, ...updateData } : p))
@@ -223,7 +244,7 @@ export default function MultiplePrintersPage() {
       } else {
         // Create new via cloud function
         const newData = { ...formData, enabled: true }
-        const result = await createPrinterConfig(newData)
+        const result = await createPrinterConfig(outletId, newData)
 
         setPrinters(prev => [...prev, result])
       }
@@ -242,7 +263,7 @@ export default function MultiplePrintersPage() {
     if (!confirm(`Delete printer "${printer.printerName}"? This cannot be undone.`)) return
 
     try {
-      await deletePrinterConfig(printer.id)
+      await deletePrinterConfig(outletId, printer.id)
       setPrinters(prev => prev.filter(p => p.id !== printer.id))
       setError(null)
     } catch (e: any) {
@@ -254,7 +275,7 @@ export default function MultiplePrintersPage() {
   const handleToggleEnabled = async (printer: PrinterConfig) => {
     try {
       const newEnabled = !printer.enabled
-      await updatePrinterConfig(printer.id, { enabled: newEnabled })
+      await updatePrinterConfig(outletId, printer.id, { enabled: newEnabled })
       setPrinters(prev =>
         prev.map(p => (p.id === printer.id ? { ...p, enabled: newEnabled } : p))
       )

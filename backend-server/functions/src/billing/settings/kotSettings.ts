@@ -1,60 +1,79 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { Request, Response } from "express";
+import { FieldValue } from "firebase-admin/firestore";
 
 const db = admin.firestore();
 
-export interface KotBillingSettings {
-	defaultPrinterRole?: string;
-	autoReprint?: boolean;
-	reprintDelay?: number;
-	splitItemsPerTicket?: boolean;
-	itemsPerTicket?: number;
-	[key: string]: any;
-}
+const setCorsHeaders = (res: Response) => {
+	res.set("Access-Control-Allow-Origin", "*");
+	res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT, DELETE");
+	res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+};
 
-export const billingKotSettingsSave = onCall(
-	{ enforceAppCheck: false, cors: true },
-	async (request) => {
-		const { outletId, settings } = request.data;
+const verifyAuth = async (req: Request): Promise<string | null> => {
+	const authHeader = req.headers.authorization;
+	if (!authHeader?.startsWith("Bearer ")) return null;
+	try {
+		const token = authHeader.split("Bearer ")[1];
+		const decoded = await admin.auth().verifyIdToken(token);
+		return decoded.uid;
+	} catch {
+		return null;
+	}
+};
 
-		if (!request.auth || !request.auth.uid) {
-			throw new HttpsError("unauthenticated", "User must be authenticated");
-		}
-
-		if (!outletId) {
-			throw new HttpsError("invalid-argument", "Outlet ID is required");
-		}
-
-		if (!settings || typeof settings !== "object") {
-			throw new HttpsError(
-				"invalid-argument",
-				"Settings object is required"
-			);
-		}
+export const billingKotSettingsSave = functions.https.onRequest(
+	async (req: Request, res: Response): Promise<void> => {
+		setCorsHeaders(res);
+		if (req.method === "OPTIONS") { res.status(200).send(""); return; }
 
 		try {
+			if (req.method !== "POST") {
+				res.status(405).json({ success: false, message: "Method not allowed" });
+				return;
+			}
+
+			const uid = await verifyAuth(req);
+			if (!uid) {
+				res.status(401).json({ success: false, message: "User must be authenticated" });
+				return;
+			}
+
+			const { outletId, settings } = req.body;
+
+			if (!outletId) {
+				res.status(400).json({ success: false, message: "Outlet ID is required" });
+				return;
+			}
+
+			if (!settings || typeof settings !== "object") {
+				res.status(400).json({ success: false, message: "Settings object is required" });
+				return;
+			}
+
 			const docRef = db
 				.collection("outlets")
 				.doc(outletId)
 				.collection("kotBillingSettings")
 				.doc("defaultSettings");
 
-			const updateData: any = {
+			const updateData = {
 				...settings,
 				outletId,
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: FieldValue.serverTimestamp(),
 			};
 
 			await docRef.set(updateData, { merge: true });
 
-			return {
+			res.status(200).json({
 				success: true,
 				message: "KOT billing settings saved",
 				data: updateData,
-			};
-		} catch (error: any) {
+			});
+		} catch (error) {
 			console.error("[billingKotSettingsSave] Error:", error);
-			throw new HttpsError("internal", "Failed to save KOT settings");
+			res.status(500).json({ success: false, message: "Failed to save KOT settings" });
 		}
 	}
 );

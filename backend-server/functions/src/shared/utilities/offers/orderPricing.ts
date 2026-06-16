@@ -14,7 +14,7 @@
 //
 // The Firestore order document stores exactly these keys — nothing else for money.
 
-export type OrderType = 'BASIC' | 'B1G1' | 'COMBO' | 'DISCOUNT';
+export type OrderType = 'BASIC' | 'B1G1' | 'COMBO' | 'DISCOUNT' | 'NEW_USER';
 
 // ---------------------------------------------------------------------------
 // Item normalisation
@@ -111,6 +111,7 @@ const readOfferType = (value: unknown): OrderType | null => {
 		case 'B1G1':
 		case 'COMBO':
 		case 'DISCOUNT':
+		case 'NEW_USER':
 			return readString(value).toUpperCase() as OrderType;
 		default:
 			return null;
@@ -125,13 +126,13 @@ const resolveOfferMeta = (raw: RawInputItem): {
 	isDiscount: boolean;
 	isBirthday: boolean;
 } => {
-	const offerType = readOfferType(raw.offerType) || (raw.isCombo ? 'COMBO' : raw.isManualB1G1 ? 'B1G1' : raw.isDiscount ? 'DISCOUNT' : null);
+	const offerType = readOfferType(raw.offerType) || (raw.isCombo ? 'COMBO' : raw.isManualB1G1 ? 'B1G1' : raw.isDiscount ? 'DISCOUNT' : raw.isNewUser ? 'NEW_USER' : null);
 	return {
 		offerType,
 		offerTitle: readString(raw.offerTitle) || null,
 		isCombo: Boolean(raw.isCombo || offerType === 'COMBO'),
 		isManualB1G1: Boolean(raw.isManualB1G1 || offerType === 'B1G1'),
-		isDiscount: Boolean(raw.isDiscount || offerType === 'DISCOUNT'),
+		isDiscount: Boolean(raw.isDiscount || offerType === 'DISCOUNT' || offerType === "NEW_USER"),
 		isBirthday: Boolean(raw.isBirthday),
 	};
 };
@@ -156,15 +157,20 @@ export const normalizeOrderItemsForPricing = async (
 	for (const rawItem of rawItems) {
 		const raw = (rawItem || {}) as RawInputItem;
 		const nestedItems = Array.isArray((raw as { items?: unknown[] }).items) ? (raw as { items?: unknown[] }).items || [] : [];
-		const hasOfferWrapperShape = nestedItems.length > 0 && (
-			Boolean(raw.offerId) ||
-			Boolean(raw.offerType) ||
-			Boolean(raw.isCombo) ||
-			Boolean(raw.isManualB1G1) ||
-			Boolean(raw.isDiscount) ||
-			Boolean(raw.isBirthday) ||
-			isSyntheticOfferWrapperId(raw.id)
-		);
+		const hasOfferWrapperShape =
+			Boolean(raw.offerType === "NEW_USER") ||
+			(
+				nestedItems.length > 0 &&
+				(
+					Boolean(raw.offerId) ||
+					Boolean(raw.offerType) ||
+					Boolean(raw.isCombo) ||
+					Boolean(raw.isManualB1G1) ||
+					Boolean(raw.isDiscount) ||
+					Boolean(raw.isBirthday) ||
+					isSyntheticOfferWrapperId(raw.id)
+				)
+			);
 		const offerMeta = resolveOfferMeta(raw);
 		const productId = readString(raw.productId || (hasOfferWrapperShape ? '' : raw.id));
 		if (nestedItems.length > 0 && (hasOfferWrapperShape || !productId)) {
@@ -377,6 +383,7 @@ export const inferOrderType = (offerType: string | null | undefined): OrderType 
 		case 'B1G1': return 'B1G1';
 		case 'COMBO': return 'COMBO';
 		case 'DISCOUNT': return 'DISCOUNT';
+		case 'NEW_USER': return 'NEW_USER';
 		default: return 'BASIC';
 	}
 };
@@ -692,6 +699,89 @@ export const applyOfferToItems = (
 			}
 			break;
 		}
+		case 'NEW_USER': {
+			// Discount offer: eligible items get percentage discount
+			const discountConfig = offerDoc.config?.discount || {};
+			const discountMode = String(discountConfig.mode || discountConfig.type || '').toUpperCase();
+			const discountPercent = readNumber(
+				discountConfig.discountValue ?? offerDoc.config?.discountValue ?? offerDoc.discountPercent ?? offerDoc.discountValue,
+				0
+			);
+
+			// Collect allowed product IDs and category names
+			const allowedIds: string[] = [];
+			if (Array.isArray(discountConfig.productIds)) {
+				allowedIds.push(...discountConfig.productIds.map((id: any) => String(id || '').trim()));
+			} else if (Array.isArray(offerDoc.applicableProductIds)) {
+				allowedIds.push(...offerDoc.applicableProductIds.map((id: any) => String(id || '').trim()));
+			}
+			if (Array.isArray(offerDoc.products)) {
+				offerDoc.products.forEach((p: any) => {
+					if (p && p.productId) {
+						allowedIds.push(String(p.productId).trim());
+					}
+				});
+			}
+			const allowedNames = Array.isArray(offerDoc.products)
+				? offerDoc.products.map((p: any) => String(p?.name || '').trim().toLowerCase()).filter(Boolean)
+				: [];
+			const categoryName = String(discountConfig.categoryName || discountConfig.category || offerDoc.applicableCategory || offerDoc.category || '').trim().toLowerCase();
+
+			for (const item of items) {
+				let discount = 0;
+
+				// Check if item is eligible
+				const isSpecial = item.isFree || item.isCombo || item.isManualB1G1 || item.isBirthday;
+				const hasConflictingOffer = item.offerId && item.offerId !== offerDoc.id;
+
+				if (!isSpecial && !hasConflictingOffer) {
+					let isEligible = false;
+
+					if (discountMode === 'CATEGORY' && categoryName) {
+						const itemCat = String(item.category || '').trim().toLowerCase();
+						const itemSubCat = String(item.subcategory || '').trim().toLowerCase();
+						if (itemCat === categoryName || itemSubCat === categoryName) {
+							isEligible = true;
+						} else if (Array.isArray(offerDoc.products) && offerDoc.products.length > 0) {
+							isEligible = offerDoc.products.some((p: any) => String(p?.productId || '').trim() === String(item.productId).trim());
+						}
+					} else if (discountMode === 'PRODUCT' && (allowedIds.length > 0 || allowedNames.length > 0)) {
+						const itemId = String(item.productId).trim();
+						const itemName = String(item.name).trim().toLowerCase();
+						isEligible = allowedIds.includes(itemId) || allowedNames.includes(itemName);
+					} else if (allowedIds.length > 0 || allowedNames.length > 0) {
+						// Fallback: product-based discount
+						const itemId = String(item.productId).trim();
+						const itemName = String(item.name).trim().toLowerCase();
+						isEligible = allowedIds.includes(itemId) || allowedNames.includes(itemName);
+					} else if (categoryName && categoryName !== 'all') {
+						// Fallback: category-based discount
+						const itemCat = String(item.category || '').trim().toLowerCase();
+						const itemSubCat = String(item.subcategory || '').trim().toLowerCase();
+						isEligible = itemCat === categoryName || itemSubCat === categoryName;
+					} else {
+						// No restrictions — all items eligible
+						isEligible = true;
+					}
+
+					if (isEligible) {
+						const itemBaseTotal = item.unitPrice * item.qty;
+						discount = Math.floor((itemBaseTotal * discountPercent) / 100);
+					}
+				}
+
+				const discountedPrice = Math.max(item.totalPrice - discount, 0);
+				const tax = applyTaxFn(discountedPrice);
+
+				results.push({
+					...item,
+					discount,
+					discountedPrice,
+					tax,
+				});
+			}
+			break;
+		}
 
 		case 'BIRTHDAY': {
 			// Birthday: only the birthday item itself (marked isBirthday) gets to be free
@@ -818,7 +908,7 @@ export const decorateOrderItemsWithOfferMeta = (
 		isOfferItem: item.isOfferItem || hasOffer,
 		isCombo: item.isCombo || offerMeta.offerType === 'COMBO',
 		isManualB1G1: item.isManualB1G1 || offerMeta.offerType === 'B1G1',
-		isDiscount: item.isDiscount || offerMeta.offerType === 'DISCOUNT',
+		isDiscount: item.isDiscount || offerMeta.offerType === 'DISCOUNT' || offerMeta.offerType === 'NEW_USER',
 		isBirthday: item.isBirthday,
 	}));
 };

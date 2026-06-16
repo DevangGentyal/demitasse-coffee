@@ -15,6 +15,7 @@ service cloud.firestore {
        - Client apps can't write directly to Firestore
        - All data mutations go through protected backend functions
     ═══════════════════════════════════════════════════════════ */
+    // printer path change - Devang
 
     /* Helper Functions */
     function isSignedIn() {
@@ -76,6 +77,8 @@ service cloud.firestore {
       allow write: if false;
     }
 
+
+
     /* ═══════════════════════════════════════════════════════════
        2. USER COLLECTIONS (Only read own profile)
     ═══════════════════════════════════════════════════ */
@@ -94,6 +97,12 @@ service cloud.firestore {
     match /outlets/{id} {
       allow read: if isSignedIn();
       allow write: if false;  // All writes via backend only
+    }
+
+    // [EDIT] Added explicit rule for outletDetails subcollections to allow proximity location checks by the client
+    match /{path=**}/outletDetails/{docId} {
+      allow get, list: if true;
+      allow write: if false;
     }
 
     match /{path=**}/tables/{id} {
@@ -120,17 +129,17 @@ service cloud.firestore {
        4. BILLING & CONFIGURATION (Authenticated read only)
     ═══════════════════════════════════════════════════════════ */
     
-    match /printerConfigs/{id} {
+    match /{path=**}/printerConfigs/{id} {
       allow read: if isSignedIn();
       allow write: if false;  // All writes via backend only
     }
 
-    match /kotBillingSettings/{id} {
+    match /{path=**}/kotBillingSettings/{id} {
       allow read: if isSignedIn();
       allow write: if false;  // All writes via backend only
     }
 
-    match /printerPages/{id} {
+    match /{path=**}/printerPages/{id} {
       allow read: if isSignedIn();
       allow write: if false;  // All writes via backend only
     }

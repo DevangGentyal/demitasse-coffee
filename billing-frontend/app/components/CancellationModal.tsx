@@ -11,6 +11,7 @@ interface CancellationModalProps {
   onClose: () => void
   outletId: string
   orderId: string
+
   cancelledItems?: any[]
   onSuccess?: () => void
 }
