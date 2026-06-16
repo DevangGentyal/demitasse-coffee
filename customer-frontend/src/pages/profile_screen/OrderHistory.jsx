@@ -1,48 +1,61 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
+// 1. Added 'startAfter' to imports
+import { collection, query, where, getDocs, orderBy, limit, startAfter } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
 import OrderHistoryCard from "../../components/profile/OrderHistoryCard";
 import EmptyOrders from "../../components/profile/EmptyOrders";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
-
-const toDate = (value) => {
-  if (!value) return new Date(0);
-  if (value instanceof Date) return value;
-  if (typeof value?.toDate === "function") {
-    try { return value.toDate(); } catch { return new Date(0); }
-  }
-  if (value?.seconds) return new Date(value.seconds * 1000);
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? new Date(0) : parsed;
-};
+import { useLocationContext } from "../../context/LocationContext";
 
 export default function OrderHistory() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false); // Track loading state for pagination
   const [error, setError] = useState("");
+  const [lastDoc, setLastDoc] = useState(null); // Keeps track of the last visible Firestore document snapshot
+  const [hasMore, setHasMore] = useState(true); // Tracks if there are more orders left to fetch
+  const { selectedOutlet } = useLocationContext();
 
+  const ORDERS_LIMIT = 5;
+
+  // Initial fetch function
   useEffect(() => {
     let isMounted = true;
 
     const fetchOrders = async () => {
       const uid = user?.uid || auth.currentUser?.uid;
-      if (!uid) {
+      if (!uid || !selectedOutlet) {
         setLoading(false);
         return;
       }
 
+      setLoading(true);
+      setError("");
+
       try {
         const historyQuery = query(
-          collection(db, "ordersHistory"),
-          where("ownerId", "==", uid)
+          collection(db, "outlets", selectedOutlet, "orders"),
+          where("customerId", "==", uid),
+          orderBy("createdAt", "desc"),
+          limit(ORDERS_LIMIT)
         );
+
         const snapshot = await getDocs(historyQuery);
 
         if (!isMounted) return;
+
+        // Capture the raw last document snapshot for the cursor
+        if (snapshot.docs.length > 0) {
+          setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+          // If we fetched fewer items than the limit, we know there are no more records left
+          setHasMore(snapshot.docs.length === ORDERS_LIMIT);
+        } else {
+          setHasMore(false);
+        }
 
         const rows = snapshot.docs
           .map((doc) => ({
@@ -50,25 +63,15 @@ export default function OrderHistory() {
             ...doc.data(),
           }))
           .filter((order) => {
-            // Only show orders with items
             const items = Array.isArray(order.items) ? order.items : [];
             return items.length > 0;
-          })
-          .sort((a, b) => {
-            const dateA = toDate(a.closedAt || a.archivedAt || a.createdAt);
-            const dateB = toDate(b.closedAt || b.archivedAt || b.createdAt);
-            return dateB.getTime() - dateA.getTime();
           });
 
         setOrders(rows);
       } catch (err) {
         console.error("Failed to fetch order history:", err);
         if (isMounted) {
-          setError(
-            err?.code === "permission-denied"
-              ? "You don't have permission to view order history."
-              : "Failed to load order history. Please try again."
-          );
+          setError("Failed to load order history. Please try again.");
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -77,7 +80,52 @@ export default function OrderHistory() {
 
     fetchOrders();
     return () => { isMounted = false; };
-  }, [user]);
+  }, [user, selectedOutlet]);
+
+  // Function to load the next 5 orders
+  const loadMoreOrders = async () => {
+    const uid = user?.uid || auth.currentUser?.uid;
+    if (!uid || !selectedOutlet || !lastDoc || loadingMore) return;
+
+    setLoadingMore(true);
+
+    try {
+      // Create a query that begins *after* the last document we previously fetched
+      const nextQuery = query(
+        collection(db, "outlets", selectedOutlet, "orders"),
+        where("customerId", "==", uid),
+        orderBy("createdAt", "desc"),
+        startAfter(lastDoc),
+        limit(ORDERS_LIMIT)
+      );
+
+      const snapshot = await getDocs(nextQuery);
+
+      if (snapshot.docs.length > 0) {
+        setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+        setHasMore(snapshot.docs.length === ORDERS_LIMIT);
+      } else {
+        setHasMore(false);
+      }
+
+      const newRows = snapshot.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+        .filter((order) => {
+          const items = Array.isArray(order.items) ? order.items : [];
+          return items.length > 0;
+        });
+
+      // Append new orders to the existing ones
+      setOrders((prevOrders) => [...prevOrders, ...newRows]);
+    } catch (err) {
+      console.error("Failed to fetch more orders:", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const handleViewDetails = (order) => {
     navigate(`/profile/orders/${order.id}`, { state: { order } });
@@ -98,7 +146,7 @@ export default function OrderHistory() {
             <h1 className="text-lg font-bold text-[#3e2723]">Order History</h1>
             {!loading && orders.length > 0 && (
               <p className="text-[11px] text-gray-500">
-                {orders.length} order{orders.length !== 1 ? "s" : ""}
+                Showing {orders.length} order{orders.length !== 1 ? "s" : ""}
               </p>
             )}
           </div>
@@ -106,7 +154,7 @@ export default function OrderHistory() {
       </div>
 
       <div className="px-4 py-5">
-        {/* Loading */}
+        {/* Loading Initial State */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-10 h-10 border-3 border-[#8B4513] border-t-transparent rounded-full animate-spin mb-3" />
@@ -140,6 +188,26 @@ export default function OrderHistory() {
                 onViewDetails={handleViewDetails}
               />
             ))}
+
+            {/* Load More Button Container */}
+            {hasMore && (
+              <div className="pt-4 pb-2 text-center">
+                <button
+                  onClick={loadMoreOrders}
+                  disabled={loadingMore}
+                  className="w-full py-3 px-4 rounded-2xl bg-white border border-gray-200 text-sm font-semibold text-[#8B4513] shadow-sm hover:bg-gray-50 active:bg-gray-100 transition disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {loadingMore ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-[#8B4513] border-t-transparent rounded-full animate-spin" />
+                      Loading more...
+                    </>
+                  ) : (
+                    "Load More Orders"
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

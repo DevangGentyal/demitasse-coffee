@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
+import { useLocationContext } from "../../context/LocationContext";
 
 const currency = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -27,7 +28,7 @@ export default function OrderDetails() {
   const { state } = useLocation();
   const [order, setOrder] = useState(state?.order || null);
   const [loading, setLoading] = useState(!state?.order);
-
+  const { selectedOutlet } = useLocationContext();
   // Fetch from Firestore if not passed via navigation state
   useEffect(() => {
     if (order || !orderId) return;
@@ -35,7 +36,14 @@ export default function OrderDetails() {
 
     const fetchOrder = async () => {
       try {
-        const snap = await getDoc(doc(db, "ordersHistory", orderId));
+        const snap = await getDoc( doc(
+                                      db,
+                                      "outlets",
+                                      selectedOutlet,
+                                      "orders",
+                                      orderId
+                                    )
+);
         if (snap.exists() && isMounted) {
           setOrder({ id: snap.id, ...snap.data() });
         }
@@ -83,11 +91,29 @@ export default function OrderDetails() {
   }
 
   const items = Array.isArray(order.items) ? order.items : [];
-  const pricing = order.pricing || {};
-  const subtotal = Number(pricing.subtotal || 0);
-  const discount = Number(pricing.discount || 0);
-  const tax = Number(pricing.tax || 0);
-  const total = Number(pricing.total || 0);
+  const subtotal = Number(
+  order.pricing?.subtotal ??
+  order.subTotal ??
+  0
+);
+
+const discount = Number(
+  order.pricing?.discount ??
+  order.discount ??
+  0
+);
+
+const tax = Number(
+  order.pricing?.tax ??
+  order.tax ??
+  0
+);
+
+const total = Number(
+  order.pricing?.total ??
+  order.discountedPrice ??
+  0
+);
   const appliedOffers = Array.isArray(order.appliedOffers) ? order.appliedOffers : [];
   const date = toDate(order.closedAt || order.archivedAt || order.createdAt);
   const status = String(order.status || order.orderLifecycleStatus || "COMPLETED").toUpperCase();
