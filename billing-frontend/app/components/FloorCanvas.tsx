@@ -9,8 +9,9 @@ import { floorMapService, type Wall as IWall } from '@/lib/services/floorMapServ
 import { tableSessionService } from '@/lib/services/tableSessionService'
 import { updateTableState } from '@/lib/services/tableStateService'
 import { db } from '@/lib/firebase/app'
-import { doc, onSnapshot, deleteField } from 'firebase/firestore'
+import { collection, getDocs, doc, onSnapshot, deleteField } from 'firebase/firestore'
 import { toast } from 'sonner'
+import { connectQZ, silentPrintHTML } from '@/lib/services/qzPrintService'
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
 import { CancellationModal } from '@/app/components/CancellationModal'
 import { removeOrderItem } from '@/lib/services/orderService'
@@ -938,6 +939,34 @@ export function FloorCanvas() {
     appliedOfferLogs?: AppliedOfferLog[]
   } | null>(null)
   const [printBillData, setPrintBillData] = useState<BillData | null>(null)
+  const [billPrinterName, setBillPrinterName] = useState<string | null>(null)
+
+  // Fetch bill printer name from printerConfigs
+  useEffect(() => {
+    let isMounted = true
+    const fetchBillPrinter = async () => {
+      try {
+        const printersSnap = await getDocs(collection(db, 'printerConfigs'))
+        let billPrinter: string | null = null
+        let counterPrinter: string | null = null
+        printersSnap.forEach(d => {
+          const p = d.data()
+          if (p.role === 'bill') billPrinter = p.systemPrinterName || p.printerName
+          if (p.role === 'coffee') counterPrinter = p.systemPrinterName || p.printerName
+        })
+        if (isMounted) {
+          // Fallback chain: bill → counter → null (default printer)
+          const resolved = billPrinter || counterPrinter || null
+          setBillPrinterName(resolved)
+          console.log(`[FloorCanvas] Bill printer resolved: "${resolved}"`)
+        }
+      } catch (e) {
+        console.error('[FloorCanvas] Error fetching bill printer config:', e)
+      }
+    }
+    fetchBillPrinter()
+    return () => { isMounted = false }
+  }, [])
 
   // Walls
   const [walls, setWalls] = useState<IWall[]>([])
@@ -1651,6 +1680,7 @@ export function FloorCanvas() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: table.activeSessionId || undefined,
+          outletId: outletId,
           tableId: table.id,
         }),
       })
@@ -1705,28 +1735,54 @@ export function FloorCanvas() {
   useEffect(() => {
     if (!printBillData) return undefined
 
-    const handleAfterPrint = () => {
-      clearPrintPageSize()
-      setPrintBillData(null)
+    let cancelled = false
+
+    const printBillViaQZ = async () => {
+      // Wait for React to render the BillTemplate into the DOM
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      if (cancelled) return
+
+      const container = document.querySelector('.print-container') as HTMLElement | null
+      if (!container) {
+        console.warn('[FloorCanvas] Bill print container not found in DOM')
+        setPrintBillData(null)
+        return
+      }
+
+      // Keep fitPrintPageToContent for now
+      fitPrintPageToContent('.print-container')
+
+      const printerName = billPrinterName
+      console.log(`[FloorCanvas] 🖨️ Printing bill to: "${printerName || 'default printer'}"`)
+      toast('🖨️ Printing started...')
+
+      try {
+        const htmlContent = container.innerHTML
+        const fullHtml = `<html><head><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
+
+        await silentPrintHTML(printerName, fullHtml, {
+          widthMm: 80,
+        })
+
+        console.log('[FloorCanvas] ✅ Bill printed successfully')
+        toast.success('✅ Printed successfully')
+      } catch (err) {
+        console.error('[FloorCanvas] ❌ Failed to print bill:', err)
+        toast.error('❌ Printer not connected')
+      } finally {
+        clearPrintPageSize()
+        if (!cancelled) {
+          setPrintBillData(null)
+        }
+      }
     }
 
-    let firstFrame = 0
-    let secondFrame = 0
-
-    window.addEventListener('afterprint', handleAfterPrint)
-    fitPrintPageToContent('.print-container')
-    firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => {
-        window.print()
-      })
-    })
+    printBillViaQZ()
 
     return () => {
-      window.removeEventListener('afterprint', handleAfterPrint)
-      window.cancelAnimationFrame(firstFrame)
-      window.cancelAnimationFrame(secondFrame)
+      cancelled = true
     }
-  }, [printBillData])
+  }, [printBillData, billPrinterName])
 
   const printKOT = (table: Table) => {
     const relatedOrders = tableSessionOrders[table.id] || []
@@ -2256,10 +2312,10 @@ export function FloorCanvas() {
         <div className="fixed top-[-9999px] left-[-9999px] -z-50 print-container print:static print:top-0 print:left-0 print:z-auto">
           <BillTemplate
             data={printBillData}
-            restaurantHeader="Demitasse Coffee"
-            restaurantFooter="Thank You"
-            showRestaurantHeader={true}
-            showFooter={true}
+            restaurantHeader={printSettings?.restaurantHeaderText || 'Demitasse Coffee'}
+            restaurantFooter={printSettings?.restaurantFooterText || 'Thank You'}
+            showRestaurantHeader={printSettings?.showRestaurantHeader ?? true}
+            showFooter={printSettings?.showFooter ?? true}
             width={universalWidth}
             margins={universalMargins}
             padding={universalPadding}

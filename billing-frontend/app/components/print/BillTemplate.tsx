@@ -175,7 +175,7 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
               : item.notes || ''
 
             return (
-              <div key={item.id || `${item.name}-${index}`} className="mb-2" style={{ lineHeight }}>
+              <div key={`${item.id}-${index}`} className="mb-2" style={{ lineHeight }}>
                 <div className="flex justify-between gap-2 text-[11px]">
                   <span className="flex-1 font-medium pr-1 break-words">{item.name}</span>
                   <span className="w-8 text-center flex-shrink-0">{item.quantity}</span>

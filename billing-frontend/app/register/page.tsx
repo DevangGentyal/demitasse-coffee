@@ -19,17 +19,49 @@ export default function RegisterPage() {
   const [regPassword, setRegPassword] = useState('')
   const [showRegPassword, setShowRegPassword] = useState(false)
   
-  const [name, setName] = useState('')
+  const [outletName, setOutletName] = useState('')
+  const [ownerName, setOwnerName] = useState('')
   const [location, setLocation] = useState('')
+  const [radius, setRadius] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [openingHours, setOpeningHours] = useState<OpeningHour[]>(
     WEEKDAYS.map(d => ({ day: d, open: '', close: '' }))
   )
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+
+  React.useEffect(() => {
+    if (step === 2 && !location) {
+      navigator.geolocation?.getCurrentPosition(
+        (position) => {
+          setLocation(`${position.coords.latitude}, ${position.coords.longitude}`)
+        },
+        (err) => console.log("Auto-location failed:", err)
+      )
+    }
+  }, [step, location])
+
+  const handleGetCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation(`${position.coords.latitude}, ${position.coords.longitude}`)
+        },
+        (error) => {
+          console.error("Error getting location:", error)
+          alert("Error getting location: " + error.message)
+        }
+      )
+    } else {
+      alert("Geolocation is not supported by this browser.")
+    }
+  }
 
   const handleOpeningHourChange = (index:number, field: 'open'|'close', value:string) => {
     setOpeningHours(prev => {
@@ -63,8 +95,14 @@ export default function RegisterPage() {
     setError('')
     setIsLoading(true)
 
-    if (!name || !location || !email || !phone || !password) {
+    if (!outletName || !ownerName || !location || !email || !phone || !password || !confirmPassword || !radius) {
       setError('Please fill in all required fields')
+      setIsLoading(false)
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
       setIsLoading(false)
       return
     }
@@ -76,10 +114,12 @@ export default function RegisterPage() {
 
       // 2. Register outlet pending using the cloud function
       await registerOutletPending({
-        name,
+        name: outletName,
+        ownerName,
         location,
         email,
         phone,
+        radius: Number(radius) || 0,
         openingHours,
       }, regPassword)
 
@@ -187,25 +227,47 @@ export default function RegisterPage() {
                   <h2 className="text-xl font-bold text-slate-900 dark:text-white">Outlet Registration</h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Submit details for admin review</p>
                 </div>
-                <Button 
-                  type="button" 
-                  variant="ghost" 
-                  onClick={() => setStep(1)}
-                  className="text-xs text-amber-700 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 font-medium"
-                >
-                  ← Change Key
-                </Button>
               </div>
 
               <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
                 <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Outlet / Owner Name</label>
-                  <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Demitasse Downtown" className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Outlet Name</label>
+                  <Input value={outletName} onChange={e => setOutletName(e.target.value)} placeholder="e.g. Demitasse Downtown" className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Location / Address</label>
-                  <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. 1st Avenue, Seattle" className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Owner Name</label>
+                  <Input value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder="e.g. John Doe" className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Location (Latitude, Longitude)</label>
+                  <div className="flex gap-2">
+                    <Input 
+                      value={location} 
+                      onChange={e => setLocation(e.target.value)} 
+                      placeholder="Latitude, Longitude (e.g. 12.9716, 77.5946)" 
+                      className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white flex-1" 
+                    />
+                    <Button 
+                      type="button"
+                      onClick={handleGetCurrentLocation}
+                      className="bg-amber-700 hover:bg-amber-800 text-white font-medium text-xs px-3 h-10 rounded-lg shrink-0"
+                    >
+                      Get GPS
+                    </Button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Geofence Radius (meters)</label>
+                  <Input 
+                    type="number" 
+                    value={radius} 
+                    onChange={e => setRadius(e.target.value)} 
+                    placeholder="e.g. 50" 
+                    className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" 
+                  />
                 </div>
 
                 <div>
@@ -218,9 +280,46 @@ export default function RegisterPage() {
                   <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. +1 206-555-0149" className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
                 </div>
 
-                <div>
+                <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Password</label>
-                  <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Create login password" className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="Create login password"
+                      className="pr-10 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Confirm Password</label>
+                  <div className="relative">
+                    <Input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm your password"
+                      className="pr-10 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                      aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                    >
+                      {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800">

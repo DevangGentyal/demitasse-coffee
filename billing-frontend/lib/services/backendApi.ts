@@ -104,6 +104,7 @@ export interface BackendUserProfile {
   outletID?: string
   outletId?: string
   type?: string
+  role?: string
   isProfileComplete?: boolean
   hasPlacedFirstOrder?: boolean
   [key: string]: unknown
@@ -174,4 +175,9 @@ export const verifySecurityPassword = async (name: string, password: string): Pr
   }
 
   return true
+}
+
+export const getOutletDetailsById = async (outletId: string): Promise<any> => {
+  const items = await readResource<any>('outletById', { outletId })
+  return items[0] || null
 }

@@ -11,6 +11,9 @@ import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
 import { KotTemplate, KotData, PrintItem } from '@/app/components/print/KotTemplate'
 import { BillTemplate, BillData } from '@/app/components/print/BillTemplate'
 import { clearPrintPageSize, fitPrintPageToContent } from '@/app/components/print/printPageSize'
+import { useApp } from '@/app/context/AppContext'
+import { silentPrintHTML } from '@/lib/services/qzPrintService'
+import { toast } from 'sonner'
 
 const MOCK_ITEMS: PrintItem[] = [
   { id: '1', name: 'Margherita Pizza', quantity: 1, category: 'MAINS', price: 350 },
@@ -25,27 +28,14 @@ type PreviewTab = 'food' | 'beverage' | 'bill'
 export default function PrintPreviewPage() {
   const router = useRouter()
   const { isLoggedIn, isLoading } = useAuth()
+  const { printSettings } = useApp()
 
   const [activeTab, setActiveTab] = useState<PreviewTab>('food')
   const [dataLoading, setDataLoading] = useState(true)
   const [foodConfig, setFoodConfig] = useState<any>(null)
   const [coffeeConfig, setCoffeeConfig] = useState<any>(null)
-  const [settings, setSettings] = useState<any>({
-    restaurantHeaderText: 'Demitasse Coffee',
-    restaurantFooterText: 'Thank You',
-    showRestaurantHeader: true,
-    showFooter: true,
-    defaultPaperWidth: 280,
-    defaultLineHeight: 0,
-    defaultTopMargin: 0,
-    defaultRightMargin: 0,
-    defaultBottomMargin: 0,
-    defaultLeftMargin: 10,
-    defaultTopPadding: 4,
-    defaultRightPadding: 4,
-    defaultBottomPadding: 4,
-    defaultLeftPadding: 4,
-  })
+  // Use printSettings from AppContext (live-updated) instead of local fetch
+  const settings = printSettings
 
   useEffect(() => {
     if (isLoading || !isLoggedIn) return
@@ -83,11 +73,6 @@ export default function PrintPreviewPage() {
 
         setFoodConfig(fConfig)
         setCoffeeConfig(cConfig)
-
-        const settingsSnap = await getDoc(doc(db, 'kotBillingSettings', 'defaultSettings'))
-        if (settingsSnap.exists()) {
-          setSettings((prev: any) => ({ ...prev, ...settingsSnap.data() }))
-        }
       } catch (e) {
         console.error('Error fetching print configs:', e)
       } finally {
@@ -97,12 +82,6 @@ export default function PrintPreviewPage() {
 
     fetchData()
   }, [isLoading, isLoggedIn])
-
-  useEffect(() => {
-    const handleAfterPrint = () => clearPrintPageSize()
-    window.addEventListener('afterprint', handleAfterPrint)
-    return () => window.removeEventListener('afterprint', handleAfterPrint)
-  }, [])
 
   if (isLoading || dataLoading || !foodConfig || !coffeeConfig) {
     return (
@@ -170,12 +149,44 @@ export default function PrintPreviewPage() {
     grandTotal: subTotal + taxTotal,
   }
 
-  const handlePrint = () => {
-    // A small delay to ensure React state is painted before print dialogue
-    setTimeout(() => {
-      fitPrintPageToContent('.print-container')
-      window.print()
-    }, 100)
+  const handlePrint = async () => {
+    // Keep fitPrintPageToContent for now
+    fitPrintPageToContent('.print-container')
+
+    const container = document.querySelector('.print-container') as HTMLElement | null
+    if (!container) {
+      console.warn('[PrintPreview] Print container not found')
+      return
+    }
+
+    // Determine printer name based on active tab
+    let printerName: string | null = null
+    if (activeTab === 'food') {
+      printerName = foodConfig?.systemPrinterName || foodConfig?.printerName || null
+    } else if (activeTab === 'beverage') {
+      printerName = coffeeConfig?.systemPrinterName || coffeeConfig?.printerName || null
+    }
+    // For bill tab, use null (default printer)
+
+    console.log(`[PrintPreview] 🖨️ Printing ${activeTab} to: "${printerName || 'default printer'}"`)
+    toast('🖨️ Printing started...')
+
+    try {
+      const htmlContent = container.innerHTML
+      const fullHtml = `<html><head><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
+
+      await silentPrintHTML(printerName, fullHtml, {
+        widthMm: 80,
+      })
+
+      console.log(`[PrintPreview] ✅ ${activeTab} printed successfully`)
+      toast.success('✅ Printed successfully')
+    } catch (err) {
+      console.error(`[PrintPreview] ❌ Failed to print ${activeTab}:`, err)
+      toast.error('❌ Printer not connected')
+    } finally {
+      clearPrintPageSize()
+    }
   }
 
   return (

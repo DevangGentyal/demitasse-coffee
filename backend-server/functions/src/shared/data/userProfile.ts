@@ -93,12 +93,12 @@ export const registerOutletOwner = functions.https.onRequest(async (req: Request
 			return
 		}
 
-		const outletDetailsRef = db.collection('outletDetails').doc()
-		const outletId = outletDetailsRef.id
-		await outletDetailsRef.set({
+		const outletId = db.collection('outlets').doc().id
+		await db.collection('outlets').doc(outletId).collection('outletDetails').doc().set({
 			...outlet,
 			id: outletId,
 			status: 'approved',
+			menuVersion: 0,
 			createdAt: FieldValue.serverTimestamp(),
 			updatedAt: FieldValue.serverTimestamp(),
 		})
@@ -170,10 +170,12 @@ export const registerOutletPending = functions.https.onRequest(async (req: Reque
 		}
 
 		// Write pending details to outletDetails
-		await db.collection('outletDetails').doc(decoded.uid).set({
+		// Write pending details to outletDetails
+		await db.collection('outlets').doc(decoded.uid).collection('outletDetails').doc().set({
 			...outlet,
 			id: decoded.uid,
 			status: 'pending',
+			menuVersion: 0,
 			createdAt: FieldValue.serverTimestamp(),
 			updatedAt: FieldValue.serverTimestamp(),
 		})
@@ -232,10 +234,13 @@ export const updateOutletStatus = functions.https.onRequest(async (req: Request,
 			updatedAt: FieldValue.serverTimestamp(),
 		}, { merge: true })
 
-		await db.collection('outletDetails').doc(outletId).set({
-			status,
-			updatedAt: FieldValue.serverTimestamp(),
-		}, { merge: true })
+		const snap = await db.collection('outlets').doc(outletId).collection('outletDetails').get()
+		if (!snap.empty) {
+			await snap.docs[0].ref.set({
+				status,
+				updatedAt: FieldValue.serverTimestamp(),
+			}, { merge: true })
+		}
 
 		await db.collection('users').doc(outletId).set({
 			status,
