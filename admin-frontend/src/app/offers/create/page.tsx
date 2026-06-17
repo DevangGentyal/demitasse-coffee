@@ -163,6 +163,25 @@ export default function CreateOfferPage() {
     handleChange('comboGroups', groups)
   }
 
+  const getMinimumPossibleComboPrice = () => {
+  return formData.comboGroups.reduce((total, group) => {
+    if (group.items.length === 0) return total
+
+    const cheapestItemPrice = Math.min(
+      ...group.items.map(item => {
+        const product = products.find(
+          p => p.id === item.productId
+        )
+
+        return Number(product?.price ?? 0)
+      })
+    )
+
+    return total + cheapestItemPrice
+  }, 0)
+}
+
+
   // ─── Step logic ───────────────────────────────────────────────────────────
   // Which offer types need a "product config" step (Step 2)?
   const needsProductStep = (
@@ -225,8 +244,26 @@ export default function CreateOfferPage() {
           }
         }
         if (formData.comboPrice === '' || Number(formData.comboPrice) < 0) {
-          setError('Combo Price is required and must be ≥ 0'); return
-        }
+            setError('Combo Price is required and must be ≥ 0'); return
+          }
+
+          const minimumPossiblePrice = formData.comboGroups.reduce(
+            (total, group) => {
+              const cheapestPrice = Math.min(
+                ...group.items.map(item => getProductPrice(item.productId))
+              )
+
+              return total + cheapestPrice
+            },
+            0
+          )
+
+          if (Number(formData.comboPrice) >= minimumPossiblePrice) {
+            setError(
+              `Combo Price must be less than ₹${minimumPossiblePrice} (the cheapest possible combo value)`
+            )
+            return
+          }
         const totalVal = formData.comboGroups.reduce(
           (acc, g) => acc + g.items.reduce((s, i) => s + getProductPrice(i.productId), 0), 0
         )
@@ -342,7 +379,7 @@ export default function CreateOfferPage() {
 
       if (!outletId) throw new Error('Outlet ID missing')
       await createOffer(outletId, payload)
-      router.push('/offers')
+      router.push(`/offers?outletId=${outletId}`)
     } catch (e: any) {
       setError(e.message)
     }

@@ -128,12 +128,12 @@ export default function EditOfferPage() {
             autoApply: offer.autoApply ?? false,
             isStackable: offer.isStackable ?? false,
             birthdayFreeItemCount:
-              offer.config?.freeItems?.maxSelect
-                ? String(offer.config.freeItems.maxSelect)
+              offer.config?.freeItem?.maxSelect
+                ? String(offer.config.freeItem.maxSelect)
                 : '1',
 
             birthdayProductIds:
-              offer.config?.freeItems?.productIds || [],
+              offer.config?.freeItem?.productIds || [],
 
             newUserDiscountValue:
               offer.config?.discount?.discountValue
@@ -252,9 +252,33 @@ export default function EditOfferPage() {
           }
         }
         if (formData.comboPrice === '' || Number(formData.comboPrice) < 0) {
-          setError("Combo Price is required and must be >= 0")
-          return
-        }
+              setError("Combo Price is required and must be >= 0")
+              return
+            }
+
+            const minimumPossiblePrice = formData.comboGroups.reduce(
+              (total, group) => {
+                const cheapestPrice = Math.min(
+                  ...group.items.map(item => {
+                    const product = products.find(
+                      p => p.id === item.productId
+                    )
+
+                    return Number(product?.price ?? 0)
+                  })
+                )
+
+                return total + cheapestPrice
+              },
+              0
+            )
+
+            if (Number(formData.comboPrice) >= minimumPossiblePrice) {
+              setError(
+                `Combo Price must be less than ₹${minimumPossiblePrice} (the cheapest possible combo value)`
+              )
+              return
+}
       }
       else if (formData.type === 'BIRTHDAY') {
         const count = Number(formData.birthdayFreeItemCount)
@@ -395,7 +419,7 @@ export default function EditOfferPage() {
       }
 
       await updateOffer(offerId, outletId, payload)
-      router.push('/offers')
+      router.push(`/offers?outletId=${outletId}`)
 
     } catch (e: any) {
       setError(e.message)

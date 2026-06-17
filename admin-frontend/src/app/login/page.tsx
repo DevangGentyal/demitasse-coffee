@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { logIn, setAuthRememberMe } from "@/lib/firebase/auth"
+import { Eye, EyeOff } from 'lucide-react'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -19,6 +20,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
   const router = useRouter()
+  const [showPassword, setShowPassword] = useState(false)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -85,13 +87,28 @@ export default function LoginPage() {
               <label className="block text-sm font-medium text-foreground mb-2">
                 Password
               </label>
-              <Input
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="bg-input border-border"
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="bg-input border-border pr-10"
+                />
+
+                <button
+                  type="button"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowPassword(prev => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                >
+                  {showPassword ? (
+                    <EyeOff size={18} />
+                  ) : (
+                    <Eye size={18} />
+                  )}
+                </button>
+              </div>
             </div>
 
             <label className="flex items-center gap-3 text-sm text-foreground select-none">
