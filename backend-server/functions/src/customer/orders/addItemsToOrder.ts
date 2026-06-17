@@ -104,8 +104,9 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const outletId = orderData.outletId;
 			if (!outletId) throw new Error("OUTLET_ID_NOT_FOUND_ON_ORDER");
 
-			// The effective offerId: incoming request overrides, then fall back to what's already on the order
-			const effectiveOfferId: string | null =
+			// ── Resolve offer IDs ─────────────────────────────────────────────
+			// The primary offer on the order (COMBO, B1G1, DISCOUNT, etc.)
+			const primaryOfferId: string | null =
 				readString(offerId) || readString(orderData.autoAppliedOfferId) || null;
 
 			// ── Price resolver (always from products collection) ──────────────
@@ -116,9 +117,9 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 				return productDoc && Number.isFinite(productDoc.price) ? productDoc.price : null;
 			};
 
-			// ── Normalise & validate new items ────────────────────────────────
-			// Filter out synthetic NEW_USER offer wrapper items (they have no products),
-			// capture their offerId to use as the effective offer.
+			// ── Filter out synthetic NEW_USER wrapper items ───────────────────
+			// These are client-side offer placeholders with no real product.
+			// Capture their offerId separately — they represent the NEW_USER offer.
 			const syntheticNewUserOfferIds: string[] = [];
 			const realItems = items.filter((incomingItem) => {
 				if (isSyntheticNewUserItem(incomingItem)) {
@@ -129,10 +130,10 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 				return true;
 			});
 
-			// If a NEW_USER offer came from a synthetic wrapper and no effectiveOfferId exists yet, use it
-			const resolvedEffectiveOfferId: string | null =
-				effectiveOfferId || syntheticNewUserOfferIds[0] || null;
+			// NEW_USER offer ID (separate from primaryOfferId — applied as a second pass)
+			const newUserOfferId: string | null = syntheticNewUserOfferIds[0] || null;
 
+			// ── Normalise & validate new items ────────────────────────────────
 			const newNormalized: NormalisedOrderItem[] = [];
 			for (const incomingItem of realItems) {
 				console.info('[addItemsToOrder] normalizing incoming item', summarizeIncomingItem(incomingItem));
@@ -158,7 +159,18 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 					normalised.status = 'in-progress';
 					normalised.createdBy = actorId;
 					normalised.addedAt = new Date();
-					normalised.offerId = readString(normalised.offerId) || readString(incomingItem.offerId) || resolvedEffectiveOfferId;
+
+					// ✅ FIX: Only assign offerId from the incoming item itself.
+					// Do NOT fall back to primaryOfferId/resolvedEffectiveOfferId here —
+					// that would wrongly tag unrelated regular items with the combo/primary offer.
+					// Regular items that have no offerId stay as offerId=null.
+					// NEW_USER offer is applied as a second pass in applyOfferPricingByGroup.
+					const itemExplicitOfferId =
+						readString(normalised.offerId) ||
+						readString(incomingItem.offerId) ||
+						null;
+					normalised.offerId = itemExplicitOfferId;
+
 					newNormalized.push(normalised);
 				}
 			}
@@ -174,8 +186,10 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const existingItems: NormalisedOrderItem[] = Array.isArray(orderData.items) ? orderData.items : [];
 			const mergedItems = [...existingItems, ...newNormalized];
 
+			// ── Collect all offer IDs referenced in the cart ──────────────────
 			const offerIds = new Set<string>();
-			if (resolvedEffectiveOfferId) offerIds.add(resolvedEffectiveOfferId);
+			if (primaryOfferId) offerIds.add(primaryOfferId);
+			if (newUserOfferId) offerIds.add(newUserOfferId);
 			for (const item of mergedItems) {
 				const itemOfferId = readString(item.offerId);
 				if (itemOfferId) offerIds.add(itemOfferId);
@@ -184,51 +198,47 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 
 			// ── subTotal ──────────────────────────────────────────────────────
 			const subTotal = calculateSubtotal(mergedItems);
-			const currentOffer =
-				resolvedEffectiveOfferId
-					? offerDocsById.get(resolvedEffectiveOfferId)
-					: null;
+			const primaryOfferDoc = primaryOfferId ? offerDocsById.get(primaryOfferId) : null;
+			const newUserOfferDoc = newUserOfferId ? offerDocsById.get(newUserOfferId) : null;
 
-			if (
-				currentOffer &&
-				(
-					currentOffer.offerType === "NEW_USER" ||
-					currentOffer.type === "NEW_USER"
-				)
-			) {
-
-				if (mergedItems.length === 0) {
-					throw new Error("EMPTY_CART");
-				}
-
-				const minOrder =
-					Number(currentOffer.minOrderValue || 0);
-
-				if (subTotal < minOrder) {
-					throw new Error(
-						`MIN_ORDER_VALUE_NOT_REACHED:${minOrder}`
-					);
-				}
+			// Validate NEW_USER min order value if applicable
+			if (newUserOfferDoc) {
+				if (mergedItems.length === 0) throw new Error("EMPTY_CART");
+				const minOrder = Number(newUserOfferDoc.minOrderValue || 0);
+				if (subTotal < minOrder) throw new Error(`MIN_ORDER_VALUE_NOT_REACHED:${minOrder}`);
 			}
 
-			// ── Apply offer to items individually ──────────────────────────────
-			const itemsWithPricing = applyOfferPricingByGroup(mergedItems, offerDocsById as any, applyTax);
+			// ── Apply offer pricing ───────────────────────────────────────────
+			// Pass primaryOfferDoc as the primary (COMBO/B1G1/DISCOUNT/BIRTHDAY).
+			// newUserOfferDoc is passed separately so applyOfferPricingByGroup can
+			// run it as a second pass across all items after other offers are applied.
+			const itemsWithPricing = applyOfferPricingByGroup(
+				mergedItems,
+				offerDocsById as any,
+				applyTax,
+				primaryOfferDoc || null,
+				newUserOfferDoc || null,
+			);
 
-			// ── Get order type ───────────────────────────────────────────────
-			const { orderType } = applyOffer({ subTotal, items: itemsWithPricing }, resolvedEffectiveOfferId ? (offerDocsById.get(resolvedEffectiveOfferId) || null) : null);
+			// ── Get order type ────────────────────────────────────────────────
+			const { orderType } = applyOffer(
+				{ subTotal, items: itemsWithPricing },
+				primaryOfferDoc || null,
+			);
 
 			// ── Grand total ───────────────────────────────────────────────────
 			const pricing = buildPricingSummaryFromItems(itemsWithPricing);
 
+			// ── Offer usage tracking ──────────────────────────────────────────
+			const effectiveOfferIdForUsage = primaryOfferId || newUserOfferId;
 			const existingUsageCounts = getAppliedOfferUsageCounts(orderData.consumedOfferUsages);
-			const requestedOfferUsages = collectRequestedOfferUsages(itemsWithPricing, effectiveOfferId);
+			const requestedOfferUsages = collectRequestedOfferUsages(itemsWithPricing, effectiveOfferIdForUsage);
 			const deltaOfferUsages = requestedOfferUsages.filter((usage) => {
 				const existingCount = existingUsageCounts.get(usage.offerId) || 0;
 				return usage.count > existingCount;
 			});
 			const consumedOfferUsages = mergeAppliedOfferUsages(orderData.consumedOfferUsages, deltaOfferUsages);
 
-			// ── Offer usage tracking (user-level) ─────────────────────────────
 			if (deltaOfferUsages.length > 0) {
 				const userRef = db.collection("users").doc(actorId);
 				const userSnap = await tx.get(userRef);
@@ -254,13 +264,14 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 			const updatePayload = {
 				orderType,
 				items: itemsWithPricing,
-				autoAppliedOfferId: resolvedEffectiveOfferId,
-				offerId: resolvedEffectiveOfferId,
+				autoAppliedOfferId: primaryOfferId,
+				offerId: primaryOfferId,
+				// Store NEW_USER offer ID separately so it's preserved across re-calculations
+				newUserOfferId: newUserOfferId || orderData.newUserOfferId || null,
 				subTotal: pricing.subTotal,
 				discount: pricing.discount,
 				discountedPrice: pricing.discountedPrice,
 				tax: pricing.tax,
-				// grandTotal is intentionally not stored on order documents.
 				...(consumedOfferUsages.length > 0
 					? {
 						consumedOfferUsages: Array.isArray(orderData.consumedOfferUsages)
@@ -289,6 +300,9 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 		if (error?.message === "INVALID_ITEM_PAYLOAD") { res.status(400).json({ success: false, message: "Invalid item payload" }); return; }
 		if (error?.message?.startsWith("PRODUCT_NOT_FOUND:")) {
 			res.status(404).json({ success: false, message: error.message }); return;
+		}
+		if (error?.message?.startsWith("MIN_ORDER_VALUE_NOT_REACHED:")) {
+			res.status(400).json({ success: false, message: error.message }); return;
 		}
 		res.status(500).json({ success: false, message: "Internal server error", error: String(error) });
 	}

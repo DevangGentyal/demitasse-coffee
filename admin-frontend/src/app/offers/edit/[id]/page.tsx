@@ -44,6 +44,7 @@ export default function EditOfferPage() {
     endDate: '',
     minOrderValue: '',
     perUserLimit: '',
+    usageLimit: '',
     priority: '0',
     isActive: true,
     autoApply: false,
@@ -121,6 +122,7 @@ export default function EditOfferPage() {
             endDate: parseDate(offer.endDate),
             minOrderValue: offer.minOrderValue ? offer.minOrderValue.toString() : '',
             perUserLimit: offer.userRules?.perUserLimit ? String(offer.userRules.perUserLimit) : '',
+            usageLimit: offer.userRules?.usageLimit ? String(offer.userRules.usageLimit) : '',
             priority: (offer.priority ?? 0).toString(),
             isActive: offer.isActive ?? true,
             autoApply: offer.autoApply ?? false,
@@ -374,6 +376,10 @@ export default function EditOfferPage() {
           ? Number(formData.perUserLimit)
           : undefined,
 
+        usageLimit: formData.usageLimit
+          ? Number(formData.usageLimit)
+          : undefined,
+
         userRules: {
           firstOrderOnly:
             formData.type === 'NEW_USER',
@@ -606,6 +612,10 @@ export default function EditOfferPage() {
                 <div>
                   <Label className="text-xs text-gray-500 mb-1 block">Per-user Limit (optional)</Label>
                   <Input type="number" placeholder="e.g. 1" value={formData.perUserLimit} onChange={e => handleChange("perUserLimit", e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Total Usage Limit (optional)</Label>
+                  <Input type="number" placeholder="e.g. 1" value={formData.usageLimit} onChange={e => handleChange('usageLimit', e.target.value)} />
                 </div>
                 <div>
                   <Label className="text-xs text-gray-500 mb-1 block">Priority</Label>

@@ -324,10 +324,12 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
 
     if (isNewUserOffer) {
       // Validate: cart must have at least 1 regular item
+      console.log("New Offer Btn Clicked");
       const regularItems = cart.filter(
         (i: any) => !i.isFree && !i.isCombo && !i.isManualB1G1 && !i.isDiscount && !i.isBirthday && i.offerType !== "NEW_USER"
       );
       if (regularItems.length === 0) {
+        console.log("Add atleast 1 item in Cart!");
         setApplyError("Add at least 1 item to your cart first.");
         setTimeout(() => setApplyError(""), 3000);
         return;
@@ -340,6 +342,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
         0
       );
       if (minOrderVal > 0 && regularTotal < minOrderVal) {
+        console.log('Minimum order value ' + `${minOrderVal}` + ' required to apply this offer.');
         setApplyError(`Minimum order value ₹${minOrderVal} required to apply this offer.`);
         setTimeout(() => setApplyError(""), 3000);
         return;
@@ -638,6 +641,46 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
             />
           )
         }
+        {/* ── Error Popup ─────────────────────────────────────────────────────── */}
+        {applyError && (
+          <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="relative bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
+
+              {/* Close Button */}
+              <button
+                onClick={() => setApplyError("")}
+                className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600"
+              >
+                ✕
+              </button>
+
+              {/* Icon */}
+              <div className="flex justify-center mb-3">
+                <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
+                  <span className="text-2xl">⚠️</span>
+                </div>
+              </div>
+
+              {/* Title */}
+              <h3 className="text-lg font-bold text-center text-[#5C4033]">
+                Unable to Apply Offer
+              </h3>
+
+              {/* Message */}
+              <p className="text-sm text-gray-600 text-center mt-2">
+                {applyError}
+              </p>
+
+              {/* Action */}
+              <button
+                onClick={() => setApplyError("")}
+                className="w-full mt-5 py-3 rounded-xl bg-[#16a34a] text-white font-semibold hover:bg-green-700"
+              >
+                Got It
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Login popup ─────────────────────────────────────────────────────── */}
         {

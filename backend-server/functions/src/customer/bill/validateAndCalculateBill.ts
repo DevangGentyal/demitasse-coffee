@@ -1,6 +1,6 @@
 import * as functions from 'firebase-functions';
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+// import * as admin from 'firebase-admin';
 import { applyOffer } from '../../shared/utilities/offers/applyOffer';
 import { applyTax } from '../../shared/utilities/billing/tax';
 import { handleCustomerPreflight } from '../../shared/utilities/security/cors';
@@ -179,16 +179,16 @@ export const validateAndCalculateBill = functions.https.onRequest(async (req: Re
 		return;
 	}
 
-	let uid: string | null = null;
-	if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-		try {
-			const idToken = req.headers.authorization.split('Bearer ')[1];
-			const decoded = await admin.auth().verifyIdToken(idToken);
-			uid = decoded.uid;
-		} catch (error) {
-			console.error('validateAndCalculateBill token verification failed:', error);
-		}
-	}
+	// let uid: string | null = null;
+	// if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+	// 	try {
+	// 		const idToken = req.headers.authorization.split('Bearer ')[1];
+	// 		const decoded = await admin.auth().verifyIdToken(idToken);
+	// 		uid = decoded.uid;
+	// 	} catch (error) {
+	// 		console.error('validateAndCalculateBill token verification failed:', error);
+	// 	}
+	// }
 
 	try {
 		const {

@@ -32,6 +32,7 @@ const verifyToken = async (req: Request): Promise<admin.auth.DecodedIdToken | nu
 };
 
 const readString = (value: unknown): string => String(value ?? '').trim();
+
 const resolveCustomerName = async (uid: string, fallbackName: unknown): Promise<string> => {
 	try {
 		const userSnap = await db.collection('users').doc(uid).get();
@@ -40,6 +41,17 @@ const resolveCustomerName = async (uid: string, fallbackName: unknown): Promise<
 	} catch {
 		return readString(fallbackName) || 'Walk-In-Customer';
 	}
+};
+
+const isSyntheticNewUserItem = (item: unknown): boolean => {
+	const v = (item || {}) as Record<string, unknown>;
+	const offerType = String(v.offerType || '').trim().toUpperCase();
+	const productId = String(v.productId || v.id || '').trim();
+	return (
+		offerType === 'NEW_USER' &&
+		(!productId || productId.startsWith('new_user_') || productId.startsWith('discount_')) &&
+		(!Array.isArray(v.items) || (v.items as unknown[]).length === 0)
+	);
 };
 
 export const createOrder = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {
@@ -112,11 +124,26 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			return productDoc.price;
 		};
 
-		// ── Normalise items → canonical shape with correct unitPrice/totalPrice
-		const normalisedItems = await normalizeOrderItemsForPricing(items, resolveProductPrice);
+		// ── Separate NEW_USER synthetic wrapper items from real items ─────────
+		// NEW_USER items are client-side placeholders with no real product.
+		// They carry the NEW_USER offerId and must NOT be normalised as products.
+		const syntheticNewUserOfferIds: string[] = [];
+		const realItems = (items as any[]).filter((incomingItem) => {
+			if (isSyntheticNewUserItem(incomingItem)) {
+				const oid = readString((incomingItem as Record<string, unknown>).offerId);
+				if (oid) syntheticNewUserOfferIds.push(oid);
+				return false;
+			}
+			return true;
+		});
+		const newUserOfferId: string | null = syntheticNewUserOfferIds[0] || null;
+
+		// ── Normalise real items → canonical shape ────────────────────────────
+		const normalisedItems = await normalizeOrderItemsForPricing(realItems, resolveProductPrice);
 
 		// Enrich category / subcategory / name from products collection
 		for (const item of normalisedItems) {
+			if (!item.productId || item.isCombo) continue;
 			const productDoc = await getProductDoc(item.productId, String(outletId));
 			if (!productDoc) continue;
 			item.name = productDoc.name || item.name;
@@ -127,44 +154,70 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 		// ── subTotal ─────────────────────────────────────────────────────────
 		const subTotal = calculateSubtotal(normalisedItems);
 
-		// ── Offer / discount ─────────────────────────────────────────────────
-		const requestedOfferId = readString(autoAppliedOfferId) || readString(offerId) || null;
+		// ── Resolve primary offer ID (COMBO / B1G1 / DISCOUNT / BIRTHDAY) ────
+		// This is NOT the NEW_USER offer — that is handled separately.
+		// We derive it from autoAppliedOfferId/offerId only if it's not a NEW_USER offer.
+		const candidateOfferId = readString(autoAppliedOfferId) || readString(offerId) || null;
+
+		// Collect all offer IDs referenced in the cart
 		const uniqueOfferIds = new Set<string>();
-		if (requestedOfferId) uniqueOfferIds.add(requestedOfferId);
+		if (candidateOfferId) uniqueOfferIds.add(candidateOfferId);
+		if (newUserOfferId) uniqueOfferIds.add(newUserOfferId);
 		for (const item of normalisedItems) {
 			const itemOfferId = readString(item.offerId);
 			if (itemOfferId) uniqueOfferIds.add(itemOfferId);
 		}
 		const offerDocsById = await getOfferDocs(uniqueOfferIds, String(outletId));
+
+		// Determine if candidateOfferId is actually a NEW_USER offer
+		const candidateOfferDoc = candidateOfferId ? offerDocsById.get(candidateOfferId) : null;
+		const candidateIsNewUser =
+			candidateOfferDoc &&
+			(candidateOfferDoc.offerType ?? candidateOfferDoc.type ?? '').toString().toUpperCase() === 'NEW_USER';
+
+		// Primary offer = the non-NEW_USER offer (COMBO, B1G1, DISCOUNT, BIRTHDAY)
+		const primaryOfferId: string | null = candidateIsNewUser ? null : (candidateOfferId || null);
+		const primaryOfferDoc = primaryOfferId ? (offerDocsById.get(primaryOfferId) || null) : null;
+
+		// NEW_USER offer = either from synthetic wrapper or from candidateOfferId if it's NEW_USER
+		const resolvedNewUserOfferId: string | null =
+			newUserOfferId || (candidateIsNewUser ? candidateOfferId : null);
+		const newUserOfferDoc = resolvedNewUserOfferId
+			? (offerDocsById.get(resolvedNewUserOfferId) || null)
+			: null;
+
 		if (uid) {
 			const { validateRegistrationEligibility } = await import('../../shared/utilities/firestoreCatalog.js');
 			await validateRegistrationEligibility(uid, offerDocsById);
 		}
 
-		// ── Tag normal items with the auto-applied registration offer ID ─────────
-		if (requestedOfferId && offerDocsById.has(requestedOfferId)) {
-			for (const item of normalisedItems) {
-				const isSpecial = item.isFree || item.isCombo || item.isManualB1G1 || item.isBirthday;
-				const hasOwnOffer = item.offerId && item.offerId !== requestedOfferId;
-				if (!isSpecial && !hasOwnOffer) {
-					item.offerId = requestedOfferId;
-				}
-			}
-		}
+		// ✅ DO NOT tag regular items with primaryOfferId.
+		// Each item already carries its own offerId from normalization.
+		// Regular items (Italian Pasta, Coffee Mocha) have offerId=null and stay in __basic__ group.
+		// NEW_USER discount is applied as a separate second pass in applyOfferPricingByGroup.
 
-		// ── Apply offer to each item individually ──────────────────────────
-		const primaryOfferDoc = requestedOfferId ? (offerDocsById.get(requestedOfferId) || null) : null;
-		const itemsWithPricing = applyOfferPricingByGroup(normalisedItems, offerDocsById as any, applyTax, primaryOfferDoc as any);
+		// ── Apply offer pricing ───────────────────────────────────────────────
+		// First pass: COMBO / B1G1 / DISCOUNT / BIRTHDAY per offerId group
+		// Second pass: NEW_USER globally across all eligible items
+		const itemsWithPricing = applyOfferPricingByGroup(
+			normalisedItems,
+			offerDocsById as any,
+			applyTax,
+			primaryOfferDoc as any,
+			newUserOfferDoc as any,
+		);
+
 		const { orderType: appliedOrderType } = applyOffer({ subTotal, items: itemsWithPricing }, primaryOfferDoc);
 		const resolvedOrderType = readString(requestedOrderType).toUpperCase() || appliedOrderType;
-		// ── Grand total ───────────────────────────────────────────────────
-		// grandTotal      = discountedPrice + tax
+
+		// ── Grand total ───────────────────────────────────────────────────────
 		const pricing = buildPricingSummaryFromItems(itemsWithPricing);
 
-		// ── Offer usage tracking ─────────────────────────────────────────────
-		const consumedOfferUsages = collectRequestedOfferUsages(itemsWithPricing, requestedOfferId);
+		// ── Offer usage tracking ──────────────────────────────────────────────
+		const effectiveOfferIdForUsage = primaryOfferId || resolvedNewUserOfferId;
+		const consumedOfferUsages = collectRequestedOfferUsages(itemsWithPricing, effectiveOfferIdForUsage);
 
-		// ── Deduplication (prevent accidental double-submit within 10 s) ─────
+		// ── Deduplication (prevent accidental double-submit within 10 s) ──────
 		const normalizeForCompare = (its: any[]) =>
 			its.map((it: any) => ({
 				productId: String(it.productId || it.id || ''),
@@ -195,7 +248,8 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 		try {
 			if (activeSessionId) {
 				const tenSecondsAgo = admin.firestore.Timestamp.fromMillis(Date.now() - 10_000);
-				const recentSnap = await db.collection('outlets').doc(String(outletId)).collection('orders')
+				const recentSnap = await db
+					.collection('outlets').doc(String(outletId)).collection('orders')
 					.where('sessionId', '==', activeSessionId)
 					.orderBy('timeOfOrder', 'desc')
 					.limit(5)
@@ -203,9 +257,11 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				const normNew = normalizeForCompare(itemsWithPricing);
 				for (const doc of recentSnap.docs) {
 					const od = doc.data() || {};
-					const t = od.timeOfOrder as admin.firestore.Timestamp | undefined;
-					if (!t || t.toMillis() < tenSecondsAgo.toMillis()) continue;
-					if ((readString(od.autoAppliedOfferId) || null) !== requestedOfferId) continue;
+					const t = od.timeOfOrder;
+					// ✅ FIX: guard against undefined/non-Timestamp timeOfOrder before calling toMillis()
+					if (!t || typeof t.toMillis !== 'function') continue;
+					if (t.toMillis() < tenSecondsAgo.toMillis()) continue;
+					if ((readString(od.autoAppliedOfferId) || null) !== primaryOfferId) continue;
 					if (itemsEqual(normNew, normalizeForCompare(Array.isArray(od.items) ? od.items : []))) {
 						orderRef = doc.ref;
 						break;
@@ -235,7 +291,9 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				if (consumedOfferUsages.length > 0) {
 					const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
 					for (const usage of consumedOfferUsages) {
-						const offerSnap = await tx.get(db.collection('outlets').doc(String(outletId)).collection('offers').doc(usage.offerId));
+						const offerSnap = await tx.get(
+							db.collection('outlets').doc(String(outletId)).collection('offers').doc(usage.offerId)
+						);
 						offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
 					}
 					const violation = findUsageLimitViolation(
@@ -265,28 +323,37 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				tableId: tableId || null,
 				sessionId: activeSessionId || null,
 
-				// ── Items (canonical shape with item-level pricing) ──────────
+				// ── Items ──────────────────────────────────────────────────────
 				items: itemsWithPricing,
 
-				// ── Pricing (calculated from item-level values) ────────────────
+				// ── Pricing ────────────────────────────────────────────────────
 				subTotal: pricing.subTotal,
 				discount: pricing.discount,
 				discountedPrice: pricing.discountedPrice,
 				tax: pricing.tax,
 				totalAmount: pricing.grandTotal,
 				status: req.body?.status || req.body?.orderStatus || 'in-progress',
+
+				// Primary offer (COMBO / B1G1 / DISCOUNT / BIRTHDAY)
 				autoAppliedOfferId: alreadyCounted
 					? (readString(existingData.autoAppliedOfferId) || null)
-					: requestedOfferId,
-				offerId: requestedOfferId,
+					: primaryOfferId,
+				offerId: primaryOfferId,
+
+				// NEW_USER offer stored separately
+				newUserOfferId: resolvedNewUserOfferId || null,
+
 				...(alreadyCounted
 					? {
-						consumedOfferUsages: Array.isArray(existingData.consumedOfferUsages) ? existingData.consumedOfferUsages : [],
+						consumedOfferUsages: Array.isArray(existingData.consumedOfferUsages)
+							? existingData.consumedOfferUsages
+							: [],
 						offerUsageCounted: true,
 					}
 					: consumedOfferUsages.length > 0
 						? { consumedOfferUsages, offerUsageCounted: true }
 						: {}),
+
 				timeOfOrder: FieldValue.serverTimestamp(),
 				createdAt: FieldValue.serverTimestamp(),
 				updatedAt: FieldValue.serverTimestamp(),

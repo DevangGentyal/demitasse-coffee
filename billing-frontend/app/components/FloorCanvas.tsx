@@ -350,15 +350,44 @@ function OrderViewModal({
                   const rowKey = `${keyPrefix}-${orderId}-${rowItem.id || 'item'}-${rowIndex}`
                   const isExpanded = !!expandedItems[rowKey]
 
+                  // ── Detect NEW_USER discount on this item ──────────────────────
+                  const itemDiscount = toSafeNumber(rowItem.discount, 0)
+                  const hasNewUserDiscount =
+                    !rowItem.isOfferItem &&
+                    !rowItem.isCombo &&
+                    !rowItem.isManualB1G1 &&
+                    !rowItem.isBirthday &&
+                    itemDiscount > 0
+
+                  // ── Detect BIRTHDAY item ───────────────────────────────────────
+                  const isBirthdayItem = rowItem.isBirthday === true
+
                   return (
                     <div key={rowKey} className="mx-3 my-1 rounded-lg border border-gray-100 bg-white px-4 py-3">
+                      {/* BIRTHDAY badge — shown above item name, like offer groups */}
+                      {isBirthdayItem && !hideOfferMeta && (
+                        <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full bg-pink-50 px-2 py-0.5 text-[10px] font-semibold text-pink-700">
+                          <span className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
+                            🎂 BIRTHDAY
+                          </span>
+                          <span className="truncate">
+                            {rowItem.offerTitle || rowItem.orderOfferTitle || 'Birthday Offer'}
+                          </span>
+                          {itemDiscount > 0 && (
+                            <span className="text-pink-600/80">-{formatRupee(itemDiscount)}</span>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-2">
                         <div
                           className={`flex-1 min-w-0 ${hasDetails ? 'cursor-pointer' : ''}`}
                           onClick={() => hasDetails && toggleExpanded(rowKey)}
                         >
                           <div className="flex items-center gap-1.5">
-                            {!hidePrimaryDetails && <span className="text-sm font-medium text-gray-900 truncate">{rowItem.name}</span>}
+                            {!hidePrimaryDetails && (
+                              <span className="text-sm font-medium text-gray-900 truncate">{rowItem.name}</span>
+                            )}
                             {hasDetails && !hidePrimaryDetails && (
                               <span
                                 className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${isExpanded ? 'rotate-180' : ''
@@ -368,16 +397,23 @@ function OrderViewModal({
                               </span>
                             )}
                           </div>
-                          {!hidePrimaryDetails && <div className="text-xs text-gray-400 mt-0.5">{formatRupee(rowItem.unitPrice)} each</div>}
-                          {!hideOfferMeta && !hidePrimaryDetails && rowItem.isOfferItem && (rowItem.offerTitle || rowItem.orderOfferTitle) && (
-                            <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{rowItem.offerType || rowItem.orderOfferType || 'Offer'}</span>
-                              <span className="truncate">{rowItem.offerTitle || rowItem.orderOfferTitle}</span>
-                              {Number(rowItem.discountAmount ?? 0) > 0 && (
-                                <span className="text-blue-600/80">-{formatRupee(Number(rowItem.discountAmount ?? 0))}</span>
-                              )}
-                            </div>
+                          {!hidePrimaryDetails && (
+                            <div className="text-xs text-gray-400 mt-0.5">{formatRupee(rowItem.unitPrice)} each</div>
                           )}
+                          {/* Existing offer badge (non-birthday, non-new-user offer items) */}
+                          {!hideOfferMeta && !hidePrimaryDetails && rowItem.isOfferItem &&
+                            !isBirthdayItem &&
+                            (rowItem.offerTitle || rowItem.orderOfferTitle) && (
+                              <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
+                                  {rowItem.offerType || rowItem.orderOfferType || 'Offer'}
+                                </span>
+                                <span className="truncate">{rowItem.offerTitle || rowItem.orderOfferTitle}</span>
+                                {Number(rowItem.discountAmount ?? 0) > 0 && (
+                                  <span className="text-blue-600/80">-{formatRupee(Number(rowItem.discountAmount ?? 0))}</span>
+                                )}
+                              </div>
+                            )}
                         </div>
 
                         <div className="w-16 text-center text-sm font-medium text-gray-700 shrink-0">
@@ -401,6 +437,17 @@ function OrderViewModal({
                           )}
                         </button>
                       </div>
+
+                      {/* NEW_USER discount indicator — shown as a bottom line on the item */}
+                      {hasNewUserDiscount && !hideOfferMeta && !hidePrimaryDetails && (
+                        <div className="mt-2 flex items-center justify-between rounded-md bg-emerald-50 border border-emerald-100 px-2.5 py-1.5 text-[11px]">
+                          <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                            <span>🎉</span>
+                            <span>New User Discount applied</span>
+                          </div>
+                          <span className="font-semibold text-emerald-700">-{formatRupee(itemDiscount)}</span>
+                        </div>
+                      )}
 
                       {isExpanded && hasDetails && (
                         <div className="mt-2 ml-1 pl-3 border-l-2 border-gray-200 space-y-1 pb-1">
@@ -431,7 +478,9 @@ function OrderViewModal({
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="font-medium truncate">
                                         {nestedItem.name}
-                                        {nestedItem.isFree && <span className="ml-1 text-[10px] font-semibold text-emerald-700">(FREE)</span>}
+                                        {nestedItem.isFree && (
+                                          <span className="ml-1 text-[10px] font-semibold text-emerald-700">(FREE)</span>
+                                        )}
                                       </span>
                                       <span className="shrink-0 text-gray-500">
                                         {formatRupee(nestedItem.totalPrice || 0)}
@@ -440,7 +489,9 @@ function OrderViewModal({
                                     {nestedAddOns.length > 0 && (
                                       <div className="mt-1 space-y-0.5 pl-2 text-[10px] text-amber-700">
                                         {nestedAddOns.map((addon, addonIndex) => (
-                                          <div key={`${rowKey}-nested-${nestedIndex}-addon-${addonIndex}`}>+ {addon.name} {addon.price > 0 ? `(+₹${addon.price})` : ''}</div>
+                                          <div key={`${rowKey}-nested-${nestedIndex}-addon-${addonIndex}`}>
+                                            + {addon.name} {addon.price > 0 ? `(+₹${addon.price})` : ''}
+                                          </div>
                                         ))}
                                       </div>
                                     )}

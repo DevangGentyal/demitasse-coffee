@@ -37,6 +37,7 @@ export default function CreateOfferPage() {
     endDate: '',
     minOrderValue: '',
     perUserLimit: '',
+    usageLimit: '',
     priority: '0',
     isActive: true,
     autoApply: false,
@@ -326,6 +327,7 @@ export default function CreateOfferPage() {
         isStackable: formData.isStackable,
         config,
         perUserLimit: formData.perUserLimit ? Number(formData.perUserLimit) : undefined,
+        usageLimit: formData.usageLimit ? Number(formData.usageLimit) : undefined,
         userRules: {
           firstOrderOnly: formData.type === 'NEW_USER',
           birthdayOnly: formData.type === 'BIRTHDAY',
@@ -488,6 +490,10 @@ export default function CreateOfferPage() {
                 <div>
                   <Label className="text-xs text-gray-500 mb-1 block">Per-user Limit (optional)</Label>
                   <Input type="number" placeholder="e.g. 1" value={formData.perUserLimit} onChange={e => handleChange('perUserLimit', e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500 mb-1 block">Total Usage Limit (optional)</Label>
+                  <Input type="number" placeholder="e.g. 1" value={formData.usageLimit} onChange={e => handleChange('usageLimit', e.target.value)} />
                 </div>
                 <div>
                   <Label className="text-xs text-gray-500 mb-1 block">Priority</Label>

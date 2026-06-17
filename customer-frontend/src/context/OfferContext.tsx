@@ -224,6 +224,7 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
     <OfferContext.Provider
       value={{
         offers,
+        userOrders,
         filteredOffers,
         fullUser,
         allValidOffers,

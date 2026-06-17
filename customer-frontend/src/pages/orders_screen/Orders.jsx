@@ -27,24 +27,13 @@ const orderTimeFormat = new Intl.DateTimeFormat("en-IN", {
   hour12: true,
 });
 
-// ─── Pricing helpers ────────────────────────────────────────────────────────
-// IMPORTANT: these mirror shared/utilities/billing/pricing.ts used by the
-// generateBill Cloud Function exactly, so the Orders page "Live total" and
-// the Final Bill "Grand Total" always agree (before tax). If you create the
-// shared module, replace this block with:
-//   import { getOrderTotal, getItemTotal, readNumber } from "shared/utilities/billing/pricing";
+// ─── Pricing helpers ──────────────────────────────────────────────────────────
 
 const readNumber = (value, fallback = 0) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 };
 
-/**
- * Item-level price. Mirrors backend getItemTotal:
- *  - trusts discountedPrice/totalPrice/totalAmount/itemTotal only if > 0
- *  - if that value is 0 (or missing) but nested `items` exist (combo
- *    container), recursively sums the nested items instead of returning 0
- */
 const getItemTotal = (item) => {
   const direct = readNumber(
     item?.discountedPrice ?? item?.totalPrice ?? item?.totalAmount ?? item?.itemTotal,
@@ -57,13 +46,14 @@ const getItemTotal = (item) => {
   return Number.isFinite(direct) ? direct : 0;
 };
 
-/**
- * Order-level price. Mirrors backend getOrderTotal:
- *  - pricing.total is the single source of truth (already reflects all
- *    offers/combos/discounts, pre-tax)
- *  - legacy fallback to old top-level fields / item sums only if pricing.total
- *    is missing
- */
+const getItemOriginalTotal = (item) => {
+  const direct = readNumber(item?.totalPrice ?? item?.totalAmount ?? item?.itemTotal, NaN);
+  const nested = Array.isArray(item?.items) ? item.items : [];
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  if (nested.length > 0) return nested.reduce((sum, child) => sum + getItemOriginalTotal(child), 0);
+  return Number.isFinite(direct) ? direct : 0;
+};
+
 const getOrderTotal = (orderData) => {
   const pricing = orderData?.pricing;
   const pricingTotal = readNumber(pricing?.total, NaN);
@@ -81,7 +71,7 @@ const getOrderTotal = (orderData) => {
   return 0;
 };
 
-// ─── Pure helpers ─────────────────────────────────────────────────────────────
+// ─── Pure helpers ──────────────────────────────────────────────────────────────
 
 const toDate = (value) => {
   if (!value) return new Date(0);
@@ -104,37 +94,36 @@ const normalizeStatus = (value) => {
 };
 
 const resolveStatusLabel = (order) => {
-  // Prefer the realtime `status` field (populated via listener) over
-  // the item-level `orderStatus` so UI reflects live updates.
   const s = normalizeStatus(order.status || order.orderStatus);
   if (s === "completed") return "Delivered";
   if (s === "ready") return "Ready";
   return "In Progress";
 };
 
-// ─── OrderCard — renders one order using single-source-of-truth totals ────────
+// ─── OrderCard ────────────────────────────────────────────────────────────────
 
 function OrderCard({ order }) {
   const [expandedRows, setExpandedRows] = useState({});
 
   const allItems = Array.isArray(order.items) ? order.items : [];
-  // Order-level total: pricing.total (already reflects offers/combos/discounts)
   const orderTotal = getOrderTotal(order);
   const placedAt = toDate(order.createdAt || order.timeOfOrder || order.updatedAt);
   const statusLabel = resolveStatusLabel(order);
   const itemCount = allItems.reduce((s, i) => s + (Number(i.quantity ?? i.qty ?? 1) || 1), 0);
 
-  // Bucket items into offer groups (display-only, no price recalculation)
+  // Bucket items into offer groups
   const offerBuckets = new Map();
   const regularItems = [];
   allItems.forEach((item, index) => {
     const rawOfferId = String(item.offerId || "").trim();
     const rawOfferTitle = String(item.offerTitle || "").trim();
-    const rawOfferType = String(item.offerType || "").trim();
+    const rawOfferType = String(item.offerType || "").trim().toUpperCase();
     const isOffer = item.isCombo || item.isManualB1G1 || item.isDiscount || item.isBirthday || item.isFree;
     const fallbackId = `${rawOfferType || "offer"}::${rawOfferTitle || "group"}`;
     const bucketId = rawOfferId || (isOffer ? fallbackId : "");
 
+    // NEW_USER items: no offerId, not flagged as isOfferItem → go to regularItems
+    // but carry item.discount for per-item savings display
     if (!bucketId) { regularItems.push({ item, index }); return; }
     if (!offerBuckets.has(bucketId)) {
       offerBuckets.set(bucketId, {
@@ -147,20 +136,36 @@ function OrderCard({ order }) {
     offerBuckets.get(bucketId).rows.push({ item, index });
   });
 
+  // Total savings across entire order
+  const totalSaved = allItems.reduce((sum, item) => sum + readNumber(item.discount, 0), 0);
+
   const toggle = (key) => setExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const renderItemRow = (item, key) => {
     const qty = Number(item.quantity ?? item.qty ?? 1) || 1;
-    // Use getItemTotal — correctly recurses into combo containers whose
-    // own totalPrice is stored as 0 (Issue 7 fix)
     const totalPrice = getItemTotal(item);
+    const originalTotal = getItemOriginalTotal(item);
+    const itemDiscount = readNumber(item.discount, 0);
     const addOns = Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [];
     const nestedItems = Array.isArray(item.items) ? item.items : [];
     const hasDetails = addOns.length > 0 || nestedItems.length > 0;
     const isExpanded = !!expandedRows[key];
 
+    // NEW_USER: regular item with a discount but no offer bucket
+    const hasNewUserDiscount =
+      !item.isOfferItem &&
+      !item.isCombo &&
+      !item.isManualB1G1 &&
+      !item.isBirthday &&
+      itemDiscount > 0;
+
+    // BIRTHDAY item (in a bucket but may also appear standalone)
+    const isBirthdayItem = item.isBirthday === true;
+
     return (
       <div key={key} className="rounded-lg bg-gray-50 px-3 py-2 text-sm">
+
+
         <button
           type="button"
           onClick={() => hasDetails && toggle(key)}
@@ -180,8 +185,35 @@ function OrderCard({ order }) {
               </p>
             )}
           </div>
-          <p className="ml-3 shrink-0 font-semibold text-gray-900">{currency.format(totalPrice)}</p>
+          {/* <div className="ml-3 shrink-0 text-right">
+            {itemDiscount > 0 && (
+              <p className="text-[11px] font-semibold text-emerald-600">
+                Saved {currency.format(itemDiscount)}
+              </p>
+            )}
+
+            {itemDiscount > 0 && !isBirthdayItem && (
+              <p className="text-[11px] line-through text-gray-400">
+                {currency.format(originalTotal)}
+              </p>
+            )}
+
+            <p className="font-semibold text-gray-900">
+              {currency.format(totalPrice)}
+            </p>
+          </div> */}
         </button>
+
+        {/* NEW_USER discount strip */}
+        {hasNewUserDiscount && (
+          <div className="mt-2 flex items-center justify-between rounded-md bg-yellow-50 border border-yellow-100 px-2.5 py-1.5 text-[11px]">
+            <div className="flex items-center gap-1.5 text-yellow-700 font-medium">
+              <span>🎉</span>
+              <span>New User Discount applied</span>
+            </div>
+            <span className="font-semibold text-yellow-700">-{currency.format(itemDiscount)}</span>
+          </div>
+        )}
 
         {isExpanded && hasDetails && (
           <div className="mt-2 space-y-2 border-t border-gray-200 pt-2 text-xs text-gray-600">
@@ -237,17 +269,42 @@ function OrderCard({ order }) {
 
       <div className="mt-3 space-y-2">
         {Array.from(offerBuckets.values()).map((bucket, bIdx) => {
-          // Bucket price = sum of getItemTotal across items in this bucket
-          // (correctly handles combo containers via recursion)
           const bucketTotal = bucket.rows.reduce((s, { item }) => s + getItemTotal(item), 0);
+          const bucketOriginalTotal = bucket.rows.reduce((s, { item }) => s + getItemOriginalTotal(item), 0);
+          const bucketSaved = bucketOriginalTotal - bucketTotal;
+          const isBirthdayBucket = bucket.offerType === "BIRTHDAY";
+
           return (
-            <div key={`offer-${order.id}-${bucket.offerId}-${bIdx}`} className="rounded-xl border border-blue-200 bg-blue-50/60 p-2.5">
+            <div
+              key={`offer-${order.id}-${bucket.offerId}-${bIdx}`}
+              className={`rounded-xl border p-2.5 ${isBirthdayBucket
+                ? "border-pink-200 bg-pink-50/60"
+                : "border-blue-200 bg-blue-50/60"
+                }`}
+            >
               <div className="mb-2 flex items-center justify-between">
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
-                  <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">{bucket.offerType}</span>
+                <div className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold ${isBirthdayBucket
+                  ? "bg-pink-100 text-pink-700"
+                  : "bg-blue-100 text-blue-700"
+                  }`}>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${isBirthdayBucket ? "bg-pink-200" : "bg-blue-200"}`}>
+                    {isBirthdayBucket ? "🎂" : ""} {bucket.offerType}
+                  </span>
                   <span className="truncate max-w-[160px]">{bucket.offerTitle}</span>
                 </div>
-                <span className="text-xs font-bold text-blue-800">Offer Price: {currency.format(bucketTotal)}</span>
+                <div className="text-right">
+                  <div>
+                    <div className="text-xs font-bold text-blue-800">
+                      Price: {currency.format(bucketTotal)}
+                    </div>
+
+                    {bucketSaved > 0 && (
+                      <div className="text-[10px] font-semibold text-emerald-600 mt-0.5">
+                        You Saved {currency.format(bucketSaved)}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="space-y-2">
                 {bucket.rows.map(({ item, index }) =>
@@ -257,15 +314,36 @@ function OrderCard({ order }) {
             </div>
           );
         })}
+
         {regularItems.map(({ item, index }) =>
           renderItemRow(item, `basic-item-${order.id}-${index}`)
         )}
       </div>
+
+      {/* Per-order total saved */}
+      {totalSaved > 0 && (
+        <div className="mt-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+                💰 Total Savings
+              </p>
+              <p className="mt-1 text-xs text-emerald-600">
+                Savings across this order
+              </p>
+            </div>
+
+            <span className="text-2xl font-extrabold text-emerald-700">
+              {currency.format(totalSaved)}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ─── BillModal — renders backend bill data with no local recalculation ────────
+// ─── BillModal ────────────────────────────────────────────────────────────────
 
 function BillModal({ billData, tableName, onClose }) {
   const [expandedItems, setExpandedItems] = useState({});
@@ -275,6 +353,12 @@ function BillModal({ billData, tableName, onClose }) {
   const regularItems = items.filter(
     (item) => !item.offerId && !item.offerTitle && !item.isCombo &&
       !item.isManualB1G1 && !item.isDiscount && !item.isBirthday && !item.isFree
+  );
+
+  // Total saved = subTotal - discountedPrice
+  const totalSaved = Math.max(
+    readNumber(pricing.subTotal, 0) - readNumber(pricing.discountedPrice, 0),
+    0
   );
 
   const renderBillRow = (item, idx, keyPrefix, hideOfferMeta = false) => {
@@ -288,8 +372,26 @@ function BillModal({ billData, tableName, onClose }) {
     const selectedOptions = directCustomizations.flatMap((g) => (g.options || []).filter((o) => o.isSelected));
     const hasDetails = hasVariations || selectedOptions.length > 0 || addOns.length > 0 || hasSubItems;
 
+    const itemDiscount = readNumber(item.discount, 0);
+    const isBirthdayItem = item.isBirthday === true;
+    const hasNewUserDiscount =
+      !item.isOfferItem &&
+      !item.isCombo &&
+      !item.isManualB1G1 &&
+      !item.isBirthday &&
+      itemDiscount > 0;
+
     return (
       <div key={rowKey} className="mb-2 rounded-lg border border-gray-200 bg-white px-3 py-3 last:mb-0">
+        {/* BIRTHDAY badge */}
+        {isBirthdayItem && !hideOfferMeta && (
+          <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full bg-pink-50 border border-pink-100 px-2 py-0.5 text-[10px] font-semibold text-pink-700">
+            <span className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">🎂 Birthday</span>
+            <span className="truncate">{item.offerTitle || "Birthday Offer"}</span>
+            {itemDiscount > 0 && <span className="text-pink-500">-{currency.format(itemDiscount)}</span>}
+          </div>
+        )}
+
         <div
           className={`flex items-start justify-between text-sm ${hasDetails ? "cursor-pointer select-none" : ""}`}
           onClick={() => hasDetails && toggle(rowKey)}
@@ -304,7 +406,7 @@ function BillModal({ billData, tableName, onClose }) {
             <p className="mt-0.5 text-xs text-gray-500">
               Qty: {item.qty} × {currency.format(item.unitPrice || 0)}
             </p>
-            {!hideOfferMeta && isOffer && item.offerTitle && (
+            {!hideOfferMeta && isOffer && item.offerTitle && !isBirthdayItem && (
               <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
                 <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
                   {item.offerType || "Offer"}
@@ -313,9 +415,19 @@ function BillModal({ billData, tableName, onClose }) {
               </p>
             )}
           </div>
-          {/* Backend-supplied totalPrice — no recalculation */}
           <p className="mt-0.5 font-bold text-gray-900">{currency.format(item.totalPrice || 0)}</p>
         </div>
+
+        {/* NEW_USER discount strip */}
+        {hasNewUserDiscount && !hideOfferMeta && (
+          <div className="mt-2 flex items-center justify-between rounded-md bg-yellow-50 border border-yellow-100 px-2.5 py-1.5 text-[11px]">
+            <div className="flex items-center gap-1.5 text-yellow-700 font-medium">
+              <span>🎉</span>
+              <span>New User Discount applied</span>
+            </div>
+            <span className="font-semibold text-yellow-700">-{currency.format(itemDiscount)}</span>
+          </div>
+        )}
 
         {isExpanded && hasDetails && (
           <div className="mt-3 ml-1 space-y-1.5 border-l-2 border-gray-200 pl-3 pb-1 text-xs text-gray-600">
@@ -358,12 +470,7 @@ function BillModal({ billData, tableName, onClose }) {
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Bill Summary</p>
             <h3 className="text-lg font-semibold text-gray-900">{tableName}</h3>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-gray-500 transition-colors hover:text-gray-800"
-          >
-            ✕
-          </button>
+          <button onClick={onClose} className="p-1 text-gray-500 transition-colors hover:text-gray-800">✕</button>
         </div>
 
         {/* Column headers */}
@@ -377,49 +484,63 @@ function BillModal({ billData, tableName, onClose }) {
         <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4">
           <div className="space-y-4">
 
-            {/* Offer groups from backend displayBillGroups */}
+            {/* Offer groups */}
             {displayBillGroups.length > 0 && (
               <div className="space-y-2">
                 {displayBillGroups.map((group, gIdx) => {
                   const groupKey = `group-${gIdx}-${group.offerId || group.offerType || "offer"}`;
                   const isGroupExpanded = !!expandedItems[groupKey];
                   const groupItemCount = Array.isArray(group.items) ? group.items.length : 0;
-                  // Backend-supplied groupDiscountedPrice — no recalculation
-                  const groupPrice = Number(group.groupDiscountedPrice ?? 0);
+                  const groupPrice = readNumber(group.groupDiscountedPrice, 0);
+                  const groupSubtotal = readNumber(group.groupSubtotal, 0);
+                  const groupSaved = Math.max(groupSubtotal - groupPrice, 0);
+                  const isBirthdayGroup = String(group.offerType || "").toUpperCase() === "BIRTHDAY";
 
                   return (
-                    <div key={groupKey} className="rounded-xl border border-blue-200 bg-blue-50/60">
+                    <div
+                      key={groupKey}
+                      className={`rounded-xl border ${isBirthdayGroup
+                        ? "border-pink-200 bg-pink-50/60"
+                        : "border-blue-200 bg-blue-50/60"
+                        }`}
+                    >
                       <button
                         type="button"
                         onClick={() => toggle(groupKey)}
                         aria-expanded={isGroupExpanded}
                         className="flex w-full items-center justify-between gap-3 border-b border-blue-200 px-3 py-2 text-left"
+                        style={{ borderColor: isBirthdayGroup ? "#f9a8d4" : "#bfdbfe" }}
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">
-                            <span className="rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
-                              {group.offerType || "OFFER"}
+                          <div className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-[10px] font-semibold ${isBirthdayGroup ? "bg-pink-100 text-pink-700" : "bg-blue-100 text-blue-700"}`}>
+                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${isBirthdayGroup ? "bg-pink-200" : "bg-blue-200"}`}>
+                              {isBirthdayGroup ? "🎂" : ""} {group.offerType || "OFFER"}
                             </span>
                             <span className="truncate max-w-[180px]">{group.offerTitle || group.offerId || "Offer Group"}</span>
                           </div>
-                          <div className="mt-1 text-[11px] font-medium text-blue-700/80">
+                          <div className={`mt-1 text-[11px] font-medium ${isBirthdayGroup ? "text-pink-700/80" : "text-blue-700/80"}`}>
                             {isGroupExpanded ? "Hide items" : "View items"}
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-[10px] font-medium uppercase tracking-wide text-blue-600">
+                          <div className={`text-[10px] font-medium uppercase tracking-wide ${isBirthdayGroup ? "text-pink-600" : "text-blue-600"}`}>
                             {groupItemCount} item{groupItemCount === 1 ? "" : "s"}
                             <span className={`ml-1 inline-block transition-transform ${isGroupExpanded ? "rotate-180" : ""}`}>▼</span>
                           </div>
-                          <div className="text-xs font-bold text-blue-800">
-                            Offer Price: {currency.format(groupPrice)}
+                          <div className="text-xs font-bold">
+                            Price: {currency.format(groupPrice)}
                           </div>
+
+                          {groupSaved > 0 && (
+                            <div className="text-[10px] font-semibold text-emerald-600 mt-0.5">
+                              You Saved {currency.format(groupSaved)}
+                            </div>
+                          )}
                         </div>
                       </button>
 
                       {isGroupExpanded && (
                         <div className="space-y-2 px-3 py-2">
-                          {/* COMBO: render nested items from the first item's .items array */}
                           {group.offerType === "COMBO" &&
                             Array.isArray(group.items) &&
                             group.items[0] &&
@@ -442,7 +563,7 @@ function BillModal({ billData, tableName, onClose }) {
                                       )}
                                     </div>
                                     <span className="shrink-0 font-semibold text-gray-900">
-                                      {currency.format(Number(nestedItem.totalPrice ?? 0))}
+                                      {currency.format(readNumber(nestedItem.totalPrice, 0))}
                                     </span>
                                   </div>
                                   {nestedAddOns.length > 0 && (
@@ -478,20 +599,43 @@ function BillModal({ billData, tableName, onClose }) {
 
             <div className="h-px bg-gray-100 my-4" />
 
-            {/* Pricing footer — all values from backend pricing object */}
-            <div className="space-y-2 px-6 py-4 bg-gray-50 border-t border-gray-200">
-              <div className="flex justify-between items-center text-sm text-blue-700 font-semibold">
+            {/* Pricing footer */}
+            <div className="space-y-2 px-1">
+              {/* Total Saved — shown before Total Payable */}
+              {/* {totalSaved > 0 && (
+                <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 px-4 py-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+                        💰 Total Saved
+                      </p>
+                      <p className="mt-1 text-xs text-emerald-600">
+                        Total discount received
+                      </p>
+                    </div>
+
+                    <span className="text-2xl font-extrabold text-emerald-700">
+                      {currency.format(totalSaved)}
+                    </span>
+                  </div>
+                </div>
+              )} */}
+              <div className="flex justify-between items-center text-sm text-blue-700 font-semibold pt-1">
                 <span>Grand Total</span>
-                <span>{currency.format(pricing.discountedPrice || 0)}</span>
+                <span>{currency.format(readNumber(pricing.discountedPrice, 0))}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm text-blue-700 font-semibold pt-1">
+                <span>You Saved</span>
+                <span>{currency.format(readNumber(totalSaved, 0))}</span>
               </div>
               <div className="flex justify-between items-center text-sm text-gray-600">
                 <span>Tax (5% GST)</span>
-                <span>{currency.format(pricing.tax || 0)}</span>
+                <span>{currency.format(readNumber(pricing.tax, 0))}</span>
               </div>
               <div className="mt-2 flex items-center justify-between border-t border-gray-200 pt-3">
                 <span className="text-base font-semibold text-gray-700">Total Payable</span>
                 <span className="text-2xl font-bold text-gray-900">
-                  {currency.format(pricing.total || 0)}
+                  {currency.format(readNumber(pricing.total, 0))}
                 </span>
               </div>
             </div>
@@ -518,7 +662,6 @@ const Orders = () => {
     clearPaymentLock,
   } = useLocationContext();
 
-  // All order + bill data comes from the single backend endpoint
   const [billData, setBillData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingBill, setIsGeneratingBill] = useState(false);
@@ -534,7 +677,6 @@ const Orders = () => {
   const viewerId = String(user?.uid || selectedTableOwnerId || "");
   const currentSessionId = String(selectedSessionId || "").trim();
 
-  // ── Fetch orders from Firestore or backend depending on guest status ───────────
   useEffect(() => {
     if (!selectedOutlet || !selectedSessionId) {
       setOrderGroups([]);
@@ -547,7 +689,6 @@ const Orders = () => {
     setIsLoading(true);
 
     if (isGuest) {
-      // Guest: poll the backend endpoint every 5 seconds
       const fetchGuestOrders = async () => {
         try {
           const orders = await getOrdersBySession(selectedOutlet, selectedSessionId, selectedTableId);
@@ -564,7 +705,6 @@ const Orders = () => {
       const intervalId = setInterval(fetchGuestOrders, 5000);
       return () => clearInterval(intervalId);
     } else {
-      // Registered customer: use firestore realtime listener
       const q = query(
         collection(db, `outlets/${selectedOutlet}/orders`),
         where("sessionId", "==", selectedSessionId)
@@ -576,12 +716,8 @@ const Orders = () => {
           const orders = [];
           snapshot.forEach((docSnap) => {
             const data = docSnap.data();
-            orders.push({
-              id: docSnap.id,
-              ...data,
-            });
+            orders.push({ id: docSnap.id, ...data });
           });
-
           orders.sort((a, b) => toDate(a.createdAt) - toDate(b.createdAt));
           setOrderGroups(orders);
           setIsLoading(false);
@@ -596,23 +732,17 @@ const Orders = () => {
     }
   }, [selectedOutlet, selectedSessionId, selectedTableId, user]);
 
-  // Reset bill modal when table changes
   useEffect(() => {
     setShowBillModal(false);
     setBillData(null);
   }, [selectedTableId]);
 
-  // Ongoing total = sum of pricing.total across all orders (single source of
-  // truth, already reflects offers/combos/discounts, pre-tax). This is
-  // exactly what generateBill returns as pricing.discountedPrice, so the
-  // "Live total" shown here always matches the Final Bill's "Grand Total".
   const ongoingTotal = useMemo(() => {
     return orderGroups.reduce((s, o) => s + getOrderTotal(o), 0);
   }, [orderGroups]);
 
   const hasOrders = orderGroups.length > 0;
 
-  // All orders are "completed" when backend marks them so via normalizeStatus
   const allOrdersCompleted = useMemo(() => {
     if (!hasOrders) return false;
     return orderGroups.every((order) => {
@@ -620,8 +750,6 @@ const Orders = () => {
       return s === "completed";
     });
   }, [orderGroups, hasOrders]);
-
-  // ── Actions ───────────────────────────────────────────────────────────────────
 
   const handleViewBill = async () => {
     if (!allOrdersCompleted) {
@@ -631,7 +759,6 @@ const Orders = () => {
     setIsGeneratingBill(true);
     setBanner(null);
     try {
-      // Fetch fresh bill data on demand (same endpoint, same params)
       const response = await fetch(`${API_BASE}/customerBillingGenerateBill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -691,7 +818,6 @@ const Orders = () => {
     setOverlayCountdown(10);
   };
 
-  // Pay overlay countdown
   useEffect(() => {
     if (!showPayOverlay) return undefined;
     if (overlayCountdown <= 0) {
@@ -708,8 +834,6 @@ const Orders = () => {
     const id = window.setTimeout(() => setOverlayCountdown((v) => Math.max(0, v - 1)), 1000);
     return () => window.clearTimeout(id);
   }, [showPayOverlay, overlayCountdown]);
-
-  // ── Guard: no outlet/table selected ──────────────────────────────────────────
 
   if (!selectedOutlet || !selectedTableId) {
     return (
@@ -728,11 +852,8 @@ const Orders = () => {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f7efe6] via-[#f5efe7] to-[#efe6da] pb-24">
-      {/* Pay overlay */}
       {showPayOverlay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-[2rem] border border-white/15 bg-[#1b130f] p-6 text-center text-white shadow-2xl">
@@ -753,7 +874,6 @@ const Orders = () => {
         </div>
       )}
 
-      {/* Bill modal */}
       {showBillModal && billData && (
         <BillModal
           billData={billData}
@@ -762,7 +882,6 @@ const Orders = () => {
         />
       )}
 
-      {/* Sticky header */}
       <div className="sticky top-0 z-20 border-b border-black/5 bg-white/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[420px] items-center justify-between px-4 py-4">
           <div>
@@ -779,7 +898,6 @@ const Orders = () => {
       </div>
 
       <div className="mx-auto max-w-[420px] space-y-5 px-4 py-4">
-        {/* Banner */}
         {banner && (
           <div
             className={`rounded-2xl border px-4 py-3 text-sm ${banner.type === "success"
@@ -789,17 +907,11 @@ const Orders = () => {
           >
             <div className="flex items-center justify-between gap-3">
               <p>{banner.text}</p>
-              <button
-                onClick={() => setBanner(null)}
-                className="text-xs font-semibold uppercase tracking-wide opacity-80"
-              >
-                Close
-              </button>
+              <button onClick={() => setBanner(null)} className="text-xs font-semibold uppercase tracking-wide opacity-80">Close</button>
             </div>
           </div>
         )}
 
-        {/* Ongoing Orders section */}
         <section className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-4 shadow-sm">
           {isLoading && !billData ? (
             <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/70 px-4 py-10 text-center text-sm text-gray-400">
@@ -811,8 +923,6 @@ const Orders = () => {
                 <h2 className="text-base font-bold text-gray-900 uppercase tracking-wide">Ongoing Orders</h2>
                 <div className="text-right">
                   <p className="text-xs text-emerald-700">Live total</p>
-                  {/* ongoingTotal = sum(pricing.total) — matches generateBill's
-                      pricing.discountedPrice exactly (before tax) */}
                   <p className="text-lg font-bold text-gray-900">{currency.format(ongoingTotal)}</p>
                 </div>
               </div>
@@ -829,7 +939,6 @@ const Orders = () => {
           )}
         </section>
 
-        {/* Action buttons */}
         <div className="sticky bottom-4 z-10 flex w-full gap-3 mt-4">
           <button
             onClick={handleViewBill}
