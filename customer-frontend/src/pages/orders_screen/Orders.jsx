@@ -256,7 +256,7 @@ function OrderCard({ order }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-wide text-gray-500">Order</p>
-          <h3 className="text-base font-semibold text-gray-900">{order.id.slice(0, 8)}</h3>
+          <h3 className="text-base font-semibold text-gray-900">{order.orderNo}</h3>
           <p className="mt-1 text-xs text-gray-500">{orderTimeFormat.format(placedAt)}</p>
         </div>
         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">{statusLabel}</span>

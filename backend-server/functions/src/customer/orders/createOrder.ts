@@ -278,11 +278,48 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			const existingData = existingSnap.data() || {};
 			const alreadyCounted = existingSnap.exists && existingData.offerUsageCounted === true;
 
+			// ─────────────────────────────────────────────────────────────
+			// PREPARE ORDER NUMBER (READS ONLY)
+			// ─────────────────────────────────────────────────────────────
+			let orderNo: string;
+			let counterRef: FirebaseFirestore.DocumentReference | null = null;
+			let nextCount: number | null = null;
+
+			if (existingSnap.exists && existingData.orderNo) {
+				orderNo = existingData.orderNo;
+			} else {
+				const today = new Date();
+				const dateKey =
+					`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+				counterRef = db
+					.collection('outlets')
+					.doc(String(outletId))
+					.collection('orderCounters')
+					.doc(dateKey);
+
+				const counterSnap = await tx.get(counterRef);
+
+				const currentCount = counterSnap.exists
+					? Number(counterSnap.data()?.count || 0)
+					: 0;
+
+				nextCount = currentCount + 1;
+
+				orderNo = `ODR${String(nextCount).padStart(3, '0')}`;
+			}
+
+			// ─────────────────────────────────────────────────────────────
+			// USER / OFFER VALIDATION (READS ONLY)
+			// ─────────────────────────────────────────────────────────────
+			let userRef: FirebaseFirestore.DocumentReference | null = null;
+			let userUpdates: Record<string, any> = {};
+
 			if (!alreadyCounted && uid) {
-				const userRef = db.collection('users').doc(uid);
+				userRef = db.collection('users').doc(uid);
+
 				const userSnap = await tx.get(userRef);
 				const userData = userSnap.data() || {};
-				const userUpdates: Record<string, any> = {};
 
 				if (userData.hasPlacedFirstOrder === false) {
 					userUpdates.hasPlacedFirstOrder = true;
@@ -290,30 +327,66 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 
 				if (consumedOfferUsages.length > 0) {
 					const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
+
 					for (const usage of consumedOfferUsages) {
 						const offerSnap = await tx.get(
-							db.collection('outlets').doc(String(outletId)).collection('offers').doc(usage.offerId)
+							db.collection('outlets')
+								.doc(String(outletId))
+								.collection('offers')
+								.doc(usage.offerId)
 						);
-						offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
+
+						offersById.set(
+							usage.offerId,
+							offerSnap.exists ? offerSnap.data() : undefined
+						);
 					}
+
 					const violation = findUsageLimitViolation(
 						consumedOfferUsages,
 						getAppliedOfferUsageCounts(userData.appliedOffers),
 						offersById,
 					);
-					if (violation) throw new Error('OFFER_USAGE_LIMIT_REACHED');
 
-					userUpdates.appliedOffers = mergeAppliedOfferUsages(userData.appliedOffers, consumedOfferUsages);
-				}
+					if (violation) {
+						throw new Error('OFFER_USAGE_LIMIT_REACHED');
+					}
 
-				if (Object.keys(userUpdates).length > 0) {
-					userUpdates.updatedAt = FieldValue.serverTimestamp();
-					tx.set(userRef, userUpdates, { merge: true });
+					userUpdates.appliedOffers = mergeAppliedOfferUsages(
+						userData.appliedOffers,
+						consumedOfferUsages
+					);
 				}
+			}
+
+			// ─────────────────────────────────────────────────────────────
+			// WRITES START HERE
+			// ─────────────────────────────────────────────────────────────
+
+			if (counterRef && nextCount !== null) {
+				tx.set(
+					counterRef,
+					{
+						count: nextCount,
+						updatedAt: FieldValue.serverTimestamp(),
+					},
+					{ merge: true }
+				);
+			}
+
+			if (userRef && Object.keys(userUpdates).length > 0) {
+				userUpdates.updatedAt = FieldValue.serverTimestamp();
+
+				tx.set(
+					userRef,
+					userUpdates,
+					{ merge: true }
+				);
 			}
 
 			tx.set(orderRef, {
 				id: orderRef.id,
+				orderNo,
 				outletId: String(outletId),
 				orderType: resolvedOrderType,
 				customerName: resolvedCustomerName,
@@ -323,10 +396,8 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				tableId: tableId || null,
 				sessionId: activeSessionId || null,
 
-				// ── Items ──────────────────────────────────────────────────────
 				items: itemsWithPricing,
 
-				// ── Pricing ────────────────────────────────────────────────────
 				subTotal: pricing.subTotal,
 				discount: pricing.discount,
 				discountedPrice: pricing.discountedPrice,
@@ -334,13 +405,12 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 				totalAmount: pricing.grandTotal,
 				status: req.body?.status || req.body?.orderStatus || 'in-progress',
 
-				// Primary offer (COMBO / B1G1 / DISCOUNT / BIRTHDAY)
 				autoAppliedOfferId: alreadyCounted
 					? (readString(existingData.autoAppliedOfferId) || null)
 					: primaryOfferId,
+
 				offerId: primaryOfferId,
 
-				// NEW_USER offer stored separately
 				newUserOfferId: resolvedNewUserOfferId || null,
 
 				...(alreadyCounted
@@ -351,7 +421,10 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 						offerUsageCounted: true,
 					}
 					: consumedOfferUsages.length > 0
-						? { consumedOfferUsages, offerUsageCounted: true }
+						? {
+							consumedOfferUsages,
+							offerUsageCounted: true,
+						}
 						: {}),
 
 				timeOfOrder: FieldValue.serverTimestamp(),
