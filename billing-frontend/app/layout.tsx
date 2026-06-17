@@ -1,13 +1,15 @@
 import React from "react"
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Quicksand } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from "@/context/AuthContext"
 import { AppProvider } from '@/app/context/AppContext'
 import { BillingGuard } from '@/app/components/BillingGuard'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const quicksand = Quicksand({
+  subsets: ["latin"],
+  variable: "--font-quicksand",
+});
 
 export const metadata: Metadata = {
   title: 'Demitasse - Cafe Billing',
@@ -39,7 +41,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`font-sans antialiased`}>
+      <body className={`${quicksand.variable} font-sans antialiased`}>
         <AuthProvider>
           <AppProvider>
             <BillingGuard>{children}</BillingGuard>
