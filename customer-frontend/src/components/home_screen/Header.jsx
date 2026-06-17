@@ -31,7 +31,7 @@ export default function Header() {
       <div className="flex items-center gap-2">
         <MapPinIcon className="w-5 h-5 text-green-600" />
         <div className="flex flex-col">
-          <span className="font-semibold text-lg leading-tight">
+          <span className="font-bold text-lg leading-tight">
             {outletName ? `${outletName}` : "Select Outlet"}
           </span>
         </div>
@@ -52,7 +52,7 @@ export default function Header() {
         {!isGuest && (
           <div 
             onClick={() => navigate("/profile")}
-            className="w-10 h-10 bg-amber-800 rounded-full cursor-pointer hover:bg-amber-900 transition duration-150 flex items-center justify-center"
+            className="w-10 h-10 bg-[#AE7A65]  rounded-full cursor-pointer hover:bg-amber-900 transition duration-150 flex items-center justify-center"
             title="View Profile"
           >
             <UserIcon className="w-5 h-5 text-white/90" />

@@ -1,520 +1,216 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+// 1. Added 'startAfter' to imports
+import { collection, query, where, getDocs, orderBy, limit, startAfter } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
-import {
-  ArrowLeftIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
-  ArrowsUpDownIcon,
-  TagIcon,
-  ReceiptRefundIcon,
-  ShoppingBagIcon,
-} from "@heroicons/react/24/outline";
-import {
-  CheckCircleIcon,
-  XCircleIcon,
-  ClockIcon,
-  ArrowPathIcon,
-} from "@heroicons/react/24/solid";
+import OrderHistoryCard from "../../components/profile/OrderHistoryCard";
+import EmptyOrders from "../../components/profile/EmptyOrders";
+import { ArrowLeftIcon } from "@heroicons/react/24/outline";
+import { useLocationContext } from "../../context/LocationContext";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const API_BASE =
-  import.meta.env.VITE_API_BASE ||
-  "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const readNumber = (v, fallback = 0) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-
-const fmt = (amount) =>
-  `₹${readNumber(amount, 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-
-const formatDate = (iso) => {
-  if (!iso) return "—";
-  try {
-    return new Intl.DateTimeFormat("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }).format(new Date(iso));
-  } catch {
-    return "—";
-  }
-};
-
-// ─── Status config ────────────────────────────────────────────────────────────
-const STATUS_CONFIG = {
-  completed: {
-    label: "Completed",
-    bg: "bg-emerald-50",
-    border: "border-emerald-200",
-    text: "text-emerald-700",
-    dot: "bg-emerald-500",
-    Icon: CheckCircleIcon,
-    iconColor: "text-emerald-500",
-  },
-  "in-progress": {
-    label: "In Progress",
-    bg: "bg-blue-50",
-    border: "border-blue-200",
-    text: "text-blue-700",
-    dot: "bg-blue-500",
-    Icon: ClockIcon,
-    iconColor: "text-blue-500",
-  },
-  cancelled: {
-    label: "Cancelled",
-    bg: "bg-red-50",
-    border: "border-red-200",
-    text: "text-red-700",
-    dot: "bg-red-500",
-    Icon: XCircleIcon,
-    iconColor: "text-red-500",
-  },
-  refunded: {
-    label: "Refunded",
-    bg: "bg-purple-50",
-    border: "border-purple-200",
-    text: "text-purple-700",
-    dot: "bg-purple-500",
-    Icon: ArrowPathIcon,
-    iconColor: "text-purple-500",
-  },
-};
-
-const getStatus = (status) =>
-  STATUS_CONFIG[status?.toLowerCase()] || {
-    label: status || "Unknown",
-    bg: "bg-gray-50",
-    border: "border-gray-200",
-    text: "text-gray-600",
-    dot: "bg-gray-400",
-    Icon: ClockIcon,
-    iconColor: "text-gray-400",
-  };
-
-// ─── StatusBadge ─────────────────────────────────────────────────────────────
-const StatusBadge = ({ status }) => {
-  const cfg = getStatus(status);
-  const Icon = cfg.Icon;
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ${cfg.bg} ${cfg.border} ${cfg.text}`}
-    >
-      <Icon className={`w-3 h-3 ${cfg.iconColor}`} />
-      {cfg.label}
-    </span>
-  );
-};
-
-// ─── OrderCard ────────────────────────────────────────────────────────────────
-const OrderCard = ({ order, currency = fmt }) => {
-  const [expanded, setExpanded] = useState(false);
-  const hasDiscount = readNumber(order.discount) > 0;
-
-  return (
-    <div className="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden transition-all">
-      {/* Card header */}
-      <button
-        onClick={() => setExpanded((p) => !p)}
-        className="w-full px-4 py-3 flex items-start gap-3 text-left hover:bg-gray-50/60 transition"
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-mono text-gray-400">
-              #{order.orderId?.slice(-8).toUpperCase()}
-            </span>
-            <StatusBadge status={order.status} />
-          </div>
-          <p className="mt-0.5 text-xs text-gray-400">{formatDate(order.timeOfOrder)}</p>
-
-          {/* Quick pricing row */}
-          <div className="mt-2 flex items-center gap-3 flex-wrap text-sm">
-            <span className="text-gray-500 text-xs">
-              Sub: <span className="text-gray-700 font-medium">{currency(order.subTotal)}</span>
-            </span>
-            {hasDiscount && (
-              <span className="text-xs text-emerald-600 font-medium">
-                −{currency(order.discount)} off
-              </span>
-            )}
-            <span className="text-xs text-gray-500">
-              Tax: <span className="text-gray-700">{currency(order.tax)}</span>
-            </span>
-            <span className="ml-auto font-bold text-[#3e2723] text-sm">
-              {currency(order.finalAmount)}
-            </span>
-          </div>
-        </div>
-        <div className="mt-1 text-gray-400 shrink-0">
-          {expanded ? (
-            <ChevronUpIcon className="w-4 h-4" />
-          ) : (
-            <ChevronDownIcon className="w-4 h-4" />
-          )}
-        </div>
-      </button>
-
-      {/* Expanded: items */}
-      {expanded && (
-        <div className="border-t border-gray-100 px-4 py-3 space-y-2 bg-[#faf8f6]">
-          <p className="text-[11px] uppercase tracking-widest text-gray-400 mb-2">Items</p>
-          {Array.isArray(order.items) && order.items.length > 0 ? (
-            order.items.map((item, idx) => (
-              <ItemRow key={idx} item={item} currency={currency} />
-            ))
-          ) : (
-            <p className="text-xs text-gray-400 italic">No items recorded.</p>
-          )}
-
-          {/* Bill breakdown */}
-          <div className="mt-3 pt-3 border-t border-dashed border-gray-200 space-y-1">
-            <BillRow label="Subtotal" value={currency(order.subTotal)} />
-            {hasDiscount && (
-              <BillRow label="Discount" value={`−${currency(order.discount)}`} valueClass="text-emerald-600" />
-            )}
-            <BillRow label="Tax (5% GST)" value={currency(order.tax)} />
-            <div className="flex justify-between items-center pt-1 border-t border-gray-200 mt-1">
-              <span className="text-xs font-bold text-[#3e2723]">Final Amount</span>
-              <span className="text-sm font-extrabold text-[#3e2723]">{currency(order.finalAmount)}</span>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const ItemRow = ({ item, currency }) => {
-  const qty = readNumber(item.qty, 1);
-  const unitPrice = readNumber(item.unitPrice ?? item.price, 0);
-  const totalPrice = readNumber(item.totalPrice, unitPrice * qty);
-  const discount = readNumber(item.discount, 0);
-  const discountedPrice = readNumber(item.discountedPrice, Math.max(totalPrice - discount, 0));
-  const hasDiscount = discount > 0;
-
-  const subItems = Array.isArray(item.subItems) ? item.subItems : [];
-
-  return (
-    <div className="text-xs">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <span className="font-medium text-gray-800">
-            {item.name || "Item"}
-          </span>
-          {item.isFree && (
-            <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-              FREE
-            </span>
-          )}
-          {item.isCombo && (
-            <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-              COMBO
-            </span>
-          )}
-          <span className="ml-2 text-gray-400">×{qty}</span>
-          {item.offerTitle && (
-            <p className="text-[10px] text-amber-600 mt-0.5">{item.offerTitle}</p>
-          )}
-        </div>
-        <div className="text-right shrink-0">
-          {hasDiscount ? (
-            <>
-              <span className="line-through text-gray-300 mr-1">{currency(totalPrice)}</span>
-              <span className="font-semibold text-emerald-700">{currency(discountedPrice)}</span>
-            </>
-          ) : (
-            <span className="font-medium text-gray-700">{currency(totalPrice)}</span>
-          )}
-        </div>
-      </div>
-      {/* Combo / B1G1 sub-items */}
-      {subItems.length > 0 && (
-        <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-gray-100 pl-2">
-          {subItems.map((si, i) => (
-            <div key={i} className="flex justify-between text-[11px] text-gray-500">
-              <span>{si.name} ×{readNumber(si.qty, 1)}</span>
-              <span>{currency(si.totalPrice)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const BillRow = ({ label, value, valueClass = "text-gray-700" }) => (
-  <div className="flex justify-between items-center text-xs">
-    <span className="text-gray-500">{label}</span>
-    <span className={`font-medium ${valueClass}`}>{value}</span>
-  </div>
-);
-
-// ─── OfferGroupCard ───────────────────────────────────────────────────────────
-const OfferGroupCard = ({ group }) => {
-  const [open, setOpen] = useState(true);
-  const s = group.stats;
-  const isNoOffer = group.offerId === "no_offer";
-
-  return (
-    <div className="rounded-3xl border border-gray-100 bg-white shadow-sm overflow-hidden">
-      {/* Group header */}
-      <button
-        onClick={() => setOpen((p) => !p)}
-        className="w-full px-4 py-4 flex items-center gap-3 text-left hover:bg-gray-50/40 transition"
-      >
-        <div
-          className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
-            isNoOffer
-              ? "bg-gray-100"
-              : "bg-amber-50 border border-amber-200"
-          }`}
-        >
-          {isNoOffer ? (
-            <ShoppingBagIcon className="w-5 h-5 text-gray-500" />
-          ) : (
-            <TagIcon className="w-5 h-5 text-amber-600" />
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-[#3e2723] text-sm leading-tight truncate">
-            {group.offerTitle}
-          </p>
-          <p className="text-[11px] text-gray-400 mt-0.5">
-            {s.totalOrders} order{s.totalOrders !== 1 ? "s" : ""}
-            {s.totalDiscountSaved > 0 && (
-              <> · <span className="text-emerald-600 font-medium">₹{s.totalDiscountSaved.toLocaleString("en-IN")} saved</span></>
-            )}
-          </p>
-        </div>
-
-        <div className="text-gray-400 shrink-0">
-          {open ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
-        </div>
-      </button>
-
-      {/* Stats chips */}
-      {open && (
-        <div className="px-4 pb-1">
-          <div className="flex flex-wrap gap-2 mb-3">
-            {s.completed > 0 && <StatChip label="Completed" count={s.completed} color="emerald" />}
-            {s.inProgress > 0 && <StatChip label="In Progress" count={s.inProgress} color="blue" />}
-            {s.cancelled > 0 && <StatChip label="Cancelled" count={s.cancelled} color="red" />}
-            {s.refunded > 0 && <StatChip label="Refunded" count={s.refunded} color="purple" />}
-          </div>
-
-          {/* Orders */}
-          <div className="space-y-2 pb-4">
-            {group.orders.map((order) => (
-              <OrderCard key={order.orderId} order={order} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const COLOR_MAP = {
-  emerald: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  blue: "bg-blue-50 text-blue-700 border-blue-200",
-  red: "bg-red-50 text-red-700 border-red-200",
-  purple: "bg-purple-50 text-purple-700 border-purple-200",
-};
-
-const StatChip = ({ label, count, color }) => (
-  <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${COLOR_MAP[color]}`}>
-    <span className={`w-1.5 h-1.5 rounded-full bg-current opacity-70`} />
-    {count} {label}
-  </span>
-);
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function OrderHistory() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [orders, setOrders] = useState([]);
-  const [totalOrders, setTotalOrders] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false); // Track loading state for pagination
   const [error, setError] = useState("");
-  const [sortDir, setSortDir] = useState("desc"); // desc = newest first
+  const [lastDoc, setLastDoc] = useState(null); // Keeps track of the last visible Firestore document snapshot
+  const [hasMore, setHasMore] = useState(true); // Tracks if there are more orders left to fetch
+  const { selectedOutlet } = useLocationContext();
 
-  const fetchHistory = useCallback(async (direction) => {
-    setLoading(true);
-    setError("");
-    try {
-      const token = await user?.getIdToken?.();
-      if (!token) throw new Error("Not authenticated");
+  const ORDERS_LIMIT = 5;
 
-      console.log(`[E2E TRACE OrderHistory] Requesting API...`);
-      const res = await fetch(
-        `${API_BASE}/customerGetOrderHistory?sort=${direction}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      const payload = await res.json().catch(() => ({}));
-      console.log(`[E2E TRACE OrderHistory] API Response Payload:`, payload);
+  // Initial fetch function
+  useEffect(() => {
+    let isMounted = true;
 
-      if (!res.ok || !payload.success) {
-        throw new Error(payload.message || "Failed to load history");
+    const fetchOrders = async () => {
+      const uid = user?.uid || auth.currentUser?.uid;
+      if (!uid || !selectedOutlet) {
+        setLoading(false);
+        return;
       }
 
-      console.log(`[E2E TRACE OrderHistory] payload.groups (should be undefined):`, payload.groups);
-      console.log(`[E2E TRACE OrderHistory] payload.orders:`, payload.orders);
+      setLoading(true);
+      setError("");
 
-      const receivedOrders = payload.orders || [];
-      console.log(`[E2E TRACE OrderHistory] Final state passed to setOrders():`, receivedOrders);
-      
-      setOrders(receivedOrders);
-      setTotalOrders(payload.totalOrders || receivedOrders.length);
+      try {
+        const historyQuery = query(
+          collection(db, "outlets", selectedOutlet, "orders"),
+          where("customerId", "==", uid),
+          orderBy("createdAt", "desc"),
+          limit(ORDERS_LIMIT)
+        );
+
+        const snapshot = await getDocs(historyQuery);
+
+        if (!isMounted) return;
+
+        // Capture the raw last document snapshot for the cursor
+        if (snapshot.docs.length > 0) {
+          setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+          // If we fetched fewer items than the limit, we know there are no more records left
+          setHasMore(snapshot.docs.length === ORDERS_LIMIT);
+        } else {
+          setHasMore(false);
+        }
+
+        const rows = snapshot.docs
+          .map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }))
+          .filter((order) => {
+            const items = Array.isArray(order.items) ? order.items : [];
+            return items.length > 0;
+          });
+
+        setOrders(rows);
+      } catch (err) {
+        console.error("Failed to fetch order history:", err);
+        if (isMounted) {
+          setError("Failed to load order history. Please try again.");
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchOrders();
+    return () => { isMounted = false; };
+  }, [user, selectedOutlet]);
+
+  // Function to load the next 5 orders
+  const loadMoreOrders = async () => {
+    const uid = user?.uid || auth.currentUser?.uid;
+    if (!uid || !selectedOutlet || !lastDoc || loadingMore) return;
+
+    setLoadingMore(true);
+
+    try {
+      // Create a query that begins *after* the last document we previously fetched
+      const nextQuery = query(
+        collection(db, "outlets", selectedOutlet, "orders"),
+        where("customerId", "==", uid),
+        orderBy("createdAt", "desc"),
+        startAfter(lastDoc),
+        limit(ORDERS_LIMIT)
+      );
+
+      const snapshot = await getDocs(nextQuery);
+
+      if (snapshot.docs.length > 0) {
+        setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+        setHasMore(snapshot.docs.length === ORDERS_LIMIT);
+      } else {
+        setHasMore(false);
+      }
+
+      const newRows = snapshot.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+        .filter((order) => {
+          const items = Array.isArray(order.items) ? order.items : [];
+          return items.length > 0;
+        });
+
+      // Append new orders to the existing ones
+      setOrders((prevOrders) => [...prevOrders, ...newRows]);
     } catch (err) {
-      console.error("[OrderHistory] fetch error:", err);
-      setError(err.message || "Failed to load order history.");
+      console.error("Failed to fetch more orders:", err);
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
-  }, [user]);
+  };
 
-  useEffect(() => {
-    if (!user) {
-      navigate("/login", { replace: true });
-      return;
-    }
-    fetchHistory(sortDir);
-  }, [user, sortDir, fetchHistory, navigate]);
-
-  const toggleSort = () => setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+  const handleViewDetails = (order) => {
+    navigate(`/profile/orders/${order.id}`, { state: { order } });
+  };
 
   return (
-    <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-32">
-      {/* ── Header ── */}
-      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xl border-b border-gray-100 shadow-sm">
+    <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto pb-28">
+      {/* Header */}
+      <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-xl border-b border-gray-100">
         <div className="flex items-center gap-3 px-4 py-4">
           <button
             onClick={() => navigate("/profile")}
-            id="order-history-back-btn"
-            className="w-9 h-9 rounded-full bg-[#f7efe6] flex items-center justify-center hover:bg-amber-100 transition"
+            className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition"
           >
-            <ArrowLeftIcon className="w-5 h-5 text-[#3e2723]" />
+            <ArrowLeftIcon className="w-5 h-5 text-gray-700" />
           </button>
-          <div className="flex-1">
-            <h1 className="text-lg font-extrabold text-[#3e2723] leading-tight">Order History</h1>
-            {!loading && (
+          <div>
+            <h1 className="text-lg font-bold text-[#3e2723]">Order History</h1>
+            {!loading && orders.length > 0 && (
               <p className="text-[11px] text-gray-500">
-                {totalOrders} order{totalOrders !== 1 ? "s" : ""}
+                Showing {orders.length} order{orders.length !== 1 ? "s" : ""}
               </p>
             )}
           </div>
-          <button
-            onClick={toggleSort}
-            id="order-history-sort-btn"
-            className="flex items-center gap-1.5 rounded-full bg-[#f7efe6] border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
-          >
-            <ArrowsUpDownIcon className="w-3.5 h-3.5" />
-            {sortDir === "desc" ? "Newest" : "Oldest"}
-          </button>
         </div>
       </div>
 
-      <div className="px-4 py-5 space-y-4">
-        {/* ── Loading ── */}
+      <div className="px-4 py-5">
+        {/* Loading Initial State */}
         {loading && (
-          <div className="flex flex-col items-center justify-center py-24 gap-3">
-            <div className="relative w-14 h-14">
-              <div className="absolute inset-0 rounded-full border-4 border-amber-100" />
-              <div className="absolute inset-0 rounded-full border-4 border-t-amber-500 animate-spin" />
-              <ReceiptRefundIcon className="absolute inset-0 m-auto w-6 h-6 text-amber-400" />
-            </div>
-            <p className="text-sm text-gray-500 font-medium">Loading order history…</p>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-10 h-10 border-3 border-[#8B4513] border-t-transparent rounded-full animate-spin mb-3" />
+            <p className="text-sm text-gray-500">Loading orders...</p>
           </div>
         )}
 
-        {/* ── Error ── */}
+        {/* Error */}
         {!loading && error && (
-          <div className="rounded-2xl bg-red-50 border border-red-200 px-5 py-5 text-center space-y-3">
-            <XCircleIcon className="w-10 h-10 text-red-400 mx-auto" />
-            <p className="text-sm text-red-700 font-medium">{error}</p>
+          <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-4 text-center">
+            <p className="text-sm text-red-700 mb-3">{error}</p>
             <button
-              onClick={() => fetchHistory(sortDir)}
-              className="text-xs font-bold text-red-600 underline"
+              onClick={() => window.location.reload()}
+              className="text-xs font-semibold text-red-600 underline"
             >
-              Try again
+              Retry
             </button>
           </div>
         )}
 
-        {/* ── Empty state ── */}
-        {!loading && !error && orders.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-24 gap-4">
-            <div className="w-20 h-20 rounded-full bg-amber-50 flex items-center justify-center">
-              <ShoppingBagIcon className="w-9 h-9 text-amber-300" />
-            </div>
-            <div className="text-center">
-              <p className="font-bold text-[#3e2723] text-base">No orders yet</p>
-              <p className="text-sm text-gray-400 mt-1">Your order history will appear here.</p>
-            </div>
-            <button
-              onClick={() => navigate("/menu")}
-              className="mt-2 px-6 py-2.5 rounded-full bg-[#3e2723] text-white text-sm font-bold hover:bg-[#5d3a2e] transition"
-            >
-              Browse Menu
-            </button>
-          </div>
-        )}
+        {/* Empty state */}
+        {!loading && !error && orders.length === 0 && <EmptyOrders />}
 
-        {/* ── Orders ── */}
+        {/* Orders list */}
         {!loading && !error && orders.length > 0 && (
-          <>
-            {/* Summary bar */}
-            <SummaryBar orders={orders} />
+          <div className="space-y-4">
+            {orders.map((order) => (
+              <OrderHistoryCard
+                key={order.id}
+                order={order}
+                onViewDetails={handleViewDetails}
+              />
+            ))}
 
-            <div className="space-y-4">
-              {orders.map((order) => (
-                <OrderCard key={order.orderId} order={order} />
-              ))}
-            </div>
-          </>
+            {/* Load More Button Container */}
+            {hasMore && (
+              <div className="pt-4 pb-2 text-center">
+                <button
+                  onClick={loadMoreOrders}
+                  disabled={loadingMore}
+                  className="w-full py-3 px-4 rounded-2xl bg-white border border-gray-200 text-sm font-semibold text-[#8B4513] shadow-sm hover:bg-gray-50 active:bg-gray-100 transition disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {loadingMore ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-[#8B4513] border-t-transparent rounded-full animate-spin" />
+                      Loading more...
+                    </>
+                  ) : (
+                    "Load More Orders"
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
   );
 }
-
-// ─── SummaryBar ───────────────────────────────────────────────────────────────
-const SummaryBar = ({ orders }) => {
-  const totalSaved = orders.reduce((s, o) => s + readNumber(o.discount), 0);
-  const totalSpent = orders.reduce((s, o) => s + readNumber(o.finalAmount), 0);
-  const completed = orders.filter((o) => o.status === "completed").length;
-
-  return (
-    <div className="rounded-3xl bg-gradient-to-br from-[#3e2723] to-[#6d4c41] p-5 text-white shadow-lg">
-      <p className="text-[11px] uppercase tracking-widest text-amber-200/80 mb-3 font-semibold">Your Overview</p>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="text-center">
-          <p className="text-xl font-extrabold">{orders.length}</p>
-          <p className="text-[10px] text-white/60 mt-0.5">Total Orders</p>
-        </div>
-        <div className="text-center border-x border-white/10">
-          <p className="text-xl font-extrabold text-emerald-300">₹{totalSaved.toLocaleString("en-IN")}</p>
-          <p className="text-[10px] text-white/60 mt-0.5">Total Saved</p>
-        </div>
-        <div className="text-center">
-          <p className="text-xl font-extrabold">₹{Math.round(totalSpent).toLocaleString("en-IN")}</p>
-          <p className="text-[10px] text-white/60 mt-0.5">Total Spent</p>
-        </div>
-      </div>
-      {completed > 0 && (
-        <div className="mt-3 pt-3 border-t border-white/10 flex items-center gap-2 text-xs text-white/70">
-          <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-          {completed} completed order{completed !== 1 ? "s" : ""}
-        </div>
-      )}
-    </div>
-  );
-};

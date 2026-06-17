@@ -2,6 +2,7 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { getOrderById } from "../../lib/backendApi";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
+import { useLocationContext } from "../../context/LocationContext";
 
 const currency = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -26,17 +27,24 @@ export default function OrderDetails() {
   const { state } = useLocation();
   const [order, setOrder] = useState(state?.order || null);
   const [loading, setLoading] = useState(!state?.order);
-
-  // Fetch from Backend API if not passed via navigation state
+  const { selectedOutlet } = useLocationContext();
+  // Fetch from Firestore if not passed via navigation state
   useEffect(() => {
     if (order || !orderId) return;
     let isMounted = true;
 
     const fetchOrder = async () => {
       try {
-        const data = await getOrderById(orderId);
-        if (data && data.length > 0 && isMounted) {
-          setOrder(data[0]);
+        const snap = await getDoc(doc(
+          db,
+          "outlets",
+          selectedOutlet,
+          "orders",
+          orderId
+        )
+        );
+        if (snap.exists() && isMounted) {
+          setOrder({ id: snap.id, ...snap.data() });
         }
       } catch (err) {
         console.error("Failed to fetch order:", err);
@@ -82,11 +90,29 @@ export default function OrderDetails() {
   }
 
   const items = Array.isArray(order.items) ? order.items : [];
-  const pricing = order.pricing || {};
-  const subtotal = Number(pricing.subtotal || 0);
-  const discount = Number(pricing.discount || 0);
-  const tax = Number(pricing.tax || 0);
-  const total = Number(pricing.total || 0);
+  const subtotal = Number(
+    order.pricing?.subtotal ??
+    order.subTotal ??
+    0
+  );
+
+  const discount = Number(
+    order.pricing?.discount ??
+    order.discount ??
+    0
+  );
+
+  const tax = Number(
+    order.pricing?.tax ??
+    order.tax ??
+    0
+  );
+
+  const total = Number(
+    order.pricing?.total ??
+    order.discountedPrice ??
+    0
+  );
   const appliedOffers = Array.isArray(order.appliedOffers) ? order.appliedOffers : [];
   const date = toDate(order.closedAt || order.archivedAt || order.createdAt);
   const status = String(order.status || order.orderLifecycleStatus || "COMPLETED").toUpperCase();
@@ -121,9 +147,8 @@ export default function OrderDetails() {
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#8B4513] bg-[#8B4513]/10 px-2.5 py-1 rounded-full">
               {orderType}
             </span>
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${
-              status === "COMPLETED" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"
-            }`}>
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${status === "COMPLETED" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"
+              }`}>
               {status === "COMPLETED" ? "Delivered" : status}
             </span>
           </div>
@@ -173,13 +198,12 @@ export default function OrderDetails() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-[#3e2723]">{item.name || "Item"}</span>
                         {isOffer && (
-                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
-                            item.isCombo ? "bg-[#8B4513]/10 text-[#8B4513]"
-                            : item.isManualB1G1 ? "bg-orange-100 text-orange-700"
-                            : item.isDiscount ? "bg-green-100 text-green-700"
-                            : item.isBirthday ? "bg-pink-100 text-pink-600"
-                            : "bg-blue-100 text-blue-600"
-                          }`}>
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${item.isCombo ? "bg-[#8B4513]/10 text-[#8B4513]"
+                              : item.isManualB1G1 ? "bg-orange-100 text-orange-700"
+                                : item.isDiscount ? "bg-green-100 text-green-700"
+                                  : item.isBirthday ? "bg-pink-100 text-pink-600"
+                                    : "bg-blue-100 text-blue-600"
+                            }`}>
                             {item.isCombo ? "Combo" : item.isManualB1G1 ? "B1G1" : item.isDiscount ? "Discount" : item.isBirthday ? "Birthday" : "Offer"}
                           </span>
                         )}

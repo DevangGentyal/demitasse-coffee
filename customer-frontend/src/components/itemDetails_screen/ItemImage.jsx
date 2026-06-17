@@ -7,7 +7,7 @@ const ItemImage = ({ image }) => {
   const showImage = image && !imgError;
 
   return (
-    <div className="w-full h-40 flex justify-center items-center">
+    <div className="w-full h-32 flex justify-center items-center">
       
       {showImage ? (
         <img
