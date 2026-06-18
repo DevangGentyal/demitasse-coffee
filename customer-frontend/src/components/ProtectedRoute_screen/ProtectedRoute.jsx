@@ -5,10 +5,19 @@ import { useOffers } from "../../context/OfferContext";
 
 const ProtectedRoute = ({ children }) => {
   const { user } = useAuth();
-  const { selectedOutlet, selectedTableId } = useLocationContext();
+  const { selectedOutlet, selectedTableId, selectedSessionId, clearLocation, isLocationInitialized } = useLocationContext();
   const { fullUser } = useOffers();
   const location = useLocation();
   const userType = localStorage.getItem("userType");
+
+  if (!isLocationInitialized) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4efe9] text-[#3e2723]">
+        <div className="w-10 h-10 border-4 border-[#6B4F4F]/20 border-t-[#6B4F4F] rounded-full animate-spin mb-4"></div>
+        <p className="text-sm font-medium tracking-wide">Restoring session...</p>
+      </div>
+    );
+  }
 
   if (!user && userType !== "guest") {
     return <Navigate to="/login" />;
@@ -47,13 +56,17 @@ const ProtectedRoute = ({ children }) => {
   const requiresLocationSelection =
     !authOnlyRoutes.includes(location.pathname) && !isProfileRoute;
 
-  if (requiresLocationSelection && (!selectedOutlet || !selectedTableId)) {
-    // Check localStorage as synchronous fallback — setGlobalOutlet/setTableSelection
-    // write to localStorage before navigate(), but React state updates are batched
-    // and may not be available until the next render cycle.
+  if (requiresLocationSelection) {
     const lsOutlet = localStorage.getItem("selectedOutlet");
     const lsTable = localStorage.getItem("selectedTableId");
-    if (!lsOutlet || !lsTable) {
+    const lsSession = localStorage.getItem("selectedSessionId");
+
+    const hasOutlet = selectedOutlet || lsOutlet;
+    const hasTable = selectedTableId || lsTable;
+    const hasSession = selectedSessionId || lsSession;
+
+    if (!hasOutlet || !hasTable || !hasSession) {
+      clearLocation();
       return <Navigate to="/select-outlet" />;
     }
   }

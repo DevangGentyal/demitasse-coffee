@@ -169,6 +169,18 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 		}
 		const offerDocsById = await getOfferDocs(uniqueOfferIds, String(outletId));
 
+		// Pre-Validation: Validate global usage limit and active state
+		for (const offerDoc of offerDocsById.values()) {
+			if (!offerDoc) continue;
+			const isActive = offerDoc.isActive !== false;
+			const usageLimit = Number(offerDoc.usageLimit || 0);
+			const usedCount = Number(offerDoc.usedCount || 0);
+
+			if (!isActive || (usageLimit > 0 && usedCount >= usageLimit)) {
+				throw new Error('OFFER_USAGE_LIMIT_REACHED');
+			}
+		}
+
 		// Determine if candidateOfferId is actually a NEW_USER offer
 		const candidateOfferDoc = candidateOfferId ? offerDocsById.get(candidateOfferId) : null;
 		const candidateIsNewUser =
@@ -310,6 +322,36 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			}
 
 			// ─────────────────────────────────────────────────────────────
+			// GLOBAL OFFER USAGE AND DEACTIVATION (READS FIRST)
+			// ─────────────────────────────────────────────────────────────
+			const offersMap = new Map<string, { ref: FirebaseFirestore.DocumentReference, snap: FirebaseFirestore.DocumentSnapshot }>();
+			if (consumedOfferUsages.length > 0) {
+				for (const usage of consumedOfferUsages) {
+					let offerRef = db.collection('outlets')
+						.doc(String(outletId))
+						.collection('offers')
+						.doc(usage.offerId);
+					let offerSnap = await tx.get(offerRef);
+					if (!offerSnap.exists) {
+						offerRef = db.collection('offers').doc(usage.offerId);
+						offerSnap = await tx.get(offerRef);
+					}
+					offersMap.set(usage.offerId, { ref: offerRef, snap: offerSnap });
+
+					if (offerSnap.exists) {
+						const offerData = offerSnap.data() || {};
+						const usageLimit = Number(offerData.usageLimit || 0);
+						const usedCount = Number(offerData.usedCount || 0);
+						const isActive = offerData.isActive !== false;
+
+						if (!isActive || (usageLimit > 0 && usedCount >= usageLimit)) {
+							throw new Error('OFFER_USAGE_LIMIT_REACHED');
+						}
+					}
+				}
+			}
+
+			// ─────────────────────────────────────────────────────────────
 			// USER / OFFER VALIDATION (READS ONLY)
 			// ─────────────────────────────────────────────────────────────
 			let userRef: FirebaseFirestore.DocumentReference | null = null;
@@ -327,18 +369,12 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 
 				if (consumedOfferUsages.length > 0) {
 					const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
-
 					for (const usage of consumedOfferUsages) {
-						const offerSnap = await tx.get(
-							db.collection('outlets')
-								.doc(String(outletId))
-								.collection('offers')
-								.doc(usage.offerId)
-						);
-
+						const entry = offersMap.get(usage.offerId);
+						const offerSnap = entry?.snap;
 						offersById.set(
 							usage.offerId,
-							offerSnap.exists ? offerSnap.data() : undefined
+							offerSnap && offerSnap.exists ? offerSnap.data() : undefined
 						);
 					}
 
@@ -362,6 +398,27 @@ export const createOrder = functions.https.onRequest(async (req: Request, res: R
 			// ─────────────────────────────────────────────────────────────
 			// WRITES START HERE
 			// ─────────────────────────────────────────────────────────────
+
+			// 1. Global offer usage increment and deactivation
+			if (!alreadyCounted && consumedOfferUsages.length > 0) {
+				for (const usage of consumedOfferUsages) {
+					const entry = offersMap.get(usage.offerId);
+					if (entry && entry.snap.exists) {
+						const offerData = entry.snap.data() || {};
+						const usageLimit = Number(offerData.usageLimit || 0);
+						const usedCount = Number(offerData.usedCount || 0);
+
+						const nextUsedCount = usedCount + 1;
+						const offerUpdate: Record<string, any> = {
+							usedCount: nextUsedCount,
+						};
+						if (usageLimit > 0 && nextUsedCount >= usageLimit) {
+							offerUpdate.isActive = false;
+						}
+						tx.update(entry.ref, offerUpdate);
+					}
+				}
+			}
 
 			if (counterRef && nextCount !== null) {
 				tx.set(

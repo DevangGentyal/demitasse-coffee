@@ -102,6 +102,18 @@ export const createOrder = functions.https.onRequest(
 
 			const offerDocsById = await getOfferDocs(uniqueOfferIds, outletId);
 
+			// Pre-Validation: Validate global usage limit and active state
+			for (const offerDoc of offerDocsById.values()) {
+				if (!offerDoc) continue;
+				const isActive = offerDoc.isActive !== false;
+				const usageLimit = Number(offerDoc.usageLimit || 0);
+				const usedCount = Number(offerDoc.usedCount || 0);
+
+				if (!isActive || (usageLimit > 0 && usedCount >= usageLimit)) {
+					throw new Error("OFFER_USAGE_LIMIT_REACHED");
+				}
+			}
+
 			const subTotal = calculateSubtotal(normalizedItems);
 			const itemsWithPricing = applyOfferPricingByGroup(normalizedItems, offerDocsById as any, applyTax);
 			const primaryOfferDoc = requestedOfferId ? (offerDocsById.get(requestedOfferId) || null) : null;
@@ -136,7 +148,56 @@ export const createOrder = functions.https.onRequest(
 				updatedAt: FieldValue.serverTimestamp(),
 			};
 
-			await orderRef.set(orderData);
+			// Run Firestore transaction to atomically validate offers, increment counts/deactivate, and create the order
+			await db.runTransaction(async (tx) => {
+				const uniqueOfferIdsList = Array.from(uniqueOfferIds);
+				const offersMap = new Map<string, { ref: FirebaseFirestore.DocumentReference, snap: FirebaseFirestore.DocumentSnapshot }>();
+
+				// 1. Reads: Get and validate offer documents inside the transaction
+				for (const offId of uniqueOfferIdsList) {
+					let offerRef = db.collection("outlets").doc(outletId).collection("offers").doc(offId);
+					let offerSnap = await tx.get(offerRef);
+					if (!offerSnap.exists) {
+						offerRef = db.collection("offers").doc(offId);
+						offerSnap = await tx.get(offerRef);
+					}
+					offersMap.set(offId, { ref: offerRef, snap: offerSnap });
+
+					if (offerSnap.exists) {
+						const offerData = offerSnap.data() || {};
+						const usageLimit = Number(offerData.usageLimit || 0);
+						const usedCount = Number(offerData.usedCount || 0);
+						const isActive = offerData.isActive !== false;
+
+						if (!isActive || (usageLimit > 0 && usedCount >= usageLimit)) {
+							throw new Error("OFFER_USAGE_LIMIT_REACHED");
+						}
+					}
+				}
+
+				// 2. Writes: Update offer documents
+				for (const offId of uniqueOfferIdsList) {
+					const entry = offersMap.get(offId);
+					if (entry && entry.snap.exists) {
+						const offerData = entry.snap.data() || {};
+						const usageLimit = Number(offerData.usageLimit || 0);
+						const usedCount = Number(offerData.usedCount || 0);
+
+						const nextUsedCount = usedCount + 1;
+						const offerUpdate: Record<string, any> = {
+							usedCount: nextUsedCount,
+						};
+						if (usageLimit > 0 && nextUsedCount >= usageLimit) {
+							offerUpdate.isActive = false;
+						}
+						tx.update(entry.ref, offerUpdate);
+					}
+				}
+
+				// 3. Writes: Set the order document
+				tx.set(orderRef, orderData);
+			});
+
 			if (customerId) {
 				earnPoints(customerId, customerName, finalTotalAmount, itemsWithPricing, orderRef.id);
 			}
@@ -144,7 +205,12 @@ export const createOrder = functions.https.onRequest(
 			res.status(201).json({ success: true, id: orderRef.id, message: "Order created successfully" });
 		} catch (error) {
 			console.error("Error creating order:", error);
-			res.status(500).json({ success: false, message: "Internal server error", error: String(error) });
+			const message = error instanceof Error ? error.message : "Internal server error";
+			if (message === "OFFER_USAGE_LIMIT_REACHED") {
+				res.status(409).json({ success: false, message: "Offer usage limit reached. Please remove the offer and try again." });
+				return;
+			}
+			res.status(500).json({ success: false, message, error: String(error) });
 		}
 	}
 );

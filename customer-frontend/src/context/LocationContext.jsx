@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { getSessionById, getTableById } from "../lib/backendApi";
-import { db } from "../lib/firebase";
+import { db, auth } from "../lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 
 const LocationContext = createContext();
@@ -90,6 +90,7 @@ export function LocationProvider({ children }) {
     const [paymentLockActive, setPaymentLockActive] = useState(
         localStorage.getItem("isClosingSession") === "true"
     );
+    const [isLocationInitialized, setIsLocationInitialized] = useState(false);
 
     const resetSelectionState = () => {
         setSelectedOutletState("");
@@ -110,18 +111,31 @@ export function LocationProvider({ children }) {
             const storedTableId = localStorage.getItem("selectedTableId") || "";
             const storedOutletId = localStorage.getItem("selectedOutlet") || "";
 
-            if (!storedTableId || !storedOutletId) return;
+            if (!storedTableId || !storedOutletId) {
+                setIsLocationInitialized(true);
+                return;
+            }
 
             try {
+                if (auth.authStateReady) {
+                    await auth.authStateReady();
+                }
+
                 const tableDocs = await getTableById(storedTableId, storedOutletId);
                 const tableData = tableDocs[0] || null;
                 if (cancelled) return;
 
-                if (!tableData) { clearStoredLocation(); resetSelectionState(); return; }
+                if (!tableData) {
+                    clearStoredLocation();
+                    resetSelectionState();
+                    return;
+                }
 
                 const tableOutletId = typeof tableData.outletId === "string" ? tableData.outletId : "";
                 if (tableOutletId && tableOutletId !== storedOutletId) {
-                    clearStoredLocation(); resetSelectionState(); return;
+                    clearStoredLocation();
+                    resetSelectionState();
+                    return;
                 }
 
                 const ownerId = typeof tableData.owner === "string" ? tableData.owner : "";
@@ -139,38 +153,62 @@ export function LocationProvider({ children }) {
                     return;
                 }
 
+                let sessionIsValid = false;
+                let validationAttempted = false;
+                let validationFailed = false;
+
                 if (storedSessionId) {
                     try {
                         const sessionDocs = await getSessionById(storedSessionId);
+                        validationAttempted = true;
                         const sessionData = sessionDocs[0] || null;
                         if (sessionData) {
                             const sessionStatus = typeof sessionData.status === "string" ? sessionData.status : "";
                             const sessionDocId = typeof sessionData.id === "string" ? sessionData.id : "";
                             const sessionFieldId = String(sessionData.sessionId || "").trim();
                             const sessionTableId = typeof sessionData.tableId === "string" ? sessionData.tableId : "";
+                            const sessionOutletId = typeof sessionData.outletId === "string" ? sessionData.outletId : "";
                             if (
                                 sessionStatus === "ACTIVE" &&
-                                (!sessionTableId || sessionTableId === storedTableId) &&
+                                sessionTableId === storedTableId &&
+                                sessionOutletId === storedOutletId &&
                                 (sessionDocId === storedSessionId || sessionFieldId === storedSessionId)
                             ) {
-                                if (cancelled) return;
-                                localStorage.setItem("selectedSessionId", storedSessionId);
-                                setCookie("selectedSessionId", storedSessionId);
-                                setSelectedSessionIdState(storedSessionId);
-                                return;
+                                sessionIsValid = true;
+                            } else {
+                                validationFailed = true;
                             }
+                        } else {
+                            validationFailed = true;
                         }
                     } catch (sessionError) {
-                        console.warn("Failed to verify session:", sessionError);
+                        console.warn("Failed to verify session due to error:", sessionError);
+                        const errorMsg = String(sessionError.message || "").toLowerCase();
+                        if (errorMsg.includes("not authenticated") || errorMsg.includes("permission")) {
+                            validationFailed = true;
+                        }
                     }
                 }
 
-                localStorage.removeItem("selectedSessionId");
-                deleteCookie("selectedSessionId");
                 if (cancelled) return;
-                setSelectedSessionIdState("");
+
+                if (validationFailed) {
+                    clearStoredLocation();
+                    resetSelectionState();
+                } else if (validationAttempted && sessionIsValid) {
+                    localStorage.setItem("selectedSessionId", storedSessionId);
+                    setCookie("selectedSessionId", storedSessionId);
+                    setSelectedSessionIdState(storedSessionId);
+                } else {
+                    if (!storedSessionId) {
+                        clearStoredLocation();
+                        resetSelectionState();
+                    }
+                }
             } catch (error) {
                 console.error("Failed to verify stored table:", error);
+            } finally {
+                setIsLocationInitialized(true);
             }
         };
 
@@ -429,6 +467,7 @@ export function LocationProvider({ children }) {
                 requestPaymentLock,
                 clearPaymentLock,
                 clearLocation,
+                isLocationInitialized,
             }}
         >
             {children}

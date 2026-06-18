@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react";
 import {
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -50,6 +51,8 @@ const LinkPasswordModal = ({ email, user, onSuccess, onClose }) => {
   const [confirm, setConfirm] = useState("");
   const [err, setErr]       = useState("");
   const [linking, setLinking] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleLink = async () => {
     setErr("");
@@ -88,20 +91,40 @@ const LinkPasswordModal = ({ email, user, onSuccess, onClose }) => {
         {err && <Banner message={err} onClose={() => setErr("")} />}
 
         <div className="space-y-3 mt-3">
-          <input
-            type="password"
-            placeholder="New password"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            className="w-full px-4 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513]"
-          />
-          <input
-            type="password"
-            placeholder="Confirm password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            className="w-full px-4 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513]"
-          />
+          <div className="relative">
+            <input
+              type={showNewPassword ? "text" : "password"}
+              placeholder="New password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              className="w-full pl-4 pr-10 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowNewPassword(!showNewPassword)}
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label={showNewPassword ? "Hide password" : "Show password"}
+            >
+              {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+          <div className="relative">
+            <input
+              type={showConfirmPassword ? "text" : "password"}
+              placeholder="Confirm password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="w-full pl-4 pr-10 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+            >
+              {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
           <button
             onClick={handleLink}
             disabled={linking}
@@ -147,6 +170,7 @@ const Login_Page = ({ setShowOutletPopup }) => {
   const [successMsg, setSuccessMsg] = useState("");
   const [linkModal, setLinkModal]   = useState(null); // { user, email }
   const [waitingForApproval, setWaitingForApproval] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
   const clearMessages = () => { setErrorMsg(""); setSuccessMsg(""); };
@@ -357,15 +381,25 @@ const Login_Page = ({ setShowOutletPopup }) => {
           {/* Password */}
           <div>
             <label className="block text-sm font-medium text-[#3e2723]">Password</label>
-            <input
-              type="password"
-              name="password"
-              required
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="Enter your password"
-              className="w-full mt-1 px-4 py-3 border rounded-lg outline-none focus:ring-2 focus:ring-[#8B4513]"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                name="password"
+                required
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="Enter your password"
+                className="w-full mt-1 pl-4 pr-10 py-3 border rounded-lg outline-none focus:ring-2 focus:ring-[#8B4513]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           <div className="flex justify-end">

@@ -93,7 +93,14 @@ export default function OfferCard() {
                   <p className="text-sm opacity-80 mt-1 line-clamp-2">{offer.description}</p>
                   <button className="mt-3 bg-white text-black px-4 py-2 rounded-full text-sm font-medium">BUY NOW</button>
                 </div>
-                <img src={offerImg} alt="offer" className="h-24 ml-2" />
+                <img
+                  src={offer.imageurl || offer.imageUrl || offerImg}
+                  alt="offer"
+                  className="h-24 w-24 object-contain ml-2 rounded-lg"
+                  onError={(e) => {
+                    e.target.src = offerImg;
+                  }}
+                />
               </div>
             ))}
           </div>

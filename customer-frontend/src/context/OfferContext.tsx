@@ -21,6 +21,7 @@ interface OfferContextType {
   fullUser: User | null;
   userOrders: any[];
   refreshUserProfile: () => Promise<void>;
+  refreshOffers: () => Promise<void>;
   allValidOffers: Offer[];
 }
 
@@ -60,26 +61,26 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
   const isGuestUser = localStorage.getItem("userType") === "guest";
 
   // 🔥 FETCH ALL OFFERS FOR SELECTED OUTLET
-  useEffect(() => {
-    const fetchOffers = async () => {
-      if (!selectedOutlet) {
-        setAllOffers([]);
-        return;
-      }
+  const refreshOffers = useCallback(async () => {
+    if (!selectedOutlet) {
+      setAllOffers([]);
+      return;
+    }
 
-      try {
-        const offersData = (await getOffersByOutletId(
-          selectedOutlet
-        )) as Offer[];
+    try {
+      const offersData = (await getOffersByOutletId(
+        selectedOutlet
+      )) as Offer[];
 
-        setAllOffers(offersData);
-      } catch (err) {
-        console.error("Error fetching offers:", err);
-      }
-    };
-
-    fetchOffers();
+      setAllOffers(offersData);
+    } catch (err) {
+      console.error("Error fetching offers:", err);
+    }
   }, [selectedOutlet]);
+
+  useEffect(() => {
+    refreshOffers();
+  }, [refreshOffers]);
 
   // 🔥 FETCH FULL USER
   const refreshUserProfile = useCallback(async () => {
@@ -229,6 +230,7 @@ export const OfferProvider: React.FC<OfferProviderProps> = ({
         fullUser,
         allValidOffers,
         refreshUserProfile,
+        refreshOffers,
       }}
     >
       {children}

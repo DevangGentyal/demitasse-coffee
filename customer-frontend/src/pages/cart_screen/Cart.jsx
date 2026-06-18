@@ -91,7 +91,7 @@ const Cart = () => {
     clearCart,
   } = useCart();
 
-  const { offers, fullUser, refreshUserProfile } = useOffers();
+  const { offers, fullUser, refreshUserProfile, refreshOffers } = useOffers();
   const { selectedOutlet, tableNumber, selectedTableId, selectedTableOwnerId, selectedSessionId, setTableSelection } = useLocationContext();
   const isGuest = !fullUser && localStorage.getItem("userType") === "guest";
 
@@ -170,6 +170,8 @@ const Cart = () => {
   // Only the auto-registration offer is subtracted here.
   // NEW_USER offer deduction is also applied here.
   const grandTotal = Math.max(0, totalPrice - totalDiscount - newUserDiscount);
+  const gstTax = Math.round(grandTotal * 0.05);
+  const totalPayable = grandTotal + gstTax;
 
   // Helper config string to detect remaining valid normal items for banner UI
   const hasEligibleItems = cart.filter(i => !i.isFree && !i.isCombo && !i.isManualB1G1).length > 0;
@@ -421,6 +423,9 @@ const Cart = () => {
           }
         }
         await refreshUserProfile();
+        if (refreshOffers) {
+          await refreshOffers();
+        }
       }
 
       clearCart();
@@ -519,8 +524,8 @@ const Cart = () => {
       const serverDiscount = Number(result.pricing?.discount ?? 0);
       const effectiveDiscount = serverDiscount > 0 ? serverDiscount : totalDiscount;
       const effectiveDiscountedPrice = result.pricing?.discountedPrice ?? Math.max(0, totalPrice - effectiveDiscount);
-      const effectiveTax = result.pricing?.tax ?? taxAmount;
-      const effectiveGrandTotal = result.pricing?.total ?? grandTotal;
+      const effectiveTax = result.pricing?.tax ?? gstTax;
+      const effectiveGrandTotal = result.pricing?.total ?? totalPayable;
 
       navigate("/bill", {
         state: {
@@ -724,11 +729,21 @@ const Cart = () => {
                 </div>
               )}
 
+            <div className="flex justify-between text-sm text-gray-600 mt-1 font-medium">
+              <span>Net Before Tax</span>
+              <span>₹{grandTotal}</span>
+            </div>
+
+            <div className="flex justify-between text-sm text-gray-600 mt-1 font-medium">
+              <span>Tax (5% GST)</span>
+              <span>₹{gstTax}</span>
+            </div>
+
             <hr className="my-3" />
 
-            <div className="flex justify-between font-semibold text-lg">
+            <div className="flex justify-between font-bold text-lg">
               <span>Grand Total</span>
-              <span>₹{grandTotal}</span>
+              <span>₹{totalPayable}</span>
             </div>
 
             <button

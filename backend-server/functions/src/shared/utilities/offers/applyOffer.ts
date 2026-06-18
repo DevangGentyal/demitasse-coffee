@@ -18,6 +18,9 @@ export interface OfferDocument {
 	type?: string;
 	title?: string;
 	name?: string;
+	isActive?: boolean;
+	usageLimit?: number;
+	usedCount?: number;
 	config?: {
 		combo?: {
 			comboPrice?: number;

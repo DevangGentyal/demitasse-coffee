@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { logIn, logOut } from "@/lib/firebase/auth"
 import { getCurrentUserProfile } from "@/lib/services/backendApi"
+import { Eye, EyeOff } from "lucide-react"
 
 const PendingApprovalCard = ({ onBack }: { onBack: () => void }) => (
   <Card className="w-full max-w-md shadow-lg">
@@ -34,6 +35,7 @@ export default function LoginPage() {
   const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showPendingApproval, setShowPendingApproval] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
 
   React.useEffect(() => {
@@ -135,13 +137,23 @@ export default function LoginPage() {
                 <label className="block text-sm font-medium text-foreground mb-2">
                   Password
                 </label>
-                <Input
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className="bg-input border-border"
-                />
+                <div className="relative">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    className="bg-input border-border pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
 
               {successMessage && <p className="text-sm text-green-600 dark:text-green-400 font-medium bg-green-50 dark:bg-green-950/20 p-2.5 rounded-lg border border-green-100 dark:border-green-900/40">{successMessage}</p>}

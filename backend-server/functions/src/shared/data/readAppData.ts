@@ -109,6 +109,14 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 
 			// Backend Enforcement: Hide registration offers if user has already placed orders
 			return offers.filter(offer => {
+				const isActive = offer.isActive !== false;
+				const usageLimit = Number(offer.usageLimit || 0);
+				const usedCount = Number(offer.usedCount || 0);
+
+				if (!isActive || (usageLimit > 0 && usedCount >= usageLimit)) {
+					return false;
+				}
+
 				const offerKind = String(offer.offerType || offer.type || '').toUpperCase();
 				const isRegistration = offer.userRules?.firstOrderOnly === true ||
 					offer.applicableFor === "new_user" ||

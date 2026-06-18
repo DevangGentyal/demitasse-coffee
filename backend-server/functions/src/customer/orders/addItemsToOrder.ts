@@ -244,10 +244,30 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 				const userSnap = await tx.get(userRef);
 				const userData = userSnap.data() || {};
 				const offersById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
+				const resolvedOffersMap = new Map<string, { ref: FirebaseFirestore.DocumentReference, snap: FirebaseFirestore.DocumentSnapshot }>();
+
 				for (const usage of deltaOfferUsages) {
-					const offerSnap = await tx.get(db.collection("outlets").doc(outletId).collection("offers").doc(usage.offerId));
+					let offerRef = db.collection("outlets").doc(outletId).collection("offers").doc(usage.offerId);
+					let offerSnap = await tx.get(offerRef);
+					if (!offerSnap.exists) {
+						offerRef = db.collection("offers").doc(usage.offerId);
+						offerSnap = await tx.get(offerRef);
+					}
+					resolvedOffersMap.set(usage.offerId, { ref: offerRef, snap: offerSnap });
+
+					if (offerSnap.exists) {
+						const offerData = offerSnap.data() || {};
+						const usageLimit = Number(offerData.usageLimit || 0);
+						const usedCount = Number(offerData.usedCount || 0);
+						const isActive = offerData.isActive !== false;
+
+						if (!isActive || (usageLimit > 0 && usedCount >= usageLimit)) {
+							throw new Error("OFFER_USAGE_LIMIT_REACHED");
+						}
+					}
 					offersById.set(usage.offerId, offerSnap.exists ? offerSnap.data() : undefined);
 				}
+
 				const violation = findUsageLimitViolation(
 					deltaOfferUsages,
 					getAppliedOfferUsageCounts(userData.appliedOffers),
@@ -259,6 +279,25 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 					appliedOffers: mergeAppliedOfferUsages(userData.appliedOffers, deltaOfferUsages),
 					updatedAt: FieldValue.serverTimestamp(),
 				}, { merge: true });
+
+				// Increment global usedCount and deactivate if limit reached
+				for (const usage of deltaOfferUsages) {
+					const entry = resolvedOffersMap.get(usage.offerId);
+					if (entry && entry.snap.exists) {
+						const offerData = entry.snap.data() || {};
+						const usageLimit = Number(offerData.usageLimit || 0);
+						const usedCount = Number(offerData.usedCount || 0);
+
+						const nextUsedCount = usedCount + 1;
+						const offerUpdate: Record<string, any> = {
+							usedCount: nextUsedCount,
+						};
+						if (usageLimit > 0 && nextUsedCount >= usageLimit) {
+							offerUpdate.isActive = false;
+						}
+						tx.update(entry.ref, offerUpdate);
+					}
+				}
 			}
 
 			const updatePayload = {
@@ -295,6 +334,10 @@ export const addItemsToOrder = functions.https.onRequest(async (req: Request, re
 
 		res.status(200).json({ success: true, message: "Item added successfully", order: transactionResult });
 	} catch (error: any) {
+		if (error?.message === "OFFER_USAGE_LIMIT_REACHED") {
+			res.status(409).json({ success: false, message: "Offer usage limit reached. Please remove the offer and try again." });
+			return;
+		}
 		if (error?.message === "ORDER_NOT_FOUND") { res.status(404).json({ success: false, message: "Order not found" }); return; }
 		if (error?.message === "ORDER_NOT_ACTIVE") { res.status(409).json({ success: false, message: "Order is not active" }); return; }
 		if (error?.message === "INVALID_ITEM_PAYLOAD") { res.status(400).json({ success: false, message: "Invalid item payload" }); return; }
