@@ -11,14 +11,28 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isLoading) return
-    if (pathname === '/login') return
+    
+    // Redirect authenticated users directly to the Admin Dashboard
+    if (pathname === '/login') {
+      if (isLoggedIn && role === 'admin') {
+        router.replace('/dashboard')
+      }
+      return
+    }
+
     if (!isLoggedIn || role !== 'admin') {
       router.replace('/login')
     }
   }, [isLoading, isLoggedIn, role, pathname, router])
 
-  if (pathname === '/login') return <>{children}</>
   if (isLoading) return null
+  
+  // Wait for redirect to happen if they are on login page but authenticated
+  if (pathname === '/login') {
+    if (isLoggedIn && role === 'admin') return null
+    return <>{children}</>
+  }
+  
   if (!isLoggedIn || role !== 'admin') return null
 
   return <>{children}</>

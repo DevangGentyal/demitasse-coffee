@@ -4,7 +4,7 @@ import { useCart } from "../../context/CartContext";
 import { useOffers } from "../../context/OfferContext";
 import { useMenu } from "../../context/MenuContext";
 import { useNavigate } from "react-router-dom";
-import { isBirthday, isBirthdayOffer as isBirthdayOfferConfig } from "../../lib/offerUtils";
+import { isBirthday } from "../../lib/offerUtils";
 import Variations from "../itemDetails_screen/Variations";
 import AddOnGroup from "../itemDetails_screen/AddOnGroup";
 import { useLocationContext } from "../../context/LocationContext";
@@ -19,7 +19,7 @@ interface Offer {
   id: string;
   title?: string;
   description?: string;
-  offerType?: string;
+  offerType?: string; // PRIMARY: DISCOUNT | COMBO | B1G1 | BIRTHDAY | NEW_USER
   discountType?: string;
   discountValue?: number;
   couponCode?: string;
@@ -48,8 +48,8 @@ interface Offer {
     reward?: { productIds?: string[]; maxSelection?: number; };
     applicableProductIds?: string[];
   };
-  combo?: ComboGroup[]; // Fallback
-  comboPrice?: number;   // Fallback
+  combo?: ComboGroup[];
+  comboPrice?: number;
   applicableCategory?: string;
   userRules?: { firstOrderOnly?: boolean; birthdayOnly?: boolean; perUserLimit?: number; };
 }
@@ -68,7 +68,6 @@ const getValidDate = (date: any): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
-// Calculate add-ons cost for a product given selected addons map
 const calcAddOnsCost = (product: any, addons: Record<number, string[]>): number => {
   let cost = 0;
   if (!addons) return 0;
@@ -83,7 +82,6 @@ const calcAddOnsCost = (product: any, addons: Record<number, string[]>): number 
   return cost;
 };
 
-// ✅ Transform add-ons map into expected array of objects [{ name, price }]
 const transformAddOns = (product: any, addons: Record<number, string[]>) => {
   const result: { name: string; price: number }[] = [];
   if (!addons) return result;
@@ -92,24 +90,20 @@ const transformAddOns = (product: any, addons: Record<number, string[]>) => {
     if (!group) return;
     (list as string[]).forEach((name) => {
       const opt = group.options?.find((o: any) => o.name === name);
-      if (opt) {
-        result.push({ name: opt.name, price: opt.price });
-      }
+      if (opt) result.push({ name: opt.name, price: opt.price });
     });
   });
   return result;
 };
 
-const getResolvedOfferType = (offer?: Offer | null) => String(offer?.offerType || offer?.type || offer?.discountType || "").trim().toUpperCase();
+// ─── Offer type resolution — reads offerType first, falls back to legacy fields ───
+const getResolvedOfferType = (offer?: Offer | null): string =>
+  String(offer?.offerType || offer?.type || offer?.discountType || "").trim().toUpperCase();
 
 const normalizeProductIds = (rawIds: unknown): string[] => {
   let values: any[] = [];
-  if (Array.isArray(rawIds)) {
-    values = rawIds;
-  } else if (rawIds && typeof rawIds === 'object') {
-    values = Object.values(rawIds);
-  }
-
+  if (Array.isArray(rawIds)) values = rawIds;
+  else if (rawIds && typeof rawIds === "object") values = Object.values(rawIds);
   return values
     .map((item: any) => {
       if (!item) return "";
@@ -136,62 +130,48 @@ const getOfferComboPrice = (offer: Offer | null | undefined): number => {
 
 const getOfferDiscountProductIds = (offer: Offer | null | undefined): string[] => {
   const discountConfig = offer?.config?.discount || {};
-  const rawIds = discountConfig.productIds
-    || offer?.config?.applicableProductIds
-    || offer?.applicableItems
-    || offer?.applicableProductIds
-    || offer?.products
-    || [];
+  const rawIds =
+    discountConfig.productIds ||
+    offer?.config?.applicableProductIds ||
+    offer?.applicableItems ||
+    offer?.applicableProductIds ||
+    offer?.products ||
+    [];
   return normalizeProductIds(rawIds);
 };
 
 const getOfferDiscountCategoryName = (offer: Offer | null | undefined): string => {
   const nestedCategory = String(
-    offer?.config?.discount?.categoryName
-    || offer?.config?.discount?.category
-    || ""
+    offer?.config?.discount?.categoryName || offer?.config?.discount?.category || ""
   ).trim();
-
   if (nestedCategory) return nestedCategory;
 
   const legacyCategory = String(offer?.applicableCategory || offer?.category || "").trim();
   const normalizedLegacyCategory = legacyCategory.toLowerCase();
-
   if (!legacyCategory) return "";
   if (normalizedLegacyCategory === "discount" || normalizedLegacyCategory === "product") return "";
-
   return legacyCategory;
 };
 
 const getOfferB1G1ProductIds = (offer: Offer | null | undefined): string[] => {
   const b1g1Config: any = offer?.config?.b1g1 || {};
-  const rawIds = b1g1Config.productIds
-    || b1g1Config.applicableProductIds
-    || offer?.applicableProductIds
-    || offer?.products
-    || [];
-  return normalizeProductIds(rawIds);
-};
-
-const getOfferBirthdayProductIds = (offer: any) => {
-  const freeItemsConfig: any =
-    offer?.config?.freeItems ||
-    offer?.config?.reward ||
-    {};
-
   const rawIds =
-    freeItemsConfig.productIds ||
-    offer?.rewardItems ||
+    b1g1Config.productIds ||
+    b1g1Config.applicableProductIds ||
+    offer?.applicableProductIds ||
+    offer?.products ||
     [];
-
   return normalizeProductIds(rawIds);
 };
-const getBirthdaySelectionRules = (offer: any) => {
-  const cfg =
-    offer?.config?.freeItems ||
-    offer?.config?.reward ||
-    {};
 
+const getOfferBirthdayProductIds = (offer: any): string[] => {
+  const freeItemsConfig: any = offer?.config?.freeItems || offer?.config?.reward || {};
+  const rawIds = freeItemsConfig.productIds || offer?.rewardItems || [];
+  return normalizeProductIds(rawIds);
+};
+
+const getBirthdaySelectionRules = (offer: any) => {
+  const cfg = offer?.config?.freeItems || offer?.config?.reward || {};
   return {
     minSelect: Number(cfg.minSelect ?? 1),
     maxSelect: Number(cfg.maxSelect ?? 1),
@@ -201,15 +181,25 @@ const getBirthdaySelectionRules = (offer: any) => {
 const isUsableBirthdayProduct = (product: any, selectedOutlet = ""): boolean => {
   if (!product) return false;
   const productOutletId = String(product.outletId || "").trim();
-  return product.isDeleted !== true &&
+  return (
+    product.isDeleted !== true &&
     product.isActive !== false &&
     product.isAvailable !== false &&
-    (!productOutletId || !selectedOutlet || productOutletId === selectedOutlet);
+    (!productOutletId || !selectedOutlet || productOutletId === selectedOutlet)
+  );
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = false }) => {
-  const { cart, addComboToCart, addB1G1ToCart, addDiscountToCart, addBirthdayToCart, addNewUserOfferToCart, totalPrice: cartTotalPrice, appliedOffers } = useCart();
+  const {
+    cart,
+    addComboToCart,
+    addB1G1ToCart,
+    addDiscountToCart,
+    addBirthdayToCart,
+    addNewUserOfferToCart,
+    appliedOffers,
+  } = useCart();
   const { fullUser } = useOffers();
   const { products } = useMenu();
   const navigate = useNavigate();
@@ -221,142 +211,108 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showBirthdayModal, setShowBirthdayModal] = useState(false);
   const [addedMsg, setAddedMsg] = useState("");
+
   const shouldAutoApply = offer?.autoApply === true;
 
-
-
-  // ─── Product lookup map (from MenuContext) ──────────────────────────────────
+  // ─── Product lookup map ─────────────────────────────────────────────────────
   const productsMap: Record<string, any> = useMemo(() => {
     const map: Record<string, any> = {};
     if (products && Array.isArray(products)) {
-      products.forEach((p: any) => {
-        if (p && p.id) map[p.id] = p;
-      });
+      products.forEach((p: any) => { if (p && p.id) map[p.id] = p; });
     }
     return map;
   }, [products]);
 
-  // ─── Combo detection (safe array access) ────────────────────────────────────
-  const comboGroups: ComboGroup[] = getOfferComboGroups(offer);
-  const comboPrice = getOfferComboPrice(offer);
+  // ─── Resolve offer type — ONLY from offerType field ─────────────────────────
   const resolvedOfferType = getResolvedOfferType(offer);
-  const isCombo = offer?.discountType === "COMBO" || resolvedOfferType === "COMBO" || Boolean(offer?.config?.combo);
 
-  const isApplied = appliedOffers.some((a: any) => a.offerId === offer?.id);
+  // ─── Offer type flags (mutually exclusive by offerType) ─────────────────────
+  const isCombo = resolvedOfferType === "COMBO" || Boolean(offer?.config?.combo);
+  const isB1G1 = resolvedOfferType === "B1G1" || resolvedOfferType === "BOGO";
+  const isBirthdayOffer = resolvedOfferType === "BIRTHDAY";
+  const isNewUserOffer = resolvedOfferType === "NEW_USER";
 
-  // ─── B1G1 detection (safe access) ───────────────────────────────────────────
-  const b1g1Config = offer?.config?.b1g1 || null;
-  const isB1G1 = offer?.discountType === "BOGO" || offer?.discountType === "B1G1" || resolvedOfferType === "B1G1" || resolvedOfferType === "BOGO" || Boolean(offer?.config?.b1g1);
-
-
-
-  // ─── Birthday Offer detection ───────────────────────────────────────────
-  const isBirthdayOffer = offer ? (
-    (resolvedOfferType === "REWARD" && offer.category === "BIRTHDAY") ||
-    resolvedOfferType === "BIRTHDAY" ||
-    offer.applicableFor === "birthday" ||
-    offer.userRules?.birthdayOnly === true
-  ) : false;
-
-  const perUserLimit = offer.userRules?.perUserLimit ?? (offer as any).perUserLimit;
-
-  // First Order Offer detection
-  const isFirstOrder = offer.userRules?.firstOrderOnly;
-
-  const isNewUserOffer =
-    resolvedOfferType === "NEW_USER" ||
-    offer.userRules?.firstOrderOnly === true;
-
-  // ─── Interactive Discount detection ──────────────────────────────────────────
+  // DISCOUNT: only when offerType === "DISCOUNT" — never overlaps with NEW_USER
   const rawProductIds = getOfferDiscountProductIds(offer);
   const isProductOffer = rawProductIds.length > 0;
-  const isCategoryOffer = resolvedOfferType === "DISCOUNT" && (
-    offer?.config?.discount?.mode === "CATEGORY" ||
-    Boolean(offer?.config?.discount?.categoryName) ||
-    Boolean(offer?.config?.discount?.category) ||
-    Boolean(offer?.applicableCategory && offer?.applicableCategory !== "all") ||
-    Boolean(offer?.category && offer?.category !== "all")
-  );
-
-  const canApplyDiscount =
-    isNewUserOffer ||
-    isProductOffer ||
-    isCategoryOffer ||
-    offer?.config?.selection?.enabled === true;
+  const discountCategoryName = getOfferDiscountCategoryName(offer);
+  const isCategoryOffer =
+    resolvedOfferType === "DISCOUNT" &&
+    (
+      offer?.config?.discount?.mode === "CATEGORY" ||
+      Boolean(offer?.config?.discount?.categoryName) ||
+      Boolean(offer?.config?.discount?.category) ||
+      Boolean(offer?.applicableCategory && offer?.applicableCategory !== "all")
+    );
 
   const isInteractiveDiscount =
-    (
-      resolvedOfferType === "DISCOUNT" ||
-      resolvedOfferType === "NEW_USER" ||
-      isCategoryOffer ||
-      offer?.discountType === "PERCENT" ||
-      offer?.discountType === "FLAT" ||
-      offer?.config?.discount
-    ) &&
-    canApplyDiscount &&
+    resolvedOfferType === "DISCOUNT" && // ← strictly DISCOUNT only
+    (isProductOffer || isCategoryOffer || offer?.config?.selection?.enabled === true) &&
     !isCombo &&
     !isB1G1;
 
-  // ─── Discount badge text ────────────────────────────────────────────────────
-  const resolvedDiscountValue = offer?.discountValue || offer?.config?.discountValue || 0;
+  const comboGroups: ComboGroup[] = getOfferComboGroups(offer);
+  const comboPrice = getOfferComboPrice(offer);
+
+  const isApplied = appliedOffers.some((a: any) => a.offerId === offer?.id);
+  const isAddedInCart =
+    cart.some((c: any) => c.offerId === offer?.id) ||
+    appliedOffers.some((a: any) => a.offerId === offer?.id);
+
+  const perUserLimit = offer.userRules?.perUserLimit ?? (offer as any).perUserLimit;
+
+  // ─── Badge / display text ───────────────────────────────────────────────────
+  const resolvedDiscountValue =
+    offer?.discountValue || offer?.config?.discountValue || 0;
   const discountText = isCombo
-    ? (comboPrice > 0 ? `₹${comboPrice} Only` : "Combo Deal")
-    : isB1G1 ? "B1G1 FREE"
+    ? comboPrice > 0 ? `₹${comboPrice} Only` : "Combo Deal"
+    : isB1G1
+      ? "B1G1 FREE"
       : resolvedDiscountValue > 0
         ? `${resolvedDiscountValue}% OFF`
         : "Special Offer";
 
   const title = offer?.title || discountText;
-
   const validDate = getValidDate(offer?.endDate);
   const formattedDate = validDate
     ? validDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
     : null;
 
-  // ─── Handlers ───────────────────────────────────────────────────────────────
+  // ─── CTA handler ────────────────────────────────────────────────────────────
   const handleCTAClick = () => {
     const userType = localStorage.getItem("userType");
-
     if (userType === "guest") {
       setShowLoginPopup(true);
       return;
     }
 
+    // ── NEW_USER: apply discount directly to current cart ────────────────────
     if (isNewUserOffer) {
-      // Validate: cart must have at least 1 regular item
-      console.log("New Offer Btn Clicked");
       const regularItems = cart.filter(
-        (i: any) => !i.isFree && !i.isCombo && !i.isManualB1G1 && !i.isDiscount && !i.isBirthday && i.offerType !== "NEW_USER"
+        (i: any) =>
+          !i.isFree && !i.isCombo && !i.isManualB1G1 && !i.isDiscount &&
+          !i.isBirthday && i.offerType !== "NEW_USER"
       );
       if (regularItems.length === 0) {
-        console.log("Add atleast 1 item in Cart!");
         setApplyError("Add at least 1 item to your cart first.");
         setTimeout(() => setApplyError(""), 3000);
         return;
       }
-
-      // Validate: cart total must meet minOrderValue
       const minOrderVal = Number(offer.minOrderValue || 0);
       const regularTotal = regularItems.reduce(
-        (sum: number, item: any) => sum + (Number(item.totalPrice ?? item.price) || 0) * (Number(item.qty) || 1),
+        (sum: number, item: any) =>
+          sum + (Number(item.totalPrice ?? item.price) || 0) * (Number(item.qty) || 1),
         0
       );
       if (minOrderVal > 0 && regularTotal < minOrderVal) {
-        console.log('Minimum order value ' + `${minOrderVal}` + ' required to apply this offer.');
         setApplyError(`Minimum order value ₹${minOrderVal} required to apply this offer.`);
         setTimeout(() => setApplyError(""), 3000);
         return;
       }
-
       const discountValue =
-        offer?.config?.discount?.discountValue ||
-        offer?.discountValue ||
-        0;
-
-      // Compute dynamic discount amount from current cart total
+        offer?.config?.discount?.discountValue || offer?.discountValue || 0;
       const discountAmount = Math.round((regularTotal * discountValue) / 100);
       const finalPrice = Math.max(regularTotal - discountAmount, 0);
-
       addNewUserOfferToCart({
         offerId: offer.id,
         offerTitle: offer.title || "Welcome Offer",
@@ -366,44 +322,30 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
         discountAmount,
         finalPrice,
       });
-      console.log("NEW USER CLICKED", offer, { regularTotal, discountAmount });
       handleAdded("Welcome Offer");
       return;
     }
 
+    // ── COMBO ────────────────────────────────────────────────────────────────
     if (isCombo) {
       setApplyError("");
       setShowComboModal(true);
       return;
     }
 
+    // ── B1G1 ─────────────────────────────────────────────────────────────────
     if (isB1G1) {
       setShowB1G1Modal(true);
       return;
     }
 
+    // ── DISCOUNT: open product/category picker modal ──────────────────────────
     if (isInteractiveDiscount) {
-      const cartTotal = cart.reduce(
-        (sum: any, item: any) => sum + (item.totalPrice || item.price || 0),
-        0
-      );
-
-      if (cart.length === 0) {
-        setApplyError("Add at least 1 item first");
-        return;
-      }
-
-      if (cartTotal < (offer.minOrderValue || 0)) {
-        setApplyError(
-          `Minimum order value ₹${offer.minOrderValue} required`
-        );
-        return;
-      }
-
       setShowDiscountModal(true);
       return;
     }
 
+    // ── BIRTHDAY ─────────────────────────────────────────────────────────────
     if (isBirthdayOffer) {
       if (!fullUser?.dob || !isBirthday(fullUser.dob)) {
         setApplyError("This offer is valid only on your birthday.");
@@ -424,54 +366,37 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
     setTimeout(() => setAddedMsg(""), 3000);
   };
 
-  // ✅ Verify if this specific Combo or B1G1 is already placed into Cart natively
-  const isAddedInCart = cart.some((c: any) => c.offerId === offer?.id) || appliedOffers.some((a: any) => a.offerId === offer?.id);
-
   // ════════════════════════════════════════════════════════════════════════════
-  // ALL HOOKS ABOVE — early returns BELOW (safe for React)
+  // ALL HOOKS ABOVE — early returns BELOW
   // ════════════════════════════════════════════════════════════════════════════
 
-  // ─── Safe guard for invalid offer data ──────────────────────────────────────
   if (!offer) {
     console.warn("Invalid offer object:", offer);
     return null;
   }
 
-  // ─── Hide birthday offer on non-birthday days or if already used ────────────
+  // ─── Birthday: hide when not user's birthday or already used ────────────────
   if (isBirthdayOffer) {
-    // ✅ FIX: Only hide if we KNOW it's not the user's birthday
-    // If fullUser is still loading (dob undefined), wait for data before hiding
     if (fullUser?.dob) {
-      // fullUser loaded with DOB info - check if it's their birthday
-      if (!isBirthday(fullUser.dob)) {
-        console.log(`[OfferCard] Birthday Offer ${offer.id}: NOT user's birthday, hiding`);
-        return null;
-      }
+      if (!isBirthday(fullUser.dob)) return null;
     } else if (fullUser !== null && fullUser !== undefined) {
-      // fullUser loaded but has NO dob field - this user shouldn't see birthday offer
-      console.log(`[OfferCard] Birthday Offer ${offer.id}: No DOB in fullUser, hiding`);
       return null;
     }
-    // If fullUser is null/undefined, it's still loading - show the offer for now
-    // It will hide once fullUser loads with the correct data
-
-    // Check if already used this year
     const currentYear = new Date().getFullYear();
-    if (fullUser?.lastBirthdayOfferYear === currentYear) {
-      console.log(`[OfferCard] Birthday Offer ${offer.id}: Already used this year, hiding`);
-      return null;
-    }
-    if (fullUser?.hasUsedBirthdayOffer && !fullUser?.lastBirthdayOfferYear) {
-      console.log(`[OfferCard] Birthday Offer ${offer.id}: Already used (legacy), hiding`);
-      return null;
-    }
+    if (fullUser?.lastBirthdayOfferYear === currentYear) return null;
+    if (fullUser?.hasUsedBirthdayOffer && !fullUser?.lastBirthdayOfferYear) return null;
   }
 
-  // ─── Handle invalid combo config ───────────────────────────────────────────
+  // ─── Combo: hide if config is broken ────────────────────────────────────────
   if (isCombo && comboGroups.length === 0) {
     console.warn("Invalid combo config:", offer);
     return null;
   }
+
+  // ─── Determine which offer types should render a CTA button ─────────────────
+  const hasCTAButton =
+    !shouldAutoApply &&
+    (isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer || isNewUserOffer);
 
   try {
     return (
@@ -530,7 +455,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
             </div>
           )}
 
-          {/* ── Min order & Valid till ──────────────────────────────────────── */}
+          {/* ── Min order / Valid till / Usage ──────────────────────────────── */}
           <div className="flex gap-4 mt-3 pt-3 border-t border-[#e8dccf]">
             {offer.minOrderValue != null && offer.minOrderValue > 0 && (
               <div className="text-[10px]">
@@ -547,158 +472,135 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
             {perUserLimit && (
               <div className="text-[10px]">
                 <span className="text-[#8B6F5E]">Usage</span>
-                <p className="font-bold text-[#5C4033]">{(fullUser?.appliedOffers || []).filter(a => a.offerId === offer.id).reduce((s, u) => s + (Number(u.count) || 0), 0)} / {perUserLimit}</p>
+                <p className="font-bold text-[#5C4033]">
+                  {(fullUser?.appliedOffers || [])
+                    .filter((a: any) => a.offerId === offer.id)
+                    .reduce((s: number, u: any) => s + (Number(u.count) || 0), 0)
+                  } / {perUserLimit}
+                </p>
               </div>
             )}
           </div>
 
-          {/* ── CTA BUTTONS ──────────────────────────────────────────────────── */}
-
-          {
-            !shouldAutoApply &&
-            (isB1G1 || isCombo || isInteractiveDiscount || isBirthdayOffer || isFirstOrder) && (
-              <div className="mt-4 flex justify-center">
-                <button
-                  disabled={isAddedInCart}
-                  onClick={isAddedInCart ? undefined : handleCTAClick}
-                  className={`w-full py-2.5 text-sm font-bold rounded-xl shadow-sm transition-all
-        ${isAddedInCart
-                      ? "bg-[#16a34a]/80 text-white cursor-not-allowed"
-                      : "bg-[#16a34a] hover:bg-green-700 text-white"
-                    }`}
-                >
-                  {isAddedInCart
-                    ? "Added ✅"
-                    : isCombo
-                      ? "Add Combo"
+          {/* ── CTA Button ───────────────────────────────────────────────────── */}
+          {hasCTAButton && (
+            <div className="mt-4 flex justify-center">
+              <button
+                disabled={isAddedInCart}
+                onClick={isAddedInCart ? undefined : handleCTAClick}
+                className={`w-full py-2.5 text-sm font-bold rounded-xl shadow-sm transition-all
+                  ${isAddedInCart
+                    ? "bg-[#16a34a]/80 text-white cursor-not-allowed"
+                    : "bg-[#16a34a] hover:bg-green-700 text-white"
+                  }`}
+              >
+                {isAddedInCart
+                  ? "Added ✅"
+                  : isCombo
+                    ? "Add Combo"
+                    : isB1G1
+                      ? "Add B1G1"
                       : isInteractiveDiscount
                         ? "Apply Offer"
                         : isBirthdayOffer
                           ? "Claim Free Item 🎂"
-                          : "Add Offer"}
-                </button>
-              </div>
-            )
-          }
+                          : isNewUserOffer
+                            ? "Apply Welcome Offer"
+                            : "Add Offer"}
+              </button>
+            </div>
+          )}
+        </div>
 
+        {/* ── Modals ───────────────────────────────────────────────────────────── */}
+        {showComboModal && (
+          <ComboBuilderModal
+            offer={offer}
+            comboGroups={comboGroups}
+            comboPrice={comboPrice}
+            productsMap={productsMap}
+            productsArray={products as any[] || []}
+            onClose={() => setShowComboModal(false)}
+            onAdded={() => handleAdded("Combo")}
+            addComboToCart={addComboToCart}
+          />
+        )}
 
-        </div >
+        {showB1G1Modal && (
+          <B1G1BuilderModal
+            offer={offer}
+            productsMap={productsMap}
+            productsArray={products as any[] || []}
+            onClose={() => setShowB1G1Modal(false)}
+            onAdded={() => handleAdded("B1G1")}
+            addB1G1ToCart={addB1G1ToCart}
+          />
+        )}
 
-        {/* ── Combo Builder Modal ──────────────────────────────────────────────── */}
-        {
-          showComboModal && (
-            <ComboBuilderModal
-              offer={offer}
-              comboGroups={comboGroups}
-              comboPrice={comboPrice}
-              productsMap={productsMap}
-              productsArray={products as any[] || []}
-              onClose={() => setShowComboModal(false)}
-              onAdded={() => handleAdded("Combo")}
-              addComboToCart={addComboToCart}
-            />
-          )
-        }
+        {showDiscountModal && (
+          <DiscountBuilderModal
+            offer={offer}
+            productsMap={productsMap}
+            productsArray={products as any[] || []}
+            onClose={() => setShowDiscountModal(false)}
+            onAdded={() => handleAdded("Discount")}
+            addDiscountToCart={addDiscountToCart}
+            cart={cart}
+          />
+        )}
 
-        {/* ── B1G1 Builder Modal ───────────────────────────────────────────────── */}
-        {
-          showB1G1Modal && (
-            <B1G1BuilderModal
-              offer={offer}
-              productsMap={productsMap}
-              productsArray={products as any[] || []}
-              onClose={() => setShowB1G1Modal(false)}
-              onAdded={() => handleAdded("B1G1")}
-              addB1G1ToCart={addB1G1ToCart}
-            />
-          )
-        }
+        {showBirthdayModal && (
+          <BirthdayBuilderModal
+            offer={offer}
+            productsMap={productsMap}
+            onClose={() => setShowBirthdayModal(false)}
+            onAdded={() => handleAdded("Birthday")}
+            addBirthdayToCart={addBirthdayToCart}
+          />
+        )}
 
-        {/* ── Discount Builder Modal ───────────────────────────────────────── */}
-        {
-          showDiscountModal && (
-            <DiscountBuilderModal
-              offer={offer}
-              productsMap={productsMap}
-              productsArray={products as any[] || []}
-              onClose={() => setShowDiscountModal(false)}
-              onAdded={() => handleAdded("Discount")}
-              addDiscountToCart={addDiscountToCart}
-              cart={cart}
-            />
-          )
-        }
-
-        {/* ── Birthday Builder Modal ──────────────────────────────────────── */}
-        {
-          showBirthdayModal && (
-            <BirthdayBuilderModal
-              offer={offer}
-              productsMap={productsMap}
-              onClose={() => setShowBirthdayModal(false)}
-              onAdded={() => handleAdded("Birthday")}
-              addBirthdayToCart={addBirthdayToCart}
-            />
-          )
-        }
-        {/* ── Error Popup ─────────────────────────────────────────────────────── */}
+        {/* ── Error popup ──────────────────────────────────────────────────────── */}
         {applyError && (
           <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="relative bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
-
-              {/* Close Button */}
               <button
                 onClick={() => setApplyError("")}
                 className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600"
-              >
-                ✕
-              </button>
-
-              {/* Icon */}
+              >✕</button>
               <div className="flex justify-center mb-3">
                 <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
                   <span className="text-2xl">⚠️</span>
                 </div>
               </div>
-
-              {/* Title */}
-              <h3 className="text-lg font-bold text-center text-[#5C4033]">
-                Unable to Apply Offer
-              </h3>
-
-              {/* Message */}
-              <p className="text-sm text-gray-600 text-center mt-2">
-                {applyError}
-              </p>
-
-              {/* Action */}
+              <h3 className="text-lg font-bold text-center text-[#5C4033]">Unable to Apply Offer</h3>
+              <p className="text-sm text-gray-600 text-center mt-2">{applyError}</p>
               <button
                 onClick={() => setApplyError("")}
                 className="w-full mt-5 py-3 rounded-xl bg-[#16a34a] text-white font-semibold hover:bg-green-700"
-              >
-                Got It
-              </button>
+              >Got It</button>
             </div>
           </div>
         )}
 
-        {/* ── Login popup ─────────────────────────────────────────────────────── */}
-        {
-          showLoginPopup && (
-            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-              <div className="bg-white w-[90%] max-sm rounded-2xl p-6 text-center shadow-lg">
-                <h2 className="text-lg font-semibold mb-2">Login Required</h2>
-                <p className="text-gray-600 text-sm mb-5">Offers are exclusive! Login or Register to unlock 🎉</p>
-                <div className="flex justify-center gap-4">
-                  <button onClick={() => { setShowLoginPopup(false); navigate("/login"); }}
-                    className="px-6 py-2 bg-green-600 text-white rounded-full font-semibold">Login</button>
-                  <button onClick={() => setShowLoginPopup(false)}
-                    className="px-6 py-2 bg-gray-200 rounded-full font-semibold">Cancel</button>
-                </div>
+        {/* ── Login popup ──────────────────────────────────────────────────────── */}
+        {showLoginPopup && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white w-[90%] max-sm rounded-2xl p-6 text-center shadow-lg">
+              <h2 className="text-lg font-semibold mb-2">Login Required</h2>
+              <p className="text-gray-600 text-sm mb-5">Offers are exclusive! Login or Register to unlock 🎉</p>
+              <div className="flex justify-center gap-4">
+                <button
+                  onClick={() => { setShowLoginPopup(false); navigate("/login"); }}
+                  className="px-6 py-2 bg-green-600 text-white rounded-full font-semibold"
+                >Login</button>
+                <button
+                  onClick={() => setShowLoginPopup(false)}
+                  className="px-6 py-2 bg-gray-200 rounded-full font-semibold"
+                >Cancel</button>
               </div>
             </div>
-          )
-        }
+          </div>
+        )}
       </>
     );
   } catch (error) {
@@ -707,7 +609,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   }
 };
 
-// ─── Birthday Builder Modal ─────────────────────────────────────────────────
+// ─── Birthday Builder Modal ───────────────────────────────────────────────────
 interface BirthdayBuilderProps {
   offer: any;
   productsMap: Record<string, any>;
@@ -717,77 +619,57 @@ interface BirthdayBuilderProps {
 }
 
 const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
-  offer, productsMap, onClose, onAdded, addBirthdayToCart
+  offer, productsMap, onClose, onAdded, addBirthdayToCart,
 }) => {
   const { minSelect, maxSelect } = getBirthdaySelectionRules(offer);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [fetchedProducts, setFetchedProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  // Customization state — same pattern as B1G1/Combo
-  const [customization, setCustomization] = useState<{ variations: Record<number, string>; addons: Record<number, string[]> }>({ variations: {}, addons: {} });
+  const [customization, setCustomization] = useState<{
+    variations: Record<number, string>;
+    addons: Record<number, string[]>;
+  }>({ variations: {}, addons: {} });
   const [customizingProduct, setCustomizingProduct] = useState<boolean>(false);
   const { selectedOutlet } = useLocationContext();
 
-  // Extract the configured product IDs from config.reward.productIds
-  // NOTE: Firestore keys may have leading spaces (e.g. " reward" instead of "reward")
-  const configuredIds = useMemo(() => {
-    return getOfferBirthdayProductIds(offer);
-  }, [offer]);
+  const configuredIds = useMemo(() => getOfferBirthdayProductIds(offer), [offer]);
 
-  // Try productsMap first, then fetch from Firestore for any missing ones
   useEffect(() => {
-    if (configuredIds.length === 0) {
-      setLoading(false);
-      return;
-    }
+    if (configuredIds.length === 0) { setLoading(false); return; }
 
     const fetchMissing = async () => {
       const results: any[] = [];
       const missingIds: string[] = [];
 
-      // Check which IDs are already in productsMap
       for (const id of configuredIds) {
-        const cachedProduct = productsMap[id];
-        if (isUsableBirthdayProduct(cachedProduct, selectedOutlet)) {
-          results.push(cachedProduct);
-        } else {
-          missingIds.push(id);
-        }
+        const cached = productsMap[id];
+        if (isUsableBirthdayProduct(cached, selectedOutlet)) results.push(cached);
+        else missingIds.push(id);
       }
 
-      // Fetch missing products from backend (includes customizations data)
-      if (missingIds.length > 0) {
-        for (const id of missingIds) {
-          try {
-            const items = await getProductById(id, selectedOutlet);
-            const prod = items[0]
-            if (prod) {
-              const data = prod
-              // ✅ Apply strict validation before accepting the product!
-              if (isUsableBirthdayProduct(data, selectedOutlet)) {
-                results.push({
-                  id: prod.id,
-                  name: data.name || "Item",
-                  price: data.price || 0,
-                  image: data.imageUrl || data.image || "",
-                  isVeg: data.isVeg,
-                  description: data.description || "",
-                  variations: Array.isArray(data.variations) ? data.variations : [],
-                  customizations: Array.isArray(data.customizations) ? data.customizations : [],
-                });
-              }
-            }
-          } catch (err) {
-            console.error("🎂 Birthday: Failed to fetch product", id, err);
+      for (const id of missingIds) {
+        try {
+          const items = await getProductById(id, selectedOutlet);
+          const prod = items[0];
+          if (prod && isUsableBirthdayProduct(prod, selectedOutlet)) {
+            results.push({
+              id: prod.id,
+              name: prod.name || "Item",
+              price: prod.price || 0,
+              image: prod.imageUrl || prod.image || "",
+              isVeg: prod.isVeg,
+              description: prod.description || "",
+              variations: Array.isArray(prod.variations) ? prod.variations : [],
+              customizations: Array.isArray(prod.customizations) ? prod.customizations : [],
+            });
           }
+        } catch (err) {
+          console.error("🎂 Birthday: Failed to fetch product", id, err);
         }
       }
 
-      if (results.length === 0) {
-        onClose(); // Hide modal completely if no valid products remain
-      } else {
-        setFetchedProducts(results);
-      }
+      if (results.length === 0) onClose();
+      else setFetchedProducts(results);
       setLoading(false);
     };
 
@@ -795,100 +677,53 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   }, [configuredIds, productsMap]);
 
   const applicableProducts = fetchedProducts;
-
   const selectedProducts = selectedIds
-    .map(id =>
-      fetchedProducts.find((p: any) => p.id === id) ||
-      productsMap[id]
-    )
+    .map(id => fetchedProducts.find((p: any) => p.id === id) || productsMap[id])
     .filter(Boolean);
-
-  const selectedProduct =
-    selectedProducts.length > 0
-      ? selectedProducts[0]
-      : null;
-
-  // Check if selected product has customizations
-  const hasCustomizable = selectedProduct && (
-    (selectedProduct.variations?.length > 0) || (selectedProduct.customizations?.length > 0)
-  );
-  const hasCustomizationSaved = Object.keys(customization.variations).length > 0 || Object.keys(customization.addons).length > 0;
+  const selectedProduct = selectedProducts.length > 0 ? selectedProducts[0] : null;
+  const hasCustomizationSaved =
+    Object.keys(customization.variations).length > 0 ||
+    Object.keys(customization.addons).length > 0;
 
   const handleSelect = (id: string) => {
     const alreadySelected = selectedIds.includes(id);
-
     if (alreadySelected) {
       setSelectedIds(prev => prev.filter(pid => pid !== id));
-
-      if (selectedIds.length === 1) {
-        setCustomization({
-          variations: {},
-          addons: {}
-        });
-      }
-
+      if (selectedIds.length === 1) setCustomization({ variations: {}, addons: {} });
       return;
     }
-
-    if (selectedIds.length >= maxSelect) {
-      return;
-    }
-
+    if (selectedIds.length >= maxSelect) return;
     setSelectedIds(prev => [...prev, id]);
-
     if (selectedIds.length === 0) {
-      setCustomization({
-        variations: {},
-        addons: {}
-      });
-
-      const product =
-        fetchedProducts.find((p: any) => p.id === id) ||
-        productsMap[id];
-
-      if (
-        product &&
-        ((product.variations?.length > 0) ||
-          (product.customizations?.length > 0))
-      ) {
+      setCustomization({ variations: {}, addons: {} });
+      const product = fetchedProducts.find((p: any) => p.id === id) || productsMap[id];
+      if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) {
         setCustomizingProduct(true);
       }
     }
   };
 
-
   const handleAddToCart = () => {
     if (selectedProducts.length < minSelect) return;
-
     const freeItems = selectedProducts.map((product: any) => ({
       productId: product.id,
       name: product.name,
       price: 0,
       customizations: customization.variations,
       addOns: transformAddOns(product, customization.addons),
-      addOnsCost: calcAddOnsCost(product, customization.addons)
+      addOnsCost: calcAddOnsCost(product, customization.addons),
     }));
-
-    addBirthdayToCart({
-      offerId: offer.id,
-      offerTitle: offer.title,
-      freeItems,
-      items: freeItems
-    });
-
+    addBirthdayToCart({ offerId: offer.id, offerTitle: offer.title, freeItems, items: freeItems });
     onAdded();
   };
-  // Show customization sheet (same as B1G1/Combo pattern)
+
   if (customizingProduct && selectedProduct) {
     return (
       <CustomizationSheet
         product={selectedProduct}
         initialVariations={customization.variations}
         initialAddons={customization.addons}
-        onSave={(v, a) => {
-          setCustomization({ variations: v, addons: a });
-          setCustomizingProduct(false);
-        }}
+        onSave={(v, a) => { setCustomization({ variations: v, addons: a }); setCustomizingProduct(false); }}
         onSkip={() => setCustomizingProduct(false)}
       />
     );
@@ -897,8 +732,6 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/55 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-[420px] bg-white rounded-t-3xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden animate-slideUp" onClick={e => e.stopPropagation()}>
-
-        {/* Header */}
         <div className="px-5 pt-4 pb-3 border-b border-gray-100 shrink-0">
           <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-3" />
           <div className="flex items-center justify-between">
@@ -908,12 +741,9 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
             </div>
             <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500">✕</button>
           </div>
-          <p className="text-xs text-[#8B6F5E] mt-1">
-            {offer.description || "Select your free birthday treat — it's on us! 🎉"}
-          </p>
+          <p className="text-xs text-[#8B6F5E] mt-1">{offer.description || "Select your free birthday treat — it's on us! 🎉"}</p>
         </div>
 
-        {/* Item list */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-10 gap-3">
@@ -927,10 +757,10 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
               const isVeg = p.isVeg === true;
               const isNonVeg = p.isVeg === false;
               const productHasCustomizable = (p.variations?.length > 0) || (p.customizations?.length > 0);
-
               return (
                 <div key={id}>
-                  <div onClick={() => handleSelect(id)}
+                  <div
+                    onClick={() => handleSelect(id)}
                     className={`flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all cursor-pointer
                       ${isSelected ? "border-pink-400 bg-pink-50 shadow-sm" : "border-gray-100 bg-white hover:border-pink-200"}`}
                   >
@@ -940,8 +770,8 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         {(isVeg || isNonVeg) && (
-                          <div className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${isVeg ? 'border-green-600' : 'border-red-600'}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full ${isVeg ? 'bg-green-600' : 'bg-red-600'}`} />
+                          <div className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${isVeg ? "border-green-600" : "border-red-600"}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${isVeg ? "bg-green-600" : "bg-red-600"}`} />
                           </div>
                         )}
                         <p className="text-sm font-semibold text-[#5C4033] truncate">{p.name}</p>
@@ -952,15 +782,15 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
                         {productHasCustomizable && <span className="text-[9px] bg-pink-100 text-pink-500 px-1.5 py-0.5 rounded">Customizable</span>}
                       </div>
                     </div>
-                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center
-                      ${isSelected ? "border-pink-400 bg-pink-400" : "border-gray-300"}`}>
+                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? "border-pink-400 bg-pink-400" : "border-gray-300"}`}>
                       {isSelected && <span className="text-white text-xs">✓</span>}
                     </div>
                   </div>
-                  {/* Customize button — shown below the selected product card */}
                   {isSelected && productHasCustomizable && (
-                    <button onClick={() => setCustomizingProduct(true)}
-                      className={`mt-2 text-xs font-semibold px-3 py-1.5 rounded-full border ${hasCustomizationSaved ? "bg-pink-50 text-pink-600 border-pink-200" : "bg-[#f7efe6] text-[#AE7A65] border-[#d4b9a7]"}`}>
+                    <button
+                      onClick={() => setCustomizingProduct(true)}
+                      className={`mt-2 text-xs font-semibold px-3 py-1.5 rounded-full border ${hasCustomizationSaved ? "bg-pink-50 text-pink-600 border-pink-200" : "bg-[#f7efe6] text-[#AE7A65] border-[#d4b9a7]"}`}
+                    >
                       {hasCustomizationSaved ? "✓ Change Customization" : "⚙ Customize (FREE)"}
                     </button>
                   )}
@@ -972,27 +802,22 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
           )}
         </div>
 
-        {/* CTA */}
         <div className="px-5 py-4 border-t border-gray-100 bg-white shrink-0">
           {selectedProducts.length > 0 && (
-            <div className="bg-pink-50 rounded-xl px-4 py-2.5 mb-3">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-[#5C4033] font-medium">
-                  {selectedProducts.length} item(s) selected
-                </span>
-
-                <span className="text-sm font-bold text-pink-500">
-                  FREE 🎂
-                </span>
-              </div>
+            <div className="bg-pink-50 rounded-xl px-4 py-2.5 mb-3 flex justify-between items-center">
+              <span className="text-sm text-[#5C4033] font-medium">{selectedProducts.length} item(s) selected</span>
+              <span className="text-sm font-bold text-pink-500">FREE 🎂</span>
             </div>
           )}
           <button
             onClick={handleAddToCart}
             disabled={selectedIds.length < minSelect}
             className={`w-full py-3.5 rounded-full font-bold text-white shadow-lg transition-all
-              ${selectedIds.length >= minSelect ? "bg-pink-500 hover:bg-pink-600" : "bg-gray-300 cursor-not-allowed"}`}>
-            {selectedIds.length >= minSelect ? "Claim Birthday Treat 🎂" : `Select Your Free Item (${minSelect - selectedIds.length} more)`}
+              ${selectedIds.length >= minSelect ? "bg-pink-500 hover:bg-pink-600" : "bg-gray-300 cursor-not-allowed"}`}
+          >
+            {selectedIds.length >= minSelect
+              ? "Claim Birthday Treat 🎂"
+              : `Select Your Free Item (${minSelect - selectedIds.length} more)`}
           </button>
         </div>
       </div>
@@ -1000,7 +825,7 @@ const BirthdayBuilderModal: React.FC<BirthdayBuilderProps> = ({
   );
 };
 
-// ─── Discount Builder Modal ──────────────────────────────────────────────────
+// ─── Discount Builder Modal ───────────────────────────────────────────────────
 interface DiscountBuilderProps {
   offer: Offer;
   productsMap: Record<string, any>;
@@ -1012,166 +837,100 @@ interface DiscountBuilderProps {
 }
 
 const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
-  offer, productsMap, productsArray, onClose, onAdded, addDiscountToCart, cart = []
+  offer, productsMap, productsArray, onClose, onAdded, addDiscountToCart, cart = [],
 }) => {
   const [selections, setSelections] = useState<string[]>([]);
-  const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
+  const [customizations, setCustomizations] = useState<
+    Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>
+  >({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
-  const resolvedOfferType = getResolvedOfferType(offer);
-  const discountCategoryName = getOfferDiscountCategoryName(offer);
-  const isCategoryDiscountMode = String(offer.config?.discount?.mode || offer.config?.discount?.type || "").toUpperCase() === "CATEGORY";
 
-  // If it's a category discount, allow selecting all applicable items. Otherwise, rely on config.
+  const discountCategoryName = getOfferDiscountCategoryName(offer);
+  const isCategoryDiscountMode =
+    String(offer.config?.discount?.mode || offer.config?.discount?.type || "").toUpperCase() === "CATEGORY";
   const isCategoryDiscount = Boolean(discountCategoryName && discountCategoryName.toLowerCase() !== "all");
   const maxSelection = isCategoryDiscount ? 999 : (offer.config?.selection?.maxSelection || 1);
 
-  // Get applicable products based on category or specific product IDs
   const applicableProducts = useMemo(() => {
     const allProducts = Object.values(productsMap);
 
-    // If it's a category discount, filter all products by that category
     if (isCategoryDiscountMode || isCategoryDiscount) {
       const offerCat = discountCategoryName.toLowerCase();
-
-      console.log("============= CATEGORY DISCOUNT DEBUG =============");
-      console.log("Offer Config:", offer);
-      console.log("Offer Category:", offerCat);
-      console.log("Cart Items Structure:", cart);
-
-      const categoryProducts = allProducts.filter((p: any) => {
+      return allProducts.filter((p: any) => {
         if (!p) return false;
         const pCat = String(p.category || "").toLowerCase().trim();
         const pSubCat = String(p.subcategory || "").toLowerCase().trim();
-
-        const isMatch = pCat === offerCat || pSubCat === offerCat;
-        if (isMatch) {
-          console.log(`✅ MATCHED Product: ${p.name} | Category: ${p.category} | Subcategory: ${p.subcategory}`);
-        } else {
-          // console.log(`❌ Skipped Product: ${p.name} | Category: ${p.category} | SubCat: ${p.subcategory}`); // Commented out to reduce noise
-        }
-        return isMatch;
+        return pCat === offerCat || pSubCat === offerCat;
       });
-      console.log("Final Eligible Products for Modal:", categoryProducts.map((p: any) => p.name));
-      console.log("===================================================");
-
-      return categoryProducts;
     }
 
-    // Otherwise, it's a product-specific discount
     const ids = getOfferDiscountProductIds(offer);
-
     return allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
   }, [offer, productsMap]);
 
-  // Discount config
   const discountType = offer.discountType || "PERCENT";
-  const discountValue = offer.config?.discount?.discountValue || offer.discountValue || offer.config?.discountValue || 0;
+  const discountValue =
+    offer.config?.discount?.discountValue || offer.discountValue || offer.config?.discountValue || 0;
 
   const handleSelect = (productId: string) => {
     if (selections.includes(productId)) {
       const idx = selections.indexOf(productId);
-      setSelections(prev => {
-        const next = [...prev];
-        next.splice(idx, 1);
-        setCustomizations(curr => {
-          const cNext = { ...curr };
-          delete cNext[idx];
-          return cNext;
-        });
-        return next;
-      });
+      setSelections(prev => { const next = [...prev]; next.splice(idx, 1); return next; });
+      setCustomizations(curr => { const c = { ...curr }; delete c[idx]; return c; });
       return;
     }
-
     if (selections.length >= maxSelection) {
-      // Replace the last selection if max reached
       if (maxSelection === 1) {
         setSelections([productId]);
         setCustomizations({});
         const product = productsMap[productId];
-        if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) {
-          setCustomizingIdx(0);
-        }
-        return;
+        if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) setCustomizingIdx(0);
       }
       return;
     }
-
     const newIdx = selections.length;
     setSelections(prev => [...prev, productId]);
-
     const product = productsMap[productId];
-    if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) {
-      setCustomizingIdx(newIdx);
-    }
+    if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) setCustomizingIdx(newIdx);
   };
 
-  // Calculate prices
   const selectedProducts = selections.map(id => productsMap[id]).filter(Boolean);
   const basePrice = selectedProducts.reduce((sum, p) => sum + (p.price || 0), 0);
   const addOnsCost = Object.entries(customizations).reduce((sum, [idx, cust]) => {
-    const productId = selections[parseInt(idx)];
-    const product = productsMap[productId];
-    if (!product) return sum;
-    return sum + calcAddOnsCost(product, cust.addons);
+    const product = productsMap[selections[parseInt(idx)]];
+    return product ? sum + calcAddOnsCost(product, cust.addons) : sum;
   }, 0);
-
   const discountAmount = Math.round((basePrice * discountValue) / 100);
-
   const finalPrice = Math.max(0, basePrice + addOnsCost - discountAmount);
 
   const handleAddToCart = () => {
-
-    // NEW USER OFFER
-    if (resolvedOfferType === "NEW_USER") {
-
-      addDiscountToCart({
-        offerId: offer.id,
-        offerType: "NEW_USER",
-        offerTitle: offer.title || "Welcome Offer",
-        discountValue
-      });
-
-      onAdded();
-      return;
-    }
-
     if (selections.length === 0) return;
-
     const items = selections.map((id, idx) => {
       const p = productsMap[id];
       if (!p) return null;
-
-      const cust =
-        customizations[idx] ||
-        { variations: {}, addons: {} };
-
-      const itemAddOnsCost =
-        calcAddOnsCost(p, cust.addons);
-
+      const cust = customizations[idx] || { variations: {}, addons: {} };
       return {
         productId: id,
         name: p.name,
         price: p.price,
         customizations: cust.variations,
         addOns: transformAddOns(p, cust.addons),
-        addOnsCost: itemAddOnsCost
+        addOnsCost: calcAddOnsCost(p, cust.addons),
       };
     }).filter(Boolean);
 
     addDiscountToCart({
       offerId: offer.id,
-      offerType: resolvedOfferType || "DISCOUNT",
+      offerType: "DISCOUNT",
       offerTitle: offer.title,
       originalPrice: basePrice,
       discountAmount,
       finalPrice,
       discountType,
       discountValue,
-      items
+      items,
     });
-
     onAdded();
   };
 
@@ -1183,10 +942,7 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
         product={product}
         initialVariations={existing.variations}
         initialAddons={existing.addons}
-        onSave={(v, a) => {
-          setCustomizations(prev => ({ ...prev, [customizingIdx]: { variations: v, addons: a } }));
-          setCustomizingIdx(null);
-        }}
+        onSave={(v, a) => { setCustomizations(prev => ({ ...prev, [customizingIdx]: { variations: v, addons: a } })); setCustomizingIdx(null); }}
         onSkip={() => setCustomizingIdx(null)}
       />
     );
@@ -1215,14 +971,12 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
               const isNonVeg = p.isVeg === false;
               const hasCustomizable = (p.variations?.length > 0) || (p.customizations?.length > 0);
               const hasAddons = Array.isArray(p.customizations) && p.customizations.length > 0;
-              const canExpand =
-                typeof p.description === "string" &&
-                p.description.trim().length > 0 &&
-                !hasAddons;
+              const canExpand = typeof p.description === "string" && p.description.trim().length > 0 && !hasAddons;
               const isExpanded = expandedItemId === id;
-
               return (
-                <div key={id} onClick={() => handleSelect(id)}
+                <div
+                  key={id}
+                  onClick={() => handleSelect(id)}
                   className={`flex flex-col p-3.5 rounded-xl border-2 transition-all cursor-pointer
                     ${isSelected ? "border-[#16a34a] bg-green-50 shadow-sm" : "border-gray-100 bg-white hover:border-[#16a34a]/30"}`}
                 >
@@ -1233,8 +987,8 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         {(isVeg || isNonVeg) && (
-                          <div className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${isVeg ? 'border-green-600' : 'border-red-600'}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full ${isVeg ? 'bg-green-600' : 'bg-red-600'}`} />
+                          <div className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${isVeg ? "border-green-600" : "border-red-600"}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${isVeg ? "bg-green-600" : "bg-red-600"}`} />
                           </div>
                         )}
                         <p className="text-sm font-semibold text-[#5C4033] truncate">{p.name}</p>
@@ -1243,25 +997,19 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
                         <p className="text-xs font-bold text-[#16a34a]">₹{p.price}</p>
                         {hasCustomizable && <span className="text-[9px] bg-[#16a34a]/10 text-[#16a34a] px-1.5 py-0.5 rounded">Customizable</span>}
                       </div>
-
                       {canExpand && (
                         <span
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedItemId(isExpanded ? null : id);
-                          }}
+                          onClick={e => { e.stopPropagation(); setExpandedItemId(isExpanded ? null : id); }}
                           className="text-[10px] text-[#AE7A65] hover:underline cursor-pointer inline-block mt-0.5"
                         >
                           {isExpanded ? "Less" : "More Details"}
                         </span>
                       )}
                     </div>
-                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center
-                      ${isSelected ? "border-[#16a34a] bg-[#16a34a]" : "border-gray-300"}`}>
+                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? "border-[#16a34a] bg-[#16a34a]" : "border-gray-300"}`}>
                       {isSelected && <span className="text-white text-xs">✓</span>}
                     </div>
                   </div>
-
                   {isExpanded && canExpand && (
                     <div className="mt-2 pt-2 border-t border-gray-100">
                       <p className="text-xs text-gray-500 whitespace-pre-wrap">{p.description}</p>
@@ -1275,14 +1023,10 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
           )}
         </div>
 
-        {/* Price breakdown + CTA */}
         <div className="px-5 py-4 border-t border-gray-100 bg-white space-y-3 shrink-0">
           {selections.length > 0 && (
             <div className="bg-[#f7efe6] rounded-xl px-4 py-3 space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="text-[#5C4033]">Item Price</span>
-                <span>₹{basePrice}</span>
-              </div>
+              <div className="flex justify-between text-sm"><span className="text-[#5C4033]">Item Price</span><span>₹{basePrice}</span></div>
               {discountAmount > 0 && (
                 <div className="flex justify-between text-sm text-green-600 font-medium">
                   <span>Discount ({discountType === "PERCENT" ? `${discountValue}%` : `₹${discountValue}`})</span>
@@ -1290,20 +1034,19 @@ const DiscountBuilderModal: React.FC<DiscountBuilderProps> = ({
                 </div>
               )}
               {addOnsCost > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#8B6F5E]">Add-ons</span>
-                  <span>+₹{addOnsCost}</span>
-                </div>
+                <div className="flex justify-between text-sm"><span className="text-[#8B6F5E]">Add-ons</span><span>+₹{addOnsCost}</span></div>
               )}
               <div className="flex justify-between text-sm font-bold border-t border-[#d4b9a7] pt-1.5">
-                <span>Total</span>
-                <span className="text-[#AE7A65]">₹{finalPrice}</span>
+                <span>Total</span><span className="text-[#AE7A65]">₹{finalPrice}</span>
               </div>
             </div>
           )}
-          <button onClick={handleAddToCart} disabled={selections.length === 0}
+          <button
+            onClick={handleAddToCart}
+            disabled={selections.length === 0}
             className={`w-full py-3.5 rounded-full font-bold text-white shadow-lg transition-all
-              ${selections.length > 0 ? "bg-[#16a34a] hover:bg-green-700" : "bg-gray-300 cursor-not-allowed"}`}>
+              ${selections.length > 0 ? "bg-[#16a34a] hover:bg-green-700" : "bg-gray-300 cursor-not-allowed"}`}
+          >
             {selections.length > 0 ? `Add to Cart • ₹${finalPrice}` : "Select an Item"}
           </button>
         </div>
@@ -1323,93 +1066,53 @@ interface B1G1BuilderProps {
 }
 
 const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
-  offer, productsMap, productsArray, onClose, onAdded, addB1G1ToCart
+  offer, productsMap, productsArray, onClose, onAdded, addB1G1ToCart,
 }) => {
-  // We allow selecting exactly 2 items.
-  // selections: Array of product IDs [id1, id2]
   const [selections, setSelections] = useState<string[]>([]);
-  // customizations: Object with random keys that index into selections
-  const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
+  const [customizations, setCustomizations] = useState<
+    Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>
+  >({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
-
-  const resolvedOfferType = getResolvedOfferType(offer);
-
-  // Track which product description is expanded
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
   const applicableProducts = useMemo(() => {
     const ids = getOfferB1G1ProductIds(offer);
-
-    const allProducts = Object.values(productsMap);
-    return allProducts.filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
+    return Object.values(productsMap).filter((p: any) => p && p.id && ids.includes(String(p.id).trim()));
   }, [offer, productsMap]);
 
   const handleSelect = (productId: string) => {
     if (selections.includes(productId)) {
-      // Allow deselecting
-      setSelections(prev => {
-        const idx = prev.indexOf(productId);
-        const next = [...prev];
-        next.splice(idx, 1);
-        // Also clear customization
-        setCustomizations(curr => {
-          const cNext = { ...curr };
-          delete cNext[idx];
-          return cNext;
-        });
-        return next;
-      });
+      setSelections(prev => { const idx = prev.indexOf(productId); const next = [...prev]; next.splice(idx, 1); return next; });
+      setCustomizations(curr => { const c = { ...curr }; delete c[selections.indexOf(productId)]; return c; });
       return;
     }
-
     if (selections.length >= 2) return;
-
     const newIdx = selections.length;
     setSelections(prev => [...prev, productId]);
-
     const product = productsMap[productId];
-    if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) {
-      setCustomizingIdx(newIdx);
-    }
+    if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) setCustomizingIdx(newIdx);
   };
 
   const handleAddToCart = () => {
     if (selections.length !== 2) return;
-
     const rawItems = selections.map((id, idx) => {
       const p = productsMap[id];
-      if (!p) return null; // Safety check
+      if (!p) return null;
       const cust = customizations[idx] || { variations: {}, addons: {} };
-      const addOnsCost = calcAddOnsCost(p, cust.addons);
       return {
         productId: id,
         name: p.name || "Item",
         price: p.price || 0,
         customizations: cust.variations,
         addOns: transformAddOns(p, cust.addons),
-        addOnsCost,
-        isFree: false // Temporarily set all to false
+        addOnsCost: calcAddOnsCost(p, cust.addons),
+        isFree: false,
       };
     }).filter(Boolean) as any[];
-
     if (rawItems.length < 2) return;
-
-    // Sort by price to find cheapest item for free flag
-    // If prices are equal, pick any (here we pick first)
     const sorted = [...rawItems].sort((a, b) => a.price - b.price);
-    const cheapestId = sorted[0].productId;
-    const cheapestIdx = rawItems.findIndex(i => i.productId === cheapestId);
-
-    // Mark only the cheapest as free (base price)
-    rawItems[cheapestIdx].isFree = true;
-
-    addB1G1ToCart({
-      offerId: offer.id,
-      offerType: resolvedOfferType || "B1G1",
-      offerTitle: offer.title || "B1G1 Deal",
-      items: rawItems
-    });
-
+    rawItems[rawItems.findIndex(i => i.productId === sorted[0].productId)].isFree = true;
+    addB1G1ToCart({ offerId: offer.id, offerType: "B1G1", offerTitle: offer.title || "B1G1 Deal", items: rawItems });
     onAdded();
   };
 
@@ -1421,10 +1124,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
         product={product}
         initialVariations={existing.variations}
         initialAddons={existing.addons}
-        onSave={(v, a) => {
-          setCustomizations(prev => ({ ...prev, [customizingIdx]: { variations: v, addons: a } }));
-          setCustomizingIdx(null);
-        }}
+        onSave={(v, a) => { setCustomizations(prev => ({ ...prev, [customizingIdx]: { variations: v, addons: a } })); setCustomizingIdx(null); }}
         onSkip={() => setCustomizingIdx(null)}
       />
     );
@@ -1447,19 +1147,15 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
             applicableProducts.map((p: any) => {
               const id = p.id;
               const isSelected = selections.includes(id);
-
               const isVeg = p.isVeg === true;
               const isNonVeg = p.isVeg === false;
-
               const hasAddons = Array.isArray(p.customizations) && p.customizations.length > 0;
-              const canExpand =
-                typeof p.description === "string" &&
-                p.description.trim().length > 0 &&
-                !hasAddons;
+              const canExpand = typeof p.description === "string" && p.description.trim().length > 0 && !hasAddons;
               const isExpanded = expandedItemId === id;
-
               return (
-                <div key={id} onClick={() => handleSelect(id)}
+                <div
+                  key={id}
+                  onClick={() => handleSelect(id)}
                   className={`flex flex-col p-3.5 rounded-xl border-2 transition-all cursor-pointer
                     ${isSelected ? "border-[#16a34a] bg-green-50 shadow-sm" : "border-gray-100 bg-white hover:border-[#16a34a]/30"}`}
                 >
@@ -1470,32 +1166,26 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         {(isVeg || isNonVeg) && (
-                          <div className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${isVeg ? 'border-green-600' : 'border-red-600'}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full ${isVeg ? 'bg-green-600' : 'bg-red-600'}`} />
+                          <div className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${isVeg ? "border-green-600" : "border-red-600"}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${isVeg ? "bg-green-600" : "bg-red-600"}`} />
                           </div>
                         )}
                         <p className="text-sm font-semibold text-[#5C4033] truncate">{p.name}</p>
                       </div>
                       <p className="text-xs font-bold text-[#16a34a]">₹{p.price}</p>
-
                       {canExpand && (
                         <span
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedItemId(isExpanded ? null : id);
-                          }}
+                          onClick={e => { e.stopPropagation(); setExpandedItemId(isExpanded ? null : id); }}
                           className="text-[10px] text-[#AE7A65] hover:underline cursor-pointer inline-block mt-0.5"
                         >
                           {isExpanded ? "Less" : "More Details"}
                         </span>
                       )}
                     </div>
-                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center
-                      ${isSelected ? "border-[#16a34a] bg-[#16a34a]" : "border-gray-300"}`}>
+                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? "border-[#16a34a] bg-[#16a34a]" : "border-gray-300"}`}>
                       {isSelected && <span className="text-white text-xs">✓</span>}
                     </div>
                   </div>
-
                   {isExpanded && canExpand && (
                     <div className="mt-2 pt-2 border-t border-gray-100">
                       <p className="text-xs text-gray-500 whitespace-pre-wrap">{p.description}</p>
@@ -1524,7 +1214,7 @@ const B1G1BuilderModal: React.FC<B1G1BuilderProps> = ({
   );
 };
 
-// ─── Combo Builder Modal ───────────────────────────────────────────────────────
+// ─── Combo Builder Modal ──────────────────────────────────────────────────────
 interface ComboBuilderProps {
   offer: any;
   comboGroups: ComboGroup[];
@@ -1537,13 +1227,13 @@ interface ComboBuilderProps {
 }
 
 const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
-  offer, comboGroups, comboPrice, productsMap, productsArray, onClose, onAdded, addComboToCart
+  offer, comboGroups, comboPrice, productsMap, productsArray, onClose, onAdded, addComboToCart,
 }) => {
   const [selections, setSelections] = useState<Record<number, string>>({});
-  const [customizations, setCustomizations] = useState<Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>>({});
+  const [customizations, setCustomizations] = useState<
+    Record<number, { variations: Record<number, string>; addons: Record<number, string[]> }>
+  >({});
   const [customizingIdx, setCustomizingIdx] = useState<number | null>(null);
-
-  // Track which product description is expanded
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
   const totalGroups = comboGroups.length;
@@ -1553,17 +1243,14 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
   const hasUnavailable = comboGroups.some(group => {
     if (!group || !Array.isArray(group.items)) return true;
     const groupProductIds = group.items.map((item: any) => String(item?.productId || "").trim());
-    const validProducts = productsArray.filter((product: any) => product && product.id && groupProductIds.includes(String(product.id).trim()));
-    return validProducts.length === 0;
+    return productsArray.filter((p: any) => p && p.id && groupProductIds.includes(String(p.id).trim())).length === 0;
   });
 
   const addOnsTotal = useMemo(() => {
     let total = 0;
     Object.entries(customizations).forEach(([idx, cust]) => {
-      const productId = selections[parseInt(idx)];
-      const product = productsMap[productId];
-      if (!product) return;
-      total += calcAddOnsCost(product, cust.addons);
+      const product = productsMap[selections[parseInt(idx)]];
+      if (product) total += calcAddOnsCost(product, cust.addons);
     });
     return total;
   }, [customizations, selections, productsMap]);
@@ -1572,70 +1259,42 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
 
   const handleSelect = (groupIndex: number, productId: string) => {
     setSelections(prev => ({ ...prev, [groupIndex]: productId }));
-
-    // Clear previous customization for this group
-    setCustomizations(prev => {
-      const next = { ...prev };
-      delete next[groupIndex];
-      return next;
-    });
-
+    setCustomizations(prev => { const next = { ...prev }; delete next[groupIndex]; return next; });
     const product = productsMap[productId];
-    if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) {
-      setCustomizingIdx(groupIndex);
-    }
-  };
-
-  const handleSaveCustomization = (gIdx: number, v: Record<number, string>, a: Record<number, string[]>) => {
-    setCustomizations(prev => ({ ...prev, [gIdx]: { variations: v, addons: a } }));
-    setCustomizingIdx(null);
+    if (product && ((product.variations?.length > 0) || (product.customizations?.length > 0))) setCustomizingIdx(groupIndex);
   };
 
   const handleAddToCart = () => {
     if (!allSelected) return;
-
     const items = Object.entries(selections).map(([gIdxStr, productId]) => {
       const gIdx = parseInt(gIdxStr);
       const product = productsMap[productId];
-      const cust = customizations[gIdx] || { variations: {}, addons: {} };
-      const group = comboGroups[gIdx];
-
       if (!product) return null;
-
+      const cust = customizations[gIdx] || { variations: {}, addons: {} };
       return {
         productId,
         name: product.name || "Item",
-        groupName: group?.groupName || `Group ${gIdx + 1}`,
+        groupName: comboGroups[gIdx]?.groupName || `Group ${gIdx + 1}`,
         price: product.price || 0,
         customizations: cust.variations,
         addOns: transformAddOns(product, cust.addons),
-        addOnsCost: calcAddOnsCost(product, cust.addons)
+        addOnsCost: calcAddOnsCost(product, cust.addons),
       };
     }).filter(Boolean);
-
     if (items.length !== totalGroups) return;
-
-    addComboToCart({
-      offerId: offer.id,
-      comboPrice,
-      offerTitle: offer.title,
-      items
-    });
-
+    addComboToCart({ offerId: offer.id, comboPrice, offerTitle: offer.title, items });
     onAdded();
   };
 
   if (customizingIdx !== null) {
-    const productId = selections[customizingIdx];
-    const product = productsMap[productId];
+    const product = productsMap[selections[customizingIdx]];
     const existing = customizations[customizingIdx] || { variations: {}, addons: {} };
-
     return (
       <CustomizationSheet
         product={product}
         initialVariations={existing.variations}
         initialAddons={existing.addons}
-        onSave={(v, a) => handleSaveCustomization(customizingIdx!, v, a)}
+        onSave={(v, a) => { setCustomizations(prev => ({ ...prev, [customizingIdx!]: { variations: v, addons: a } })); setCustomizingIdx(null); }}
         onSkip={() => setCustomizingIdx(null)}
       />
     );
@@ -1653,24 +1312,22 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
           <p className="text-xs text-[#8B6F5E] mt-0.5">Select one item from each group</p>
         </div>
 
-        {/* Missing Config Fallback */}
         {comboGroups.length === 0 && (
           <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-4">
             <span className="text-4xl">⚠️</span>
-            <p className="text-center text-sm font-semibold text-red-600">
-              Database Configuration Missing!
-            </p>
+            <p className="text-center text-sm font-semibold text-red-600">Database Configuration Missing!</p>
             <p className="text-center text-xs text-gray-500">
               This offer does not have a valid <code className="bg-gray-100 px-1 rounded">config.combo</code> array defined in Firestore.
             </p>
           </div>
         )}
 
-        {/* Regular Mapping Loop */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
           {comboGroups.map((group, gIdx) => {
             const selectedProductId = selections[gIdx];
             const hasCust = !!(customizations[gIdx]);
+            const groupProductIds = group.items.map((item: any) => String(item.productId || "").trim());
+            const groupProducts = productsArray.filter((p: any) => p && p.id && groupProductIds.includes(String(p.id).trim()));
 
             return (
               <div key={gIdx}>
@@ -1679,88 +1336,72 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
                   <h4 className="text-sm font-bold text-[#5C4033]">{group.groupName}</h4>
                   <span className="ml-auto text-[10px] text-[#16a34a] bg-green-50 px-2 py-0.5 rounded-full">Pick 1</span>
                 </div>
-
                 <div className="space-y-2">
-                  {(() => {
-                    const groupProductIds = group.items.map((item: any) => String(item.productId || "").trim());
-                    const groupProducts = productsArray.filter((product: any) => groupProductIds.includes(String(product.id).trim()));
-
-                    if (groupProducts.length === 0) {
-                      return <p className="text-center text-xs text-red-500 py-3">Items unavailable</p>;
-                    }
-
-                    return groupProducts.map((product: any) => {
-                      const isSelected = selectedProductId === product.id;
-                      const hasCustomizable = (product.variations?.length > 0) || (product.customizations?.length > 0);
-                      const hasAddons = Array.isArray(product.customizations) && product.customizations.length > 0;
-                      const canExpand =
-                        typeof product.description === "string" &&
-                        product.description.trim().length > 0 &&
-                        !hasAddons;
-                      const isExpanded = expandedItemId === product.id;
-                      const isVeg = product.isVeg === true;
-                      const isNonVeg = product.isVeg === false;
-
-                      return (
-                        <div key={product.id} onClick={() => handleSelect(gIdx, product.id)}
-                          className={`flex flex-col p-3.5 rounded-xl border-2 transition-all cursor-pointer
-                            ${isSelected ? "border-[#16a34a] bg-green-50 shadow-sm" : "border-gray-100 bg-white hover:border-[#16a34a]/30"}`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-14 h-14 rounded-xl bg-[#f0e6da] overflow-hidden shrink-0">
-                              {product.image && <img src={product.image} className="w-full h-full object-cover" />}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 mb-0.5">
-                                {(isVeg || isNonVeg) && (
-                                  <div className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${isVeg ? 'border-green-600' : 'border-red-600'}`}>
-                                    <div className={`w-1.5 h-1.5 rounded-full ${isVeg ? 'bg-green-600' : 'bg-red-600'}`} />
-                                  </div>
-                                )}
-                                <p className="text-sm font-semibold text-[#5C4033] truncate">
-                                  {product.name}
-                                </p>
-                              </div>
-                              <div className="flex items-center flex-wrap gap-2">
-                                <p className="text-[10px] text-gray-400">₹{product.price} (ref)</p>
-                                {hasCustomizable && <span className="text-[9px] bg-[#16a34a]/10 text-[#16a34a] px-1.5 py-0.5 rounded">Customizable</span>}
-                              </div>
-
-                              {canExpand && (
-                                <span
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setExpandedItemId(isExpanded ? null : product.id);
-                                  }}
-                                  className="text-[10px] text-[#AE7A65] hover:underline cursor-pointer inline-block mt-0.5"
-                                >
-                                  {isExpanded ? "Less" : "More Details"}
-                                </span>
-                              )}
-                            </div>
-                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center
-                              ${isSelected ? "border-[#16a34a] bg-[#16a34a]" : "border-gray-300"}`}>
-                              {isSelected && <span className="text-white text-[10px]">✓</span>}
-                            </div>
+                  {groupProducts.length === 0 ? (
+                    <p className="text-center text-xs text-red-500 py-3">Items unavailable</p>
+                  ) : groupProducts.map((product: any) => {
+                    const isSelected = selectedProductId === product.id;
+                    const hasCustomizable = (product.variations?.length > 0) || (product.customizations?.length > 0);
+                    const hasAddons = Array.isArray(product.customizations) && product.customizations.length > 0;
+                    const canExpand = typeof product.description === "string" && product.description.trim().length > 0 && !hasAddons;
+                    const isExpanded = expandedItemId === product.id;
+                    const isVeg = product.isVeg === true;
+                    const isNonVeg = product.isVeg === false;
+                    return (
+                      <div
+                        key={product.id}
+                        onClick={() => handleSelect(gIdx, product.id)}
+                        className={`flex flex-col p-3.5 rounded-xl border-2 transition-all cursor-pointer
+                          ${isSelected ? "border-[#16a34a] bg-green-50 shadow-sm" : "border-gray-100 bg-white hover:border-[#16a34a]/30"}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-xl bg-[#f0e6da] overflow-hidden shrink-0">
+                            {product.image && <img src={product.image} className="w-full h-full object-cover" />}
                           </div>
-
-                          {isExpanded && canExpand && (
-                            <div className="mt-2 pt-2 border-t border-gray-100">
-                              <p className="text-xs text-gray-500 whitespace-pre-wrap">{product.description}</p>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              {(isVeg || isNonVeg) && (
+                                <div className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${isVeg ? "border-green-600" : "border-red-600"}`}>
+                                  <div className={`w-1.5 h-1.5 rounded-full ${isVeg ? "bg-green-600" : "bg-red-600"}`} />
+                                </div>
+                              )}
+                              <p className="text-sm font-semibold text-[#5C4033] truncate">{product.name}</p>
                             </div>
-                          )}
+                            <div className="flex items-center flex-wrap gap-2">
+                              <p className="text-[10px] text-gray-400">₹{product.price} (ref)</p>
+                              {hasCustomizable && <span className="text-[9px] bg-[#16a34a]/10 text-[#16a34a] px-1.5 py-0.5 rounded">Customizable</span>}
+                            </div>
+                            {canExpand && (
+                              <span
+                                onClick={e => { e.stopPropagation(); setExpandedItemId(isExpanded ? null : product.id); }}
+                                className="text-[10px] text-[#AE7A65] hover:underline cursor-pointer inline-block mt-0.5"
+                              >
+                                {isExpanded ? "Less" : "More Details"}
+                              </span>
+                            )}
+                          </div>
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? "border-[#16a34a] bg-[#16a34a]" : "border-gray-300"}`}>
+                            {isSelected && <span className="text-white text-[10px]">✓</span>}
+                          </div>
                         </div>
-                      );
-                    });
-                  })()}
+                        {isExpanded && canExpand && (
+                          <div className="mt-2 pt-2 border-t border-gray-100">
+                            <p className="text-xs text-gray-500 whitespace-pre-wrap">{product.description}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-
-                {selectedProductId && productsMap[selectedProductId] && ((productsMap[selectedProductId].variations?.length > 0) || (productsMap[selectedProductId].customizations?.length > 0)) && (
-                  <button onClick={() => setCustomizingIdx(gIdx)}
-                    className={`mt-2 text-xs font-semibold px-3 py-1.5 rounded-full border ${hasCust ? "bg-green-50 text-green-700 border-green-200" : "bg-[#f7efe6] text-[#AE7A65] border-[#d4b9a7]"}`}>
-                    {hasCust ? "✓ Change Customization" : "⚙ Customize"}
-                  </button>
-                )}
+                {selectedProductId && productsMap[selectedProductId] &&
+                  ((productsMap[selectedProductId].variations?.length > 0) || (productsMap[selectedProductId].customizations?.length > 0)) && (
+                    <button
+                      onClick={() => setCustomizingIdx(gIdx)}
+                      className={`mt-2 text-xs font-semibold px-3 py-1.5 rounded-full border ${hasCust ? "bg-green-50 text-green-700 border-green-200" : "bg-[#f7efe6] text-[#AE7A65] border-[#d4b9a7]"}`}
+                    >
+                      {hasCust ? "✓ Change Customization" : "⚙ Customize"}
+                    </button>
+                  )}
               </div>
             );
           })}
@@ -1772,9 +1413,12 @@ const ComboBuilderModal: React.FC<ComboBuilderProps> = ({
             {addOnsTotal > 0 && <div className="flex justify-between text-sm"><span className="text-[#8B6F5E]">Add-ons</span><span>+ ₹{addOnsTotal}</span></div>}
             <div className="flex justify-between text-sm font-bold border-t border-[#d4b9a7] pt-1.5"><span>Total</span><span className="text-[#AE7A65]">₹{grandTotal}</span></div>
           </div>
-          <button onClick={handleAddToCart} disabled={!allSelected || hasUnavailable}
+          <button
+            onClick={handleAddToCart}
+            disabled={!allSelected || hasUnavailable}
             className={`w-full py-3.5 rounded-full font-bold text-white shadow-lg transition-all
-              ${allSelected && !hasUnavailable ? "bg-green-600 hover:bg-green-700" : "bg-gray-300 cursor-not-allowed"}`}>
+              ${allSelected && !hasUnavailable ? "bg-green-600 hover:bg-green-700" : "bg-gray-300 cursor-not-allowed"}`}
+          >
             {allSelected ? `Add to Cart • ₹${grandTotal}` : `Select All Items (${selectedCount}/${totalGroups})`}
           </button>
         </div>
@@ -1793,7 +1437,7 @@ interface CustSheetProps {
 }
 
 const CustomizationSheet: React.FC<CustSheetProps> = ({
-  product, initialVariations, initialAddons, onSave, onSkip
+  product, initialVariations, initialAddons, onSave, onSkip,
 }) => {
   const [variations, setVariations] = useState<Record<number, string>>(() => {
     if (Object.keys(initialVariations).length > 0) return initialVariations;
@@ -1815,22 +1459,36 @@ const CustomizationSheet: React.FC<CustSheetProps> = ({
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {(product?.variations || []).map((group: any, i: number) => (
-            <Variations key={i} group={group} selected={variations[i]} setSelected={(v: string) => setVariations(prev => ({ ...prev, [i]: v }))} />
+            <Variations
+              key={i}
+              group={group}
+              selected={variations[i]}
+              setSelected={(v: string) => setVariations(prev => ({ ...prev, [i]: v }))}
+            />
           ))}
           {(product?.customizations || []).length > 0 && (
             <div className="mt-4">
               <p className="text-xs text-[#8B6F5E] font-semibold uppercase mb-2">Add-ons (paid)</p>
               {product.customizations.map((group: any, i: number) => {
                 const AnyAddOn = AddOnGroup as any;
-                return <AnyAddOn key={i} group={group} selected={addons[i] ?? []} setSelected={(v: any) => setAddons((prev: any) => ({ ...prev, [i]: v }))} />;
+                return (
+                  <AnyAddOn
+                    key={i}
+                    group={group}
+                    selected={addons[i] ?? []}
+                    setSelected={(v: any) => setAddons((prev: any) => ({ ...prev, [i]: v }))}
+                  />
+                );
               })}
             </div>
           )}
         </div>
         <div className="px-5 py-4 border-t border-gray-100 flex gap-3 bg-white shrink-0">
           <button onClick={onSkip} className="flex-1 py-3 bg-gray-100 text-gray-600 font-semibold rounded-full">Skip</button>
-          <button onClick={() => onSave(variations, addons)}
-            className="flex-1 py-3 bg-[#AE7A65] text-white font-semibold rounded-full shadow-md">
+          <button
+            onClick={() => onSave(variations, addons)}
+            className="flex-1 py-3 bg-[#AE7A65] text-white font-semibold rounded-full shadow-md"
+          >
             Save {addOnsCost > 0 ? `• +₹${addOnsCost}` : "✓"}
           </button>
         </div>

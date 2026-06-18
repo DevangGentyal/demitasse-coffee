@@ -128,12 +128,12 @@ export default function EditOfferPage() {
             autoApply: offer.autoApply ?? false,
             isStackable: offer.isStackable ?? false,
             birthdayFreeItemCount:
-              offer.config?.freeItems?.maxSelect
-                ? String(offer.config.freeItems.maxSelect)
+              offer.config?.freeItem?.maxSelect
+                ? String(offer.config.freeItem.maxSelect)
                 : '1',
 
             birthdayProductIds:
-              offer.config?.freeItems?.productIds || [],
+              offer.config?.freeItem?.productIds || [],
 
             newUserDiscountValue:
               offer.config?.discount?.discountValue
@@ -252,9 +252,33 @@ export default function EditOfferPage() {
           }
         }
         if (formData.comboPrice === '' || Number(formData.comboPrice) < 0) {
-          setError("Combo Price is required and must be >= 0")
-          return
-        }
+              setError("Combo Price is required and must be >= 0")
+              return
+            }
+
+            const minimumPossiblePrice = formData.comboGroups.reduce(
+              (total, group) => {
+                const cheapestPrice = Math.min(
+                  ...group.items.map(item => {
+                    const product = products.find(
+                      p => p.id === item.productId
+                    )
+
+                    return Number(product?.price ?? 0)
+                  })
+                )
+
+                return total + cheapestPrice
+              },
+              0
+            )
+
+            if (Number(formData.comboPrice) >= minimumPossiblePrice) {
+              setError(
+                `Combo Price must be less than ₹${minimumPossiblePrice} (the cheapest possible combo value)`
+              )
+              return
+}
       }
       else if (formData.type === 'BIRTHDAY') {
         const count = Number(formData.birthdayFreeItemCount)
@@ -330,7 +354,10 @@ export default function EditOfferPage() {
           productIds: formData.comboGroups.flatMap(g =>
             g.items.map(i => i.productId)
           ),
-          groups: formData.comboGroups,
+          groups: formData.comboGroups.map((g, idx) => ({
+            ...g,
+            groupName: g.groupName?.trim() || `Group ${idx + 1}`
+          })),
           comboPrice: Number(formData.comboPrice) || 0,
         }
       }
@@ -395,7 +422,7 @@ export default function EditOfferPage() {
       }
 
       await updateOffer(offerId, outletId, payload)
-      router.push('/offers')
+      router.push(`/offers?outletId=${outletId}`)
 
     } catch (e: any) {
       setError(e.message)
@@ -475,6 +502,14 @@ export default function EditOfferPage() {
     const group = newGroups[groupIndex]
     if (!group) return
     group.items = group.items.filter(item => item.productId !== productId)
+    handleChange('comboGroups', newGroups)
+  }
+
+  const updateComboGroupName = (groupIndex: number, name: string) => {
+    const newGroups = [...formData.comboGroups]
+    const group = newGroups[groupIndex]
+    if (!group) return
+    group.groupName = name
     handleChange('comboGroups', newGroups)
   }
 
@@ -855,7 +890,11 @@ export default function EditOfferPage() {
                         </div>
                         <div>
                           <Label className="text-xs text-gray-500 mb-1 block">Group name</Label>
-                          <Input value={group.groupName} readOnly />
+                          <Input
+                            value={group.groupName}
+                            onChange={e => updateComboGroupName(gIdx, e.target.value)}
+                            placeholder={`Group ${gIdx + 1}`}
+                          />
                         </div>
                         <div />
                       </div>

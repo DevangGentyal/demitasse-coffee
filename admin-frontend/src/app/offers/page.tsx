@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { Button } from '@/components/ui/button'
 import { Edit2, Trash2 } from 'lucide-react'
-
+import { useSearchParams } from 'next/navigation'
 import {
   getOffersByOutletId,
   updateOffer,
@@ -41,7 +41,7 @@ export default function OffersPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedOutletId, setSelectedOutletId] = useState<string>('')
   const [outlets, setOutlets] = useState<AdminOutlet[]>([])
-
+  const searchParams = useSearchParams()
   // FETCH DATA
   useEffect(() => {
     if (isLoading) return
@@ -57,7 +57,14 @@ export default function OffersPage() {
 
         setOutlets(allOutlets)
 
-        if (allOutlets.length > 0) {
+        const outletIdFromUrl = searchParams.get('outletId')
+
+        if (
+          outletIdFromUrl &&
+          allOutlets.some(o => o.id === outletIdFromUrl)
+        ) {
+          setSelectedOutletId(outletIdFromUrl)
+        } else if (allOutlets.length > 0) {
           setSelectedOutletId(allOutlets[0].id)
         }
       } catch (e: any) {
@@ -207,14 +214,20 @@ export default function OffersPage() {
   }
 
   const formatOfferDate = (value: unknown): string => {
-    if (!value) return '-'
+  if (!value) return '-'
 
-    const parsed = new Date(String(value))
+  const millis = toMillis(value)
 
-    if (Number.isNaN(parsed.getTime())) {
-      return '-'
-    }
+  if (millis) {
+    return new Date(millis).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    })
   }
+
+  return String(value)
+}
 
   return (
     <div className="flex h-screen">
@@ -245,9 +258,11 @@ export default function OffersPage() {
           <select
             className="border rounded px-3 py-2 w-full max-w-md"
             value={selectedOutletId}
-            onChange={(e) =>
-              setSelectedOutletId(e.target.value)
-            }
+            onChange={(e) => {
+            const outletId = e.target.value
+            setSelectedOutletId(outletId)
+            router.replace(`/offers?outletId=${outletId}`)
+          }}
           >
             {outlets.map((outlet) => (
               <option
@@ -289,10 +304,16 @@ export default function OffersPage() {
               </div>
 
               <div className="p-2 text-sm">
-                {formatOfferDate(o.startDate)}
-                <br />
-                {formatOfferDate(o.endDate)}
-              </div>
+                <div>
+                  <span className="font-medium">Start:</span>{' '}
+                  {formatOfferDate(o.startDate)}
+                </div>
+
+                <div>
+                  <span className="font-medium">End:</span>{' '}
+                  {formatOfferDate(o.endDate)}
+                </div>
+            </div>
 
               <div className="p-2">
                 <input
