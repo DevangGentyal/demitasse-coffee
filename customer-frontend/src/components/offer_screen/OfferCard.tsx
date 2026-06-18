@@ -264,9 +264,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const isFirstOrder = offer.userRules?.firstOrderOnly;
 
   const isNewUserOffer =
-    resolvedOfferType === "NEW_USER" ||
-    offer.userRules?.firstOrderOnly === true;
-
+    resolvedOfferType === "NEW_USER"
   // ─── Interactive Discount detection ──────────────────────────────────────────
   const rawProductIds = getOfferDiscountProductIds(offer);
   const isProductOffer = rawProductIds.length > 0;
@@ -382,27 +380,27 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
       return;
     }
 
-    if (isInteractiveDiscount) {
-      const cartTotal = cart.reduce(
-        (sum: any, item: any) => sum + (item.totalPrice || item.price || 0),
-        0
-      );
+    // if (isInteractiveDiscount) {
+    //   const cartTotal = cart.reduce(
+    //     (sum: any, item: any) => sum + (item.totalPrice || item.price || 0),
+    //     0
+    //   );
 
-      if (cart.length === 0) {
-        setApplyError("Add at least 1 item first");
-        return;
-      }
+    //   if (cart.length === 0) {
+    //     setApplyError("Add at least 1 item first");
+    //     return;
+    //   }
 
-      if (cartTotal < (offer.minOrderValue || 0)) {
-        setApplyError(
-          `Minimum order value ₹${offer.minOrderValue} required`
-        );
-        return;
-      }
+    //   if (cartTotal < (offer.minOrderValue || 0)) {
+    //     setApplyError(
+    //       `Minimum order value ₹${offer.minOrderValue} required`
+    //     );
+    //     return;
+    //   }
 
-      setShowDiscountModal(true);
-      return;
-    }
+    //   setShowDiscountModal(true);
+    //   return;
+    // }
 
     if (isBirthdayOffer) {
       if (!fullUser?.dob || !isBirthday(fullUser.dob)) {

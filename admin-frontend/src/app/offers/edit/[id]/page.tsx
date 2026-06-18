@@ -354,7 +354,10 @@ export default function EditOfferPage() {
           productIds: formData.comboGroups.flatMap(g =>
             g.items.map(i => i.productId)
           ),
-          groups: formData.comboGroups,
+          groups: formData.comboGroups.map((g, idx) => ({
+            ...g,
+            groupName: g.groupName?.trim() || `Group ${idx + 1}`
+          })),
           comboPrice: Number(formData.comboPrice) || 0,
         }
       }
@@ -499,6 +502,14 @@ export default function EditOfferPage() {
     const group = newGroups[groupIndex]
     if (!group) return
     group.items = group.items.filter(item => item.productId !== productId)
+    handleChange('comboGroups', newGroups)
+  }
+
+  const updateComboGroupName = (groupIndex: number, name: string) => {
+    const newGroups = [...formData.comboGroups]
+    const group = newGroups[groupIndex]
+    if (!group) return
+    group.groupName = name
     handleChange('comboGroups', newGroups)
   }
 
@@ -879,7 +890,11 @@ export default function EditOfferPage() {
                         </div>
                         <div>
                           <Label className="text-xs text-gray-500 mb-1 block">Group name</Label>
-                          <Input value={group.groupName} readOnly />
+                          <Input
+                            value={group.groupName}
+                            onChange={e => updateComboGroupName(gIdx, e.target.value)}
+                            placeholder={`Group ${gIdx + 1}`}
+                          />
                         </div>
                         <div />
                       </div>
