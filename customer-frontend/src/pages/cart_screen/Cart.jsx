@@ -729,10 +729,10 @@ const Cart = () => {
                 </div>
               )}
 
-            <div className="flex justify-between text-sm text-gray-600 mt-1 font-medium">
+            {/* <div className="flex justify-between text-sm text-gray-600 mt-1 font-medium">
               <span>Net Before Tax</span>
               <span>₹{grandTotal}</span>
-            </div>
+            </div> */}
 
             <div className="flex justify-between text-sm text-gray-600 mt-1 font-medium">
               <span>Tax (5% GST)</span>

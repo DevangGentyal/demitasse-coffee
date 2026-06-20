@@ -12,16 +12,17 @@ import { Lock, KeyRound, MapPin, Mail, Phone, Calendar, Eye, EyeOff } from 'luci
 
 type OpeningHour = { day: string; open: string; close: string }
 
-const WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 export default function RegisterPage() {
   const [step, setStep] = useState(1) // 1: Registration Password, 2: Outlet Details
   const [regPassword, setRegPassword] = useState('')
   const [showRegPassword, setShowRegPassword] = useState(false)
-  
+
   const [outletName, setOutletName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [location, setLocation] = useState('')
+  const [address, setAddress] = useState('')
   const [radius, setRadius] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -63,7 +64,7 @@ export default function RegisterPage() {
     }
   }
 
-  const handleOpeningHourChange = (index:number, field: 'open'|'close', value:string) => {
+  const handleOpeningHourChange = (index: number, field: 'open' | 'close', value: string) => {
     setOpeningHours(prev => {
       const copy = [...prev]
       copy[index] = { ...copy[index], [field]: value }
@@ -95,7 +96,7 @@ export default function RegisterPage() {
     setError('')
     setIsLoading(true)
 
-    if (!outletName || !ownerName || !location || !email || !phone || !password || !confirmPassword || !radius) {
+    if (!outletName || !ownerName || !location || !address || !email || !phone || !password || !confirmPassword || !radius) {
       setError('Please fill in all required fields')
       setIsLoading(false)
       return
@@ -117,6 +118,7 @@ export default function RegisterPage() {
         name: outletName,
         ownerName,
         location,
+        address,
         email,
         phone,
         radius: Number(radius) || 0,
@@ -128,7 +130,7 @@ export default function RegisterPage() {
     } catch (err: any) {
       console.error('Registration failed:', err)
       const msg = err?.message || 'Registration failed'
-      
+
       // If auth user was created but DB registration failed, attempt cleanup
       if (userCred && userCred.user) {
         try {
@@ -157,10 +159,10 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
       <Card className="w-full max-w-lg shadow-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden">
-        
+
         {/* Banner header */}
         <div className="bg-gradient-to-r from-amber-700 to-amber-900 px-8 py-6 text-white text-center">
-          <h1 className="text-3xl font-extrabold tracking-tight">Demitasse Coffee</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight">Cafe Project</h1>
           <p className="text-amber-100/80 text-sm mt-1">Outlet Gatekeeper & Enrollment</p>
         </div>
 
@@ -214,7 +216,7 @@ export default function RegisterPage() {
                 Verify & Proceed
               </Button>
 
-      
+
               <div className="text-center text-sm text-slate-500 dark:text-slate-400">
                 Already have an account? <a className="text-amber-700 hover:text-amber-800 underline font-medium" href="/login">Login</a>
               </div>
@@ -243,13 +245,13 @@ export default function RegisterPage() {
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Location (Latitude, Longitude)</label>
                   <div className="flex gap-2">
-                    <Input 
-                      value={location} 
-                      onChange={e => setLocation(e.target.value)} 
-                      placeholder="Latitude, Longitude (e.g. 12.9716, 77.5946)" 
-                      className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white flex-1" 
+                    <Input
+                      value={location}
+                      onChange={e => setLocation(e.target.value)}
+                      placeholder="Latitude, Longitude (e.g. 12.9716, 77.5946)"
+                      className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white flex-1"
                     />
-                    <Button 
+                    <Button
                       type="button"
                       onClick={handleGetCurrentLocation}
                       className="bg-amber-700 hover:bg-amber-800 text-white font-medium text-xs px-3 h-10 rounded-lg shrink-0"
@@ -260,13 +262,18 @@ export default function RegisterPage() {
                 </div>
 
                 <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Address</label>
+                  <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="e.g. 123 Main St, Bangalore" className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                </div>
+
+                <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-1">Geofence Radius (meters)</label>
-                  <Input 
-                    type="number" 
-                    value={radius} 
-                    onChange={e => setRadius(e.target.value)} 
-                    placeholder="e.g. 50" 
-                    className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" 
+                  <Input
+                    type="number"
+                    value={radius}
+                    onChange={e => setRadius(e.target.value)}
+                    placeholder="e.g. 50"
+                    className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 

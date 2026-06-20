@@ -253,12 +253,12 @@ function OrderCard({ order }) {
           <span>Item Total</span>
           <span className="font-semibold text-[#0F172A]">{currency.format(itemOriginalTotalSum)}</span>
         </div>
-        {totalSaved > 0 && (
+        {/* {totalSaved > 0 && (
           <div className="flex justify-between items-center text-sm text-[#64748B]">
             <span>Offer Discount</span>
             <span className="font-semibold text-[#16A34A]">- {currency.format(totalSaved)}</span>
           </div>
-        )}
+        )} */}
         <div className="h-px bg-[#E2E8F0] my-2" />
         <div className="flex justify-between items-center">
           <span className="text-sm font-bold text-[#0F172A]">Order Total</span>
@@ -700,7 +700,7 @@ const Orders = () => {
             if (!active) return;
             const queryTime = (performance.now() - startTime).toFixed(2);
             console.log(`[Orders Debug] Firestore onSnapshot fired. Count: ${snapshot.size}, Timing: ${queryTime}ms`);
-            
+
             const orders = [];
             snapshot.forEach((docSnap) => {
               const data = docSnap.data();
@@ -715,7 +715,7 @@ const Orders = () => {
           (err) => {
             console.error("[Orders Debug] Firestore onSnapshot error, attempting API fallback:", err);
             if (!active) return;
-            
+
             // Fallback immediately to API polling if onSnapshot fails (e.g. Permission Denied)
             fetchOrdersFallback("onSnapshot error fallback");
             intervalId = setInterval(() => fetchOrdersFallback("onSnapshot error poll"), 5000);

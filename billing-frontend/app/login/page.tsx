@@ -115,8 +115,8 @@ export default function LoginPage() {
         <Card className="w-full max-w-md shadow-lg">
           <div className="p-8">
             <div className="mb-8 text-center">
-              <h1 className="text-4xl font-bold text-foreground">Demitasse</h1>
-              <p className="text-muted-foreground mt-2">Cafe Billing Portal</p>
+              <h1 className="text-4xl font-bold text-foreground">Cafe Project</h1>
+              <p className="text-muted-foreground mt-2">Billing Portal</p>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-4">

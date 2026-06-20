@@ -28,7 +28,7 @@ export default function DetailsPage() {
         let outletId = "";
 
         const profile = await getCurrentUserProfile();
-        outletId = String(profile?.outletID || profile?.outletId || "");
+        outletId = String(profile?.outletId);
 
         if (!outletId) {
           try {
@@ -45,6 +45,7 @@ export default function DetailsPage() {
         }
 
         const data = await getOutletDetailsById(outletId);
+        console.log(data);
         if (data) {
           setOutlet(data);
         } else {

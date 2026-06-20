@@ -178,6 +178,6 @@ export const verifySecurityPassword = async (name: string, password: string): Pr
 }
 
 export const getOutletDetailsById = async (outletId: string): Promise<any> => {
-  const items = await readResource<any>('outletById', { outletId })
+  const items = await readResource<any>('outletDetails', { outletId })
   return items[0] || null
 }

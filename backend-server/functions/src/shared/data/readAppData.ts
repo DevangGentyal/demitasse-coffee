@@ -61,7 +61,7 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			if (!outletId) throw new Error('outletId is required')
 			let snap = await db.collection('outlets').doc(outletId).collection('outletDetails').limit(1).get()
 			if (snap.empty) {
-				snap = await db.collection('outlets').doc(outletId).collection('outlateDetails').limit(1).get()
+				snap = await db.collection('outlets').doc(outletId).collection('outletDetails').limit(1).get()
 			}
 			return snap.empty ? [] : [{ id: snap.docs[0].id, ...snap.docs[0].data() }]
 		}
@@ -318,7 +318,7 @@ export const readAppData = functions.https.onRequest(async (req: Request, res: R
 			return
 		}
 
-		const publicResources = ['outlets', 'outletById', 'tables', 'tableById', 'products', 'productById', 'offers', 'offerById', 'sessionOrders', 'checkGoogleUser']
+		const publicResources = ['outlets', 'outletById', 'outletDetailsById', 'tables', 'tableById', 'products', 'productById', 'offers', 'offerById', 'sessionOrders', 'checkGoogleUser']
 		const isPublic = publicResources.includes(resource)
 
 		let decoded: admin.auth.DecodedIdToken | null = null
