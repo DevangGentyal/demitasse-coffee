@@ -30,9 +30,18 @@ export interface TablePosition {
   x: number
   y: number
 }
+interface LabelBox {
+  id: string
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  color?: string
+}
 
 export const floorMapService = {
-  async saveFloorMap(outletId: string, walls: Wall[], tablePositions: TablePosition[]) {
+  async saveFloorMap(outletId: string, walls: Wall[], tablePositions: TablePosition[], labelBoxes: LabelBox[]) {
     const idToken = await getIdToken()
     const response = await fetch(buildCloudFunctionsUrl('billingFloorMapSave'), {
       method: 'POST',
@@ -40,7 +49,7 @@ export const floorMapService = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ outletId, walls, tablePositions }),
+      body: JSON.stringify({ outletId, walls, tablePositions, labelBoxes }),
     })
     if (!response.ok) throw new Error('Failed to save floor map layout')
     return parseJsonOrFallback(response)

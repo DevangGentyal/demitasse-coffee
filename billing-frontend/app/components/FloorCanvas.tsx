@@ -3,7 +3,7 @@ import React from "react"
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useApp, type Table, type Order } from '@/app/context/AppContext'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash2, Edit2, Check, Eye, Pencil, Printer, X, Power } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, Eye, Pencil, Printer, X, Power, Square } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { floorMapService, type Wall as IWall } from '@/lib/services/floorMapService'
 import { tableSessionService } from '@/lib/services/tableSessionService'
@@ -31,54 +31,54 @@ const MANUAL_KOT_PRINT_EVENT = 'demitasse:manual-kot-print'
 const PAYMENT_MODES = ['CASH', 'CARD', 'UPI', 'DINEOUT', 'MAGICPIN', 'ZOMATO', 'DISTRIC', 'OTHERS'] as const
 type PaymentMode = (typeof PAYMENT_MODES)[number]
 
+// ─── Label Box Types ──────────────────────────────────────────────────────────
+
+interface LabelBox {
+  id: string
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  color?: string
+}
+
+type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+
+const LABEL_BOX_MIN_WIDTH = 80
+const LABEL_BOX_MIN_HEIGHT = 60
+const LABEL_BOX_DEFAULT_WIDTH = 200
+const LABEL_BOX_DEFAULT_HEIGHT = 120
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : fallback
 }
 
 const isTempTableId = (id: string): boolean => id.startsWith('temp-')
+const isTempLabelId = (id: string): boolean => id.startsWith('label-temp-')
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/**
- * DB Item shape (inside an Order document):
- *   id          – item doc id
- *   name        – display name
- *   qty         – quantity ordered
- *   unitPrice   – base price per unit (no addons, qty=1)
- *   totalPrice  – price for this line  (unitPrice + addons) * qty
- *   addOns      – array of { name, price }
- *
- * DB Order shape:
- *   id          – order doc id
- *   sessionId   – links to a table session
- *   tableId     – direct table reference
- *   items       – array of items (above)
- *   totalAmount – sum of all items' totalPrice for this order
- *
- * Billing endpoint grand total:
- *   Sum of all orders' totalAmount for the session + tax / discounts
- */
-
-/** Add-on shape from DB: { name: string; price: number } */
 interface AddOn {
   name: string
   price: number
 }
 
-/** Normalised item used inside the UI */
 interface OrderItem {
-  id: string          // item id
-  orderId: string     // parent order id
+  id: string
+  orderId: string
   name: string
   qty: number
-  unitPrice: number   // base unit price
-  totalPrice: number  // (unitPrice + addons) * qty  ← DB key: totalPrice
-  orderSubTotal: number // parent order's subTotal
+  unitPrice: number
+  totalPrice: number
+  orderSubTotal: number
   discount?: number
   discountedPrice?: number
   tax?: number
-  addOns: AddOn[]     // DB key: addOns – array of { name, price }
+  addOns: AddOn[]
   orderOfferId?: string
   orderOfferType?: string
   orderOfferTitle?: string
@@ -100,7 +100,7 @@ interface OrderItem {
   isManualB1G1?: boolean
   isDiscount?: boolean
   isBirthday?: boolean
-  notes?: string      // DB key: notes
+  notes?: string
 }
 
 interface TableOrder {
@@ -141,47 +141,29 @@ const formatRupee = (value: number) => {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v)
 }
 
-/** qty field on a DB item */
 const getItemQty = (item: { qty?: unknown }): number =>
   toSafeNumber(item.qty, 0)
 
-/** unitPrice field on a DB item */
 const getItemUnitPrice = (item: { unitPrice?: unknown }): number =>
   toSafeNumber(item.unitPrice, 0)
 
-/**
- * totalPrice field on a DB item  (= (unitPrice + addonPrices) * qty)
- * Falls back to unitPrice * qty if missing.
- */
 const getItemTotalPrice = (item: { totalPrice?: unknown; unitPrice?: unknown; qty?: unknown }): number => {
   const direct = Number(item.totalPrice)
   if (Number.isFinite(direct)) return direct
-  // fallback
   return toSafeNumber(item.unitPrice, 0) * toSafeNumber(item.qty, 0)
 }
 
-/**
- * Subtotal shown in the bill view.
- *
- * Strategy:
- *  1. Prefer summing the unique order-level `subTotal` values (most accurate).
- *  2. Fall back to summing item-level `totalPrice` when order totals are absent.
- */
 const getViewBillSubtotal = (items: OrderItem[]): number => {
-  // Collect one subTotal per unique order
   const seenOrders = new Map<string, number>()
   for (const item of items) {
     if (!seenOrders.has(item.orderId)) {
       seenOrders.set(item.orderId, item.orderSubTotal)
     }
   }
-
   const validOrderTotals = Array.from(seenOrders.values()).filter(Number.isFinite)
   if (validOrderTotals.length > 0) {
     return validOrderTotals.reduce((sum, v) => sum + v, 0)
   }
-
-  // Fallback: sum item totalPrice
   return items.reduce((sum, item) => sum + toSafeNumber(item.totalPrice, 0), 0)
 }
 
@@ -219,13 +201,10 @@ function OrderViewModal({
 
   const items = orders?.items ?? []
 
-  // ── Pricing ────────────────────────────────────────────────────────────────
   const hasBill = !!billData?.pricing
 
   const pricing = useMemo(() => {
     if (hasBill && billData?.pricing) return billData.pricing
-
-    // No server bill – compute from per-item values when available.
     const subtotal = Math.round(getViewBillSubtotal(items))
     const discount = Math.round(items.reduce((sum, item) => sum + toSafeNumber(item.discount, 0), 0))
     const discountedPrice = Math.max(
@@ -250,7 +229,6 @@ function OrderViewModal({
   const appliedOffers = billData?.appliedOffers ?? []
   const appliedOfferLogs = (billData as any)?.appliedOfferLogs ?? []
 
-  // ── Delete item ────────────────────────────────────────────────────────────
   const handleDeleteItem = async (orderId: string, itemId: string) => {
     if (items.length <= 1) {
       toast.error('Cannot remove the last remaining item. Cancel the entire order instead.')
@@ -267,11 +245,9 @@ function OrderViewModal({
     }
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-xl border border-gray-200 shadow-xl w-[520px] max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="px-6 py-4 flex items-center justify-between border-b border-gray-200">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -284,20 +260,17 @@ function OrderViewModal({
           </button>
         </div>
 
-        {/* Column headers */}
         <div className="flex items-center px-6 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
           <span className="flex-1">Item</span>
           <span className="w-16 text-center">Qty</span>
           <span className="w-24 text-right pr-6">Price</span>
         </div>
 
-        {/* Items list – grouped by order */}
         <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
           {items.length === 0 ? (
             <div className="text-center text-gray-400 py-16 text-sm">No orders for this table yet.</div>
           ) : (
             (() => {
-              // Group items by orderId
               const groups = items.reduce<Record<string, OrderItem[]>>((acc, item) => {
                 acc[item.orderId] = acc[item.orderId] || []
                 acc[item.orderId].push(item)
@@ -350,7 +323,6 @@ function OrderViewModal({
                   const rowKey = `${keyPrefix}-${orderId}-${rowItem.id || 'item'}-${rowIndex}`
                   const isExpanded = !!expandedItems[rowKey]
 
-                  // ── Detect NEW_USER discount on this item ──────────────────────
                   const itemDiscount = toSafeNumber(rowItem.discount, 0)
                   const hasNewUserDiscount =
                     !rowItem.isOfferItem &&
@@ -359,12 +331,10 @@ function OrderViewModal({
                     !rowItem.isBirthday &&
                     itemDiscount > 0
 
-                  // ── Detect BIRTHDAY item ───────────────────────────────────────
                   const isBirthdayItem = rowItem.isBirthday === true
 
                   return (
                     <div key={rowKey} className="mx-3 my-1 rounded-lg border border-gray-100 bg-white px-4 py-3">
-                      {/* BIRTHDAY badge — shown above item name, like offer groups */}
                       {isBirthdayItem && !hideOfferMeta && (
                         <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full bg-pink-50 px-2 py-0.5 text-[10px] font-semibold text-pink-700">
                           <span className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">
@@ -390,8 +360,7 @@ function OrderViewModal({
                             )}
                             {hasDetails && !hidePrimaryDetails && (
                               <span
-                                className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${isExpanded ? 'rotate-180' : ''
-                                  }`}
+                                className={`text-[9px] text-gray-400 transition-transform duration-200 leading-none mt-px ${isExpanded ? 'rotate-180' : ''}`}
                               >
                                 ▼
                               </span>
@@ -400,7 +369,6 @@ function OrderViewModal({
                           {!hidePrimaryDetails && (
                             <div className="text-xs text-gray-400 mt-0.5">{formatRupee(rowItem.unitPrice)} each</div>
                           )}
-                          {/* Existing offer badge (non-birthday, non-new-user offer items) */}
                           {!hideOfferMeta && !hidePrimaryDetails && rowItem.isOfferItem &&
                             !isBirthdayItem &&
                             (rowItem.offerTitle || rowItem.orderOfferTitle) && (
@@ -438,7 +406,6 @@ function OrderViewModal({
                         </button>
                       </div>
 
-                      {/* NEW_USER discount indicator — shown as a bottom line on the item */}
                       {hasNewUserDiscount && !hideOfferMeta && !hidePrimaryDetails && (
                         <div className="mt-2 flex items-center justify-between rounded-md bg-emerald-50 border border-emerald-100 px-2.5 py-1.5 text-[11px]">
                           <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
@@ -453,9 +420,7 @@ function OrderViewModal({
                         <div className="mt-2 ml-1 pl-3 border-l-2 border-gray-200 space-y-1 pb-1">
                           {hasAddons && (
                             <>
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
-                                Add-ons
-                              </p>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Add-ons</p>
                               {rowItem.addOns.map((addon, i) => (
                                 <div key={i} className="flex items-center justify-between text-xs text-amber-700">
                                   <span>+ {addon.name}</span>
@@ -468,9 +433,7 @@ function OrderViewModal({
                           )}
                           {hasNestedItems && (
                             <>
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mt-2 mb-1">
-                                Included items
-                              </p>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mt-2 mb-1">Included items</p>
                               {rowItem.items!.map((nestedItem, nestedIndex) => {
                                 const nestedAddOns = Array.isArray(nestedItem.addOns) ? nestedItem.addOns : []
                                 return (
@@ -516,7 +479,6 @@ function OrderViewModal({
                   <div key={orderId}>
                     {(() => {
                       const offerBucketList = Array.from(offerBuckets.values())
-
                       return offerBucketList.map((bucket) => {
                         const matchedLog = appliedOfferLogs.find((log: AppliedOfferLog) => {
                           const sameOfferId = String(log?.offerId || '').trim() === String(bucket.offerId || '').trim()
@@ -553,7 +515,6 @@ function OrderViewModal({
                               rendered.push(...renderComboLeafRows(childNodes, `${keyPrefix}-${nodeIndex}`, depth + 1))
                               return
                             }
-
                             const nodeAddOns = Array.isArray(node?.addOns) ? node.addOns : []
                             const indentClass = depth > 0 ? 'ml-4 border-l border-blue-100 pl-3' : ''
                             rendered.push(
@@ -565,9 +526,7 @@ function OrderViewModal({
                                       {node?.isFree && <span className="text-[10px] font-semibold text-emerald-700">(FREE)</span>}
                                     </p>
                                     {nodeAddOns.length > 0 && (
-                                      <p className="mt-0.5 text-[11px] font-medium text-amber-700">
-                                        Add-ons included
-                                      </p>
+                                      <p className="mt-0.5 text-[11px] font-medium text-amber-700">Add-ons included</p>
                                     )}
                                   </div>
                                   <span className="shrink-0 font-semibold text-gray-900">
@@ -628,13 +587,11 @@ function OrderViewModal({
                                 <div className="text-xs font-bold text-blue-800">
                                   Offer Price: {formatRupee(consideredPrice)}
                                 </div>
-
                               </div>
                             </button>
 
                             {isGroupExpanded && (
                               <div className="space-y-2 p-3">
-
                                 {bucket.offerType === 'COMBO' && bucket.rows.length > 0 && Array.isArray(bucket.rows[0].item.items) && bucket.rows[0].item.items.length > 0
                                   ? renderComboLeafRows(bucket.rows[0].item.items, `${groupKey}-combo`)
                                   : bucket.rows.map(({ item, index }) => renderOrderRow(item, index, `offer-${bucket.offerId}`, true, false))}
@@ -644,7 +601,6 @@ function OrderViewModal({
                         )
                       })
                     })()}
-
                     {regularRows.map(({ item, index }) => renderOrderRow(item, index, 'regular'))}
                   </div>
                 )
@@ -653,15 +609,8 @@ function OrderViewModal({
           )}
         </div>
 
-        {/* Footer – pricing */}
         <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 space-y-4">
           <div className="space-y-2">
-            {/* {(items.some((item) => item.isOfferItem) || appliedOffers.length > 0) && (
-              <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                Offer applied to the specific item rows above. The footer shows the table grand total and final payable amount.
-              </div>
-            )} */}
-
             {Array.isArray(appliedOfferLogs) && appliedOfferLogs.length > 0 && (
               <div className="mt-2 space-y-2">
                 {appliedOfferLogs.map((log: any, idx: number) => (
@@ -713,9 +662,7 @@ function OrderViewModal({
             </div>
 
             <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-              <span className="text-base font-semibold text-gray-700">
-                Total Payable
-              </span>
+              <span className="text-base font-semibold text-gray-700">Total Payable</span>
               <span className="text-2xl font-bold text-gray-900">{formatRupee(displayTotal)}</span>
             </div>
           </div>
@@ -837,6 +784,141 @@ const buildWallFromAnchors = (start: WallAnchor, end: WallAnchor): IWall | null 
   return { x: snappedX - WALL_THICKNESS / 2, y: startY, width: WALL_THICKNESS, height }
 }
 
+// ─── LabelBoxComponent ────────────────────────────────────────────────────────
+
+interface LabelBoxComponentProps {
+  box: LabelBox
+  isEditMode: boolean
+  isSelected: boolean
+  onSelect: () => void
+  onDragStart: (e: React.MouseEvent) => void
+  onResizeStart: (e: React.MouseEvent, handle: ResizeHandle) => void
+  onRename: () => void
+  onDelete: () => void
+}
+
+function LabelBoxComponent({
+  box,
+  isEditMode,
+  isSelected,
+  onSelect,
+  onDragStart,
+  onResizeStart,
+  onRename,
+  onDelete,
+}: LabelBoxComponentProps) {
+  const HANDLE_SIZE = 8
+
+  const handles: { handle: ResizeHandle; cursor: string; style: React.CSSProperties }[] = [
+    { handle: 'nw', cursor: 'nw-resize', style: { top: -HANDLE_SIZE / 2, left: -HANDLE_SIZE / 2 } },
+    { handle: 'n', cursor: 'n-resize', style: { top: -HANDLE_SIZE / 2, left: '50%', transform: 'translateX(-50%)' } },
+    { handle: 'ne', cursor: 'ne-resize', style: { top: -HANDLE_SIZE / 2, right: -HANDLE_SIZE / 2 } },
+    { handle: 'e', cursor: 'e-resize', style: { top: '50%', right: -HANDLE_SIZE / 2, transform: 'translateY(-50%)' } },
+    { handle: 'se', cursor: 'se-resize', style: { bottom: -HANDLE_SIZE / 2, right: -HANDLE_SIZE / 2 } },
+    { handle: 's', cursor: 's-resize', style: { bottom: -HANDLE_SIZE / 2, left: '50%', transform: 'translateX(-50%)' } },
+    { handle: 'sw', cursor: 'sw-resize', style: { bottom: -HANDLE_SIZE / 2, left: -HANDLE_SIZE / 2 } },
+    { handle: 'w', cursor: 'w-resize', style: { top: '50%', left: -HANDLE_SIZE / 2, transform: 'translateY(-50%)' } },
+  ]
+
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: toFiniteNumber(box.x, 0),
+        top: toFiniteNumber(box.y, 0),
+        width: toFiniteNumber(box.width, LABEL_BOX_DEFAULT_WIDTH),
+        height: toFiniteNumber(box.height, LABEL_BOX_DEFAULT_HEIGHT),
+        zIndex: 1,
+      }}
+      onClick={(e) => { e.stopPropagation(); onSelect() }}
+    >
+      {/* Main box */}
+      <div
+        className={`
+    w-full h-full rounded-lg border-2 border-dashed flex items-center justify-center
+    ${isSelected && isEditMode
+            ? 'border-violet-500 bg-white/90'
+            : 'border-gray-400/60 bg-yellow-100'
+          }
+    ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'}
+  `}
+
+        onMouseDown={(e) => {
+          if (!isEditMode) return
+          e.stopPropagation()
+          onSelect()
+          onDragStart(e)
+        }}
+      >
+        {/* Label at top */}
+        <div className="pointer-events-none text-center px-3">
+          <span
+            className={`
+      text-sm font-semibold tracking-wide
+      ${isSelected && isEditMode
+                ? 'text-violet-700'
+                : 'text-gray-700'
+              }
+    `}
+          >
+            {box.name || 'Section'}
+          </span>
+        </div>
+
+        {/* Edit controls — only in edit mode and selected */}
+        {isEditMode && isSelected && (
+          <div
+            className="absolute top-1.5 right-1.5 flex items-center gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onRename() }}
+              className="flex items-center justify-center w-5 h-5 rounded bg-white/90 border border-gray-200 text-gray-600 hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300 transition-colors shadow-sm"
+              title="Rename section"
+            >
+              <Edit2 size={10} />
+            </button>
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              className="flex items-center justify-center w-5 h-5 rounded bg-white/90 border border-gray-200 text-gray-600 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-colors shadow-sm"
+              title="Delete section"
+            >
+              <Trash2 size={10} />
+            </button>
+          </div>
+        )}
+
+        {/* Size hint at bottom-right in edit mode */}
+        {isEditMode && isSelected && (
+          <div className="absolute bottom-1.5 left-1.5 text-[9px] text-gray-400 pointer-events-none select-none">
+            {Math.round(box.width)} × {Math.round(box.height)}
+          </div>
+        )}
+      </div>
+
+      {/* Resize handles */}
+      {isEditMode && isSelected && handles.map(({ handle, cursor, style }) => (
+        <div
+          key={handle}
+          className="absolute rounded-full bg-white border-2 border-violet-500 shadow-sm z-10"
+          style={{
+            width: HANDLE_SIZE,
+            height: HANDLE_SIZE,
+            cursor,
+            ...style,
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            onResizeStart(e, handle)
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
 // ─── FloorCanvas ─────────────────────────────────────────────────────────────
 
 export function FloorCanvas() {
@@ -851,10 +933,30 @@ export function FloorCanvas() {
   const initialTablesRef = useRef<Table[]>([])
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
 
-  // Payment collection highlight (tracks tables the manager has been notified about)
+  // ── Label Boxes state ──────────────────────────────────────────────────────
+  const [labelBoxes, setLabelBoxes] = useState<LabelBox[]>([])
+  const [selectedLabelBoxId, setSelectedLabelBoxId] = useState<string | null>(null)
+  const initialLabelBoxesRef = useRef<LabelBox[]>([])
+
+  // Label box drag
+  const [draggingLabelId, setDraggingLabelId] = useState<string | null>(null)
+  const labelDragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const labelDragPosRef = useRef<{ x: number; y: number } | null>(null)
+
+  // Label box resize
+  const [resizingLabel, setResizingLabel] = useState<{
+    id: string
+    handle: ResizeHandle
+    startMouseX: number
+    startMouseY: number
+    startBox: LabelBox
+  } | null>(null)
+
+  // Payment highlights
   const [paymentHighlightIds, setPaymentHighlightIds] = useState<Set<string>>(new Set())
   const prevPaymentFlagRef = useRef<Record<string, boolean>>({})
   const activePaymentToastRef = useRef<Record<string, string | number>>({})
+
   const universalWidth = printSettings?.defaultPaperWidth || 280
   const universalMargins = {
     top: printSettings?.defaultTopMargin ?? 0,
@@ -870,7 +972,7 @@ export function FloorCanvas() {
   }
   const universalLineHeight = printSettings?.defaultLineHeight || 1.2
 
-  // Detect needsPaymentCollection transitions on tables and show notifications
+  // Payment collection detection
   useEffect(() => {
     const prevFlags = prevPaymentFlagRef.current
     const nextFlags: Record<string, boolean> = {}
@@ -885,7 +987,6 @@ export function FloorCanvas() {
           toast.dismiss(activeToastId)
           delete activePaymentToastRef.current[table.id]
         }
-
         setPaymentHighlightIds((prev) => {
           if (!prev.has(table.id)) return prev
           const next = new Set(prev)
@@ -894,9 +995,7 @@ export function FloorCanvas() {
         })
       }
 
-      // Detect false→true transition (new payment notification)
       if (flag && !prevFlags[table.id]) {
-        // Define unique key for this notification instance to prevent double trigger/double toasts
         const stableSeconds = (table as any).needsPaymentCollectionAt?.seconds ?? (table as any).updatedAt?.seconds ?? 'payment'
         const notificationKey = `${table.id}_${stableSeconds}`
 
@@ -913,8 +1012,7 @@ export function FloorCanvas() {
         }
 
         if (shouldToast) {
-          console.log(`[FLOOR_CANVAS_PAYMENT_DEBUG] Displaying toast for ${table.name}. Key: ${notificationKey}`);
-          // Show toast notification
+          console.log(`[FLOOR_CANVAS_PAYMENT_DEBUG] Displaying toast for ${table.name}. Key: ${notificationKey}`)
           const toastId = toast(
             <div className="flex items-center gap-4 bg-red-600 text-white px-5 py-4 rounded-xl shadow-[0_8px_30px_rgba(220,38,38,0.5)] border-2 border-red-500 w-[380px] md:w-[420px] pointer-events-auto">
               <span className="text-2xl animate-bounce">🚨</span>
@@ -929,35 +1027,25 @@ export function FloorCanvas() {
             </div>,
             {
               duration: 12000,
-              style: {
-                background: 'transparent',
-                border: 'none',
-                padding: 0,
-                boxShadow: 'none',
-              },
+              style: { background: 'transparent', border: 'none', padding: 0, boxShadow: 'none' },
             }
           )
-
           activePaymentToastRef.current[table.id] = toastId
         }
 
-        console.log(`[FLOOR_CANVAS_PAYMENT_DEBUG] Turning table ${table.name} RED (highlighted)`);
-        // Add to highlight set
+        console.log(`[FLOOR_CANVAS_PAYMENT_DEBUG] Turning table ${table.name} RED (highlighted)`)
         setPaymentHighlightIds((prev) => {
           const next = new Set(prev)
           next.add(table.id)
           return next
         })
 
-        // Auto-remove highlight after ~10 seconds and clear Firestore flag
         window.setTimeout(async () => {
           setPaymentHighlightIds((prev) => {
             const next = new Set(prev)
             next.delete(table.id)
             return next
           })
-
-          // Clear the flag via cloud function so it doesn't re-trigger
           try {
             await updateTableState(outletId || '', table.id, {
               needsPaymentCollection: null,
@@ -967,8 +1055,6 @@ export function FloorCanvas() {
             console.error(`Failed to clear payment flag for ${table.id}:`, err)
           }
         }, 10000)
-
-        // No cleanup needed — fire-and-forget timeout is intentional
       }
     })
 
@@ -992,7 +1078,6 @@ export function FloorCanvas() {
   const [printBillData, setPrintBillData] = useState<BillData | null>(null)
   const [billPrinterName, setBillPrinterName] = useState<string | null>(null)
 
-  // Fetch bill printer name from printerConfigs
   useEffect(() => {
     let isMounted = true
     const fetchBillPrinter = async () => {
@@ -1006,7 +1091,6 @@ export function FloorCanvas() {
           if (p.role === 'coffee') counterPrinter = p.systemPrinterName || p.printerName
         })
         if (isMounted) {
-          // Fallback chain: bill → counter → null (default printer)
           const resolved = billPrinter || counterPrinter || null
           setBillPrinterName(resolved)
           console.log(`[FloorCanvas] Bill printer resolved: "${resolved}"`)
@@ -1037,7 +1121,7 @@ export function FloorCanvas() {
     return () => setIsLayoutEditing(false)
   }, [setIsLayoutEditing])
 
-  // ── Fetch floor map ────────────────────────────────────────────────────────
+  // ── Fetch floor map (with labelBoxes) ────────────────────────────────────
   useEffect(() => {
     if (!outletId) return
     let cancelled = false
@@ -1048,12 +1132,19 @@ export function FloorCanvas() {
         const data = await getFloorMap<{
           walls?: IWall[]
           tablePositions?: Array<{ id?: string; x?: number; y?: number }>
+          labelBoxes?: LabelBox[]
         }>(outletId)
         if (cancelled) return
 
         if (data) {
           setWalls(data.walls || [])
           setSelectedWallIndex(null)
+
+          // Load label boxes from floor map
+          if (Array.isArray(data.labelBoxes)) {
+            setLabelBoxes(data.labelBoxes)
+          }
+
           const tablePositions = Array.isArray(data.tablePositions) ? data.tablePositions : []
           const positionsById = new Map(
             tablePositions
@@ -1074,6 +1165,7 @@ export function FloorCanvas() {
           }
         } else {
           setWalls([])
+          setLabelBoxes([])
         }
       } catch (error) {
         console.error('Failed to load floor map:', error)
@@ -1091,6 +1183,7 @@ export function FloorCanvas() {
   useEffect(() => {
     if (isEditMode) {
       initialTablesRef.current = tables.map((table: any) => ({ ...table }))
+      initialLabelBoxesRef.current = labelBoxes.map((b) => ({ ...b }))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditMode])
@@ -1098,14 +1191,6 @@ export function FloorCanvas() {
   // ── Derived ────────────────────────────────────────────────────────────────
   const activeTable = tables.find((t: any) => t.id === activeTableId)
 
-  /**
-   * Build a flat OrderItem[] for each table from the orders context.
-   *
-   * Each DB Order has:
-   *   order.id            → orderId
-   *   order.totalAmount   → order-level total (used for subtotal calculation)
-   *   order.items[]       → array of items with qty / unitPrice / totalPrice
-   */
   const tableSessionOrders = useMemo(() => {
     const map: Record<string, Order[]> = {}
     tables.forEach((t: any) => {
@@ -1118,27 +1203,15 @@ export function FloorCanvas() {
     return map
   }, [tables, orders])
 
-  /**
-   * Compute the display bill amount per table for the table card.
-  * Uses order-level subTotal (most accurate) and falls back to summing
-   * item-level totalPrice.
-   */
   const getTableBillAmount = (tableId: string): number => {
     const relatedOrders = tableSessionOrders[tableId] || []
     const tableObj = tables.find((t: any) => t.id === tableId)
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.debug('[getTableBillAmount] tableId:', tableId, 'relatedOrders:', relatedOrders.length, 'table.billAmount:', tableObj?.billAmount)
-    }
-
-    // Helper to compute per-order display total using same rules as OrderViewModal
     const computeOrderDisplayTotal = (order: any): number => {
       if (order?.pricing && Number.isFinite(Number(order.pricing.total))) {
         return Number(order.pricing.total)
       }
-
       const items = Array.isArray(order.items) ? order.items : []
-      // subtotal: prefer server subtotal where present, otherwise compute from items
       const subtotal = Math.round(getViewBillSubtotal(items.map((it: any) => ({
         qty: it.qty ?? it.quantity,
         unitPrice: it.unitPrice ?? it.price,
@@ -1146,9 +1219,7 @@ export function FloorCanvas() {
         discount: it.discount,
         discountedPrice: it.discountedPrice,
       } as any))))
-
       const discount = Math.round(items.reduce((sum: number, item: any) => sum + toSafeNumber(item.discount, 0), 0))
-
       const discountedPrice = Math.max(
         Math.round(
           items.reduce((sum: number, item: any) => {
@@ -1159,42 +1230,22 @@ export function FloorCanvas() {
         ),
         0,
       )
-
       const taxBase = Math.max(subtotal - discount, 0)
       const tax = taxBase > 0 ? Math.round(taxBase * 0.05) : 0
-      const total = discountedPrice + tax
-      return Number(total)
+      return discountedPrice + tax
     }
 
-    // Sum per-order `displayTotal` using the server `pricing` object when available.
     const orderPricingTotal = relatedOrders.reduce((sum: number, order: any) => {
       const perOrderTotal = computeOrderDisplayTotal(order)
-      if (process.env.NODE_ENV !== 'production') {
-        console.debug('[getTableBillAmount] order:', order?.id || order?.orderId || '<unknown>', 'computedPerOrderTotal:', perOrderTotal)
-      }
-
       if (Number.isFinite(perOrderTotal)) return sum + perOrderTotal
       return sum
     }, 0)
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.debug('[getTableBillAmount] tableId:', tableId, 'orderPricingTotal(sum):', orderPricingTotal)
-    }
-
     if (orderPricingTotal > 0) return orderPricingTotal
-
-    // Last-resort fallback: use table.billAmount if available
     const fallbackTableAmount = tableObj && Number.isFinite(Number(tableObj.billAmount)) ? Number(tableObj.billAmount) : 0
-    if (process.env.NODE_ENV !== 'production') {
-      console.debug('[getTableBillAmount] tableId:', tableId, 'fallbackTableAmount:', fallbackTableAmount)
-    }
-
     return fallbackTableAmount || 0
   }
 
-  /**
-   * Build normalised OrderItem[] for the OrderViewModal from raw DB orders.
-   */
   const buildOrderItems = (relatedOrders: Order[]): OrderItem[] =>
     relatedOrders.flatMap((order: any) => {
       const orderDiscount = toFiniteNumber((order as any).discount ?? (order as any).pricing?.discount, 0)
@@ -1235,11 +1286,7 @@ export function FloorCanvas() {
         isManualB1G1: Boolean(item.isManualB1G1),
         isDiscount: Boolean(item.isDiscount),
         isBirthday: Boolean(item.isBirthday),
-        addOns: Array.isArray(item.addOns)
-          ? item.addOns
-          : Array.isArray(item.addons)
-            ? item.addons
-            : [],
+        addOns: Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : [],
         notes: item.notes || '',
         items: Array.isArray(item.items) ? item.items.map((child: any, childIndex: number) => normalizeOrderItem(child, childIndex, parentOrderId)) : [],
       })
@@ -1270,18 +1317,9 @@ export function FloorCanvas() {
 
     const items = sourceItems.map((item: any, index: number) => {
       const quantity = Math.max(1, Math.floor(toSafeNumber(item.quantity ?? item.qty, 1)))
-      const unitPrice = toSafeNumber(
-        item.price ?? item.unitPrice,
-        quantity > 0 ? toSafeNumber(item.totalPrice, 0) / quantity : 0,
-      )
-      const originalUnitPrice = toSafeNumber(
-        item.originalPrice ?? item.unitPrice ?? item.price,
-        unitPrice,
-      )
-      const finalUnitPrice = toSafeNumber(
-        item.finalPrice ?? item.price ?? item.unitPrice,
-        unitPrice,
-      )
+      const unitPrice = toSafeNumber(item.price ?? item.unitPrice, quantity > 0 ? toSafeNumber(item.totalPrice, 0) / quantity : 0)
+      const originalUnitPrice = toSafeNumber(item.originalPrice ?? item.unitPrice ?? item.price, unitPrice)
+      const finalUnitPrice = toSafeNumber(item.finalPrice ?? item.price ?? item.unitPrice, unitPrice)
       const notes = Array.isArray(item.notes)
         ? item.notes
         : Array.isArray(item.addOns)
@@ -1372,6 +1410,122 @@ export function FloorCanvas() {
     }
   }, [draggingId, dragOffset, isEditMode, tables, updateTable])
 
+  // ── Label Box drag ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isEditMode || !draggingLabelId) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!canvasRef.current) return
+      const rect = canvasRef.current.getBoundingClientRect()
+      const box = labelBoxes.find((b) => b.id === draggingLabelId)
+      if (!box) return
+      let x = e.clientX - rect.left - labelDragOffsetRef.current.x
+      let y = e.clientY - rect.top - labelDragOffsetRef.current.y
+      x = Math.max(0, Math.min(x, FLOOR_WIDTH - box.width))
+      y = Math.max(0, Math.min(y, FLOOR_HEIGHT - box.height))
+      x = snapToGrid(x)
+      y = snapToGrid(y)
+      labelDragPosRef.current = { x, y }
+      setLabelBoxes((prev) =>
+        prev.map((b) => (b.id === draggingLabelId ? { ...b, x, y } : b))
+      )
+    }
+
+    const handleMouseUp = () => {
+      setDraggingLabelId(null)
+      labelDragPosRef.current = null
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [draggingLabelId, isEditMode, labelBoxes])
+
+  // ── Label Box resize ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isEditMode || !resizingLabel || !canvasRef.current) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const { id, handle, startMouseX, startMouseY, startBox } = resizingLabel
+      const dx = e.clientX - startMouseX
+      const dy = e.clientY - startMouseY
+
+      let { x, y, width, height } = startBox
+
+      if (handle.includes('e')) width = Math.max(LABEL_BOX_MIN_WIDTH, snapToGrid(startBox.width + dx))
+      if (handle.includes('s')) height = Math.max(LABEL_BOX_MIN_HEIGHT, snapToGrid(startBox.height + dy))
+      if (handle.includes('w')) {
+        const newWidth = Math.max(LABEL_BOX_MIN_WIDTH, snapToGrid(startBox.width - dx))
+        x = startBox.x + startBox.width - newWidth
+        width = newWidth
+      }
+      if (handle.includes('n')) {
+        const newHeight = Math.max(LABEL_BOX_MIN_HEIGHT, snapToGrid(startBox.height - dy))
+        y = startBox.y + startBox.height - newHeight
+        height = newHeight
+      }
+
+      // Clamp to canvas
+      x = Math.max(0, x)
+      y = Math.max(0, y)
+      width = Math.min(width, FLOOR_WIDTH - x)
+      height = Math.min(height, FLOOR_HEIGHT - y)
+
+      setLabelBoxes((prev) =>
+        prev.map((b) => (b.id === id ? { ...b, x, y, width, height } : b))
+      )
+    }
+
+    const handleMouseUp = () => setResizingLabel(null)
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [resizingLabel, isEditMode])
+
+  // ── Label Box actions ─────────────────────────────────────────────────────
+  const addLabelBox = () => {
+    const newBox: LabelBox = {
+      id: `label-temp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: 'New Section',
+      x: snapToGrid(200 + (labelBoxes.length % 4) * 240),
+      y: snapToGrid(200 + Math.floor(labelBoxes.length / 4) * 160),
+      width: LABEL_BOX_DEFAULT_WIDTH,
+      height: LABEL_BOX_DEFAULT_HEIGHT,
+    }
+    setLabelBoxes((prev) => [...prev, newBox])
+    setSelectedLabelBoxId(newBox.id)
+    toast.success('Section label added — drag to position, use handles to resize')
+  }
+
+  const renameLabelBox = (id: string) => {
+    const box = labelBoxes.find((b) => b.id === id)
+    if (!box) return
+    const nextName = window.prompt('Section label name:', box.name)
+    if (nextName === null) return
+    const trimmed = nextName.trim()
+    if (!trimmed) {
+      toast.error('Label name cannot be empty')
+      return
+    }
+    setLabelBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, name: trimmed } : b)))
+    toast.success(`Renamed to "${trimmed}"`)
+  }
+
+  const deleteLabelBox = (id: string) => {
+    const confirmed = window.confirm('Remove this section label?')
+    if (!confirmed) return
+    setLabelBoxes((prev) => prev.filter((b) => b.id !== id))
+    if (selectedLabelBoxId === id) setSelectedLabelBoxId(null)
+    toast.success('Section label removed')
+  }
+
   // ── Add / delete table ────────────────────────────────────────────────────
   const addNewTable = () => {
     if (!outletId) {
@@ -1447,18 +1601,17 @@ export function FloorCanvas() {
   }
 
   const deleteTable = (tableId: string) => {
-    const confirmed = window.confirm(
-      'Delete this table from draft layout? This will be applied when you click Save Layout.'
-    )
+    const confirmed = window.confirm('Delete this table from draft layout? This will be applied when you click Save Layout.')
     if (!confirmed) return
     setTables(tables.filter((table: any) => table.id !== tableId))
     toast.success('Table removed from draft layout')
   }
 
+  // ── Save layout (includes labelBoxes) ────────────────────────────────────
   const saveLayout = async () => {
     if (!outletId) return
     const confirmed = window.confirm(
-      'Save layout changes? This will apply table add/update/delete and wall changes to the database.'
+      'Save layout changes? This will apply table add/update/delete, section labels, and wall changes to the database.'
     )
     if (!confirmed) return
 
@@ -1467,15 +1620,9 @@ export function FloorCanvas() {
       const originalTableIds = new Set(originalTables.map((t: any) => t.id))
       const currentTableIds = new Set(tables.map((t: any) => t.id))
 
-      const tablesToCreate = tables.filter(
-        (t: any) => isTempTableId(t.id) || !originalTableIds.has(t.id)
-      )
-      const tablesToUpdate = tables.filter(
-        (t: any) => originalTableIds.has(t.id) && !isTempTableId(t.id)
-      )
-      const tablesToDelete = originalTables.filter(
-        (t: any) => !currentTableIds.has(t.id) && !isTempTableId(t.id)
-      )
+      const tablesToCreate = tables.filter((t: any) => isTempTableId(t.id) || !originalTableIds.has(t.id))
+      const tablesToUpdate = tables.filter((t: any) => originalTableIds.has(t.id) && !isTempTableId(t.id))
+      const tablesToDelete = originalTables.filter((t: any) => !currentTableIds.has(t.id) && !isTempTableId(t.id))
 
       const tempToRealId = new Map<string, string>()
 
@@ -1518,9 +1665,20 @@ export function FloorCanvas() {
         y: toFiniteNumber(table.y, 100),
       }))
 
-      await floorMapService.saveFloorMap(outletId, walls, tablePositions)
+      // Serialise label boxes — strip any temp ids if needed, keep data clean
+      const serialisedLabelBoxes = labelBoxes.map((box) => ({
+        id: box.id,
+        name: box.name,
+        x: toFiniteNumber(box.x, 0),
+        y: toFiniteNumber(box.y, 0),
+        width: toFiniteNumber(box.width, LABEL_BOX_DEFAULT_WIDTH),
+        height: toFiniteNumber(box.height, LABEL_BOX_DEFAULT_HEIGHT),
+      }))
+
+      await floorMapService.saveFloorMap(outletId, walls, tablePositions, serialisedLabelBoxes)
       setIsEditMode(false)
       setShowWallEditor(false)
+      setSelectedLabelBoxId(null)
       toast.success('Layout saved')
     } catch (err) {
       toast.error('Failed to save layout')
@@ -1529,6 +1687,10 @@ export function FloorCanvas() {
 
   // ── Wall drawing ──────────────────────────────────────────────────────────
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    // Deselect label box if clicking on empty canvas
+    if (isEditMode && !showWallEditor) {
+      setSelectedLabelBoxId(null)
+    }
     if (!showWallEditor || !canvasRef.current) return
     const rect = canvasRef.current.getBoundingClientRect()
     const startPoint = {
@@ -1716,16 +1878,7 @@ export function FloorCanvas() {
       return
     }
     try {
-      console.debug('[FloorCanvas] openGenerateBill start', {
-        tableId: table.id,
-        tableName: table.name,
-        activeSessionId: table.activeSessionId,
-        orderCount: (tableSessionOrders[table.id] || []).length,
-      })
-
       const API_BASE = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
-      // Use the canonical customer billing endpoint so server-side rules (tax rounding)
-      // are applied consistently for both customer and billing apps.
       const response = await fetch(`${API_BASE}/customerBillingGenerateBill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1736,19 +1889,11 @@ export function FloorCanvas() {
         }),
       })
       const result = await response.json().catch(() => ({}))
-      console.debug('[FloorCanvas] generateBill response', {
-        ok: response.ok,
-        success: result?.success,
-        pricing: result?.pricing,
-        itemCount: Array.isArray(result?.items) ? result.items.length : 0,
-        appliedOffers: Array.isArray(result?.appliedOffers) ? result.appliedOffers.length : 0,
-      })
 
       if (!response.ok || !result?.success) {
         throw new Error(result?.message || 'Failed to generate bill')
       }
       setBillData({
-        // Ensure numeric integers are used from server
         pricing: {
           subtotal: Number.isFinite(result.pricing?.subtotal) ? Math.round(result.pricing.subtotal) : 0,
           discount: Number.isFinite(result.pricing?.discount) ? Math.round(result.pricing.discount) : 0,
@@ -1762,11 +1907,6 @@ export function FloorCanvas() {
       updateTable(table.id, {
         billAmount: Number.isFinite(result.pricing?.total) ? Number(result.pricing.total) : 0,
       }, true)
-      console.debug('[FloorCanvas] setting printBillData', {
-        tableId: table.id,
-        tableName: table.name,
-        itemCount: Array.isArray(result.items) ? result.items.length : 0,
-      })
       setPrintBillData(
         buildBillTemplateData(table, tableSessionOrders[table.id] || [], {
           subtotal: Number.isFinite(result.pricing?.subtotal) ? Math.round(result.pricing.subtotal) : 0,
@@ -1785,11 +1925,9 @@ export function FloorCanvas() {
 
   useEffect(() => {
     if (!printBillData) return undefined
-
     let cancelled = false
 
     const printBillViaQZ = async () => {
-      // Wait for React to render the BillTemplate into the DOM
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       if (cancelled) return
 
@@ -1800,9 +1938,7 @@ export function FloorCanvas() {
         return
       }
 
-      // Keep fitPrintPageToContent for now
       fitPrintPageToContent('.print-container')
-
       const printerName = billPrinterName
       console.log(`[FloorCanvas] 🖨️ Printing bill to: "${printerName || 'default printer'}"`)
       toast('🖨️ Printing started...')
@@ -1810,11 +1946,7 @@ export function FloorCanvas() {
       try {
         const htmlContent = container.innerHTML
         const fullHtml = `<html><head><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
-
-        await silentPrintHTML(printerName, fullHtml, {
-          widthMm: 80,
-        })
-
+        await silentPrintHTML(printerName, fullHtml, { widthMm: 80 })
         console.log('[FloorCanvas] ✅ Bill printed successfully')
         toast.success('✅ Printed successfully')
       } catch (err) {
@@ -1822,17 +1954,12 @@ export function FloorCanvas() {
         toast.error('❌ Printer not connected')
       } finally {
         clearPrintPageSize()
-        if (!cancelled) {
-          setPrintBillData(null)
-        }
+        if (!cancelled) setPrintBillData(null)
       }
     }
 
     printBillViaQZ()
-
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [printBillData, billPrinterName])
 
   const printKOT = (table: Table) => {
@@ -1841,13 +1968,11 @@ export function FloorCanvas() {
       toast.warning(`No KOT items found for ${table.name}`)
       return
     }
-
     const mergedItems = relatedOrders.flatMap((order: any) => (Array.isArray(order.items) ? order.items : []))
     if (mergedItems.length === 0) {
       toast.warning(`No printable KOT items found for ${table.name}`)
       return
     }
-
     const duplicateJob = {
       id: `dup-kot-${table.id}-${Date.now()}`,
       tableId: table.id,
@@ -1856,7 +1981,6 @@ export function FloorCanvas() {
       items: mergedItems,
       isDuplicateKot: true,
     }
-
     window.dispatchEvent(new CustomEvent(MANUAL_KOT_PRINT_EVENT, { detail: { job: duplicateJob } }))
     toast.success(`Duplicate KOT sent to printer queue for ${table.name}`)
   }
@@ -1867,7 +1991,7 @@ export function FloorCanvas() {
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4 px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm">
         <h3 className="text-lg font-bold text-gray-900">Floor Plan</h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {isEditMode && (
             <>
               <Button
@@ -1882,6 +2006,7 @@ export function FloorCanvas() {
                 <Pencil size={16} />
                 {showWallEditor ? 'Done Drawing Walls' : 'Draw Walls'}
               </Button>
+
               {!showWallEditor && (
                 <Button
                   onClick={() => setWalls([])}
@@ -1891,6 +2016,7 @@ export function FloorCanvas() {
                   Clear Walls
                 </Button>
               )}
+
               {showWallEditor && selectedWallIndex !== null && (
                 <Button
                   onClick={() => deleteWall(selectedWallIndex)}
@@ -1901,6 +2027,7 @@ export function FloorCanvas() {
                   Delete Wall
                 </Button>
               )}
+
               <Button
                 onClick={addNewTable}
                 variant="outline"
@@ -1909,6 +2036,17 @@ export function FloorCanvas() {
                 <Plus size={16} />
                 Add Table
               </Button>
+
+              {/* ── New: Add Label Box button ── */}
+              <Button
+                onClick={addLabelBox}
+                variant="outline"
+                className="flex items-center gap-2 text-sm bg-transparent border-violet-300 text-violet-700 hover:bg-violet-50"
+              >
+                <Square size={16} />
+                Add Section
+              </Button>
+
               <Button
                 onClick={autoRenumberTables}
                 variant="outline"
@@ -1923,17 +2061,12 @@ export function FloorCanvas() {
               if (isEditMode) saveLayout()
               else setIsEditMode(true)
             }}
-            className={`flex items-center gap-2 text-sm ${isEditMode ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'
-              } text-white`}
+            className={`flex items-center gap-2 text-sm ${isEditMode ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
           >
             {isEditMode ? (
-              <>
-                <Check size={16} /> Save Layout
-              </>
+              <><Check size={16} /> Save Layout</>
             ) : (
-              <>
-                <Edit2 size={16} /> Edit Layout
-              </>
+              <><Edit2 size={16} /> Edit Layout</>
             )}
           </Button>
         </div>
@@ -1944,9 +2077,18 @@ export function FloorCanvas() {
         <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700 flex items-center gap-2">
           <Pencil size={14} />
           <span>
-            <strong>Draw walls:</strong> Click and drag. Walls snap to grid and nearby anchor
-            points.
+            <strong>Draw walls:</strong> Click and drag. Walls snap to grid and nearby anchor points.
             <span className="ml-2 text-blue-500">Select a wall to resize it using end handles.</span>
+          </span>
+        </div>
+      )}
+
+      {/* Label box edit hint */}
+      {isEditMode && !showWallEditor && labelBoxes.length > 0 && (
+        <div className="px-4 py-2 bg-violet-50 border border-violet-200 rounded-lg text-sm text-violet-700 flex items-center gap-2">
+          <Square size={14} />
+          <span>
+            <strong>Section labels:</strong> Drag to reposition. Select a section to resize using handles or rename it.
           </span>
         </div>
       )}
@@ -1978,6 +2120,37 @@ export function FloorCanvas() {
             <rect width="100%" height="100%" fill="url(#grid)" />
           </svg>
 
+          {/* ── Label Boxes (rendered below walls and tables) ── */}
+          {labelBoxes.map((box) => (
+            <LabelBoxComponent
+              key={box.id}
+              box={box}
+              isEditMode={isEditMode}
+              isSelected={selectedLabelBoxId === box.id}
+              onSelect={() => setSelectedLabelBoxId(box.id)}
+              onDragStart={(e) => {
+                if (!isEditMode || !canvasRef.current) return
+                const rect = canvasRef.current.getBoundingClientRect()
+                labelDragOffsetRef.current = {
+                  x: e.clientX - rect.left - box.x,
+                  y: e.clientY - rect.top - box.y,
+                }
+                setDraggingLabelId(box.id)
+              }}
+              onResizeStart={(e, handle) => {
+                setResizingLabel({
+                  id: box.id,
+                  handle,
+                  startMouseX: e.clientX,
+                  startMouseY: e.clientY,
+                  startBox: { ...box },
+                })
+              }}
+              onRename={() => renameLabelBox(box.id)}
+              onDelete={() => deleteLabelBox(box.id)}
+            />
+          ))}
+
           {/* Walls */}
           {walls.map((wall, idx) => {
             const orientation = getWallOrientation(wall)
@@ -2001,8 +2174,7 @@ export function FloorCanvas() {
                     e.stopPropagation()
                     if (showWallEditor) setSelectedWallIndex(idx)
                   }}
-                  className={`absolute rounded-sm transition-colors ${showWallEditor ? 'cursor-pointer' : ''
-                    } ${isSelected ? 'bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'}`}
+                  className={`absolute rounded-sm transition-colors ${showWallEditor ? 'cursor-pointer' : ''} ${isSelected ? 'bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'}`}
                   style={{
                     left: toFiniteNumber(wall.x, 0),
                     top: toFiniteNumber(wall.y, 0),
@@ -2020,14 +2192,8 @@ export function FloorCanvas() {
                       }}
                       className="absolute h-4 w-4 rounded-full bg-white border-2 border-blue-600 shadow"
                       style={{
-                        left:
-                          orientation === 'horizontal'
-                            ? wall.x - 8
-                            : wall.x + wall.width / 2 - 8,
-                        top:
-                          orientation === 'horizontal'
-                            ? wall.y + wall.height / 2 - 8
-                            : wall.y - 8,
+                        left: orientation === 'horizontal' ? wall.x - 8 : wall.x + wall.width / 2 - 8,
+                        top: orientation === 'horizontal' ? wall.y + wall.height / 2 - 8 : wall.y - 8,
                       }}
                     />
                     <button
@@ -2038,14 +2204,8 @@ export function FloorCanvas() {
                       }}
                       className="absolute h-4 w-4 rounded-full bg-white border-2 border-blue-600 shadow"
                       style={{
-                        left:
-                          orientation === 'horizontal'
-                            ? wall.x + wall.width - 8
-                            : wall.x + wall.width / 2 - 8,
-                        top:
-                          orientation === 'horizontal'
-                            ? wall.y + wall.height / 2 - 8
-                            : wall.y + wall.height - 8,
+                        left: orientation === 'horizontal' ? wall.x + wall.width - 8 : wall.x + wall.width / 2 - 8,
+                        top: orientation === 'horizontal' ? wall.y + wall.height / 2 - 8 : wall.y + wall.height - 8,
                       }}
                     />
                   </>
@@ -2071,39 +2231,27 @@ export function FloorCanvas() {
           {tables.map((table: any) => {
             const relatedOrders = tableSessionOrders[table.id] || []
             const hasLiveOrders = relatedOrders.length > 0
-            // Table should be highlighted active only when explicitly occupied and status is ACTIVE
             const isTableActive = Boolean(table.occupied && String(table.status || '').toUpperCase() === 'ACTIVE')
-            const isBillRequested =
-              String(table.status || '').toUpperCase() === 'BILL'
+            const isBillRequested = String(table.status || '').toUpperCase() === 'BILL'
             const isOrderingClosed = isBillRequested || Boolean(table.needsPaymentCollection)
-            const isPaymentHighlighted =
-              paymentHighlightIds.has(table.id) ||
-              Boolean(table.needsPaymentCollection) ||
-              isBillRequested
+            const isPaymentHighlighted = paymentHighlightIds.has(table.id) || Boolean(table.needsPaymentCollection) || isBillRequested
 
-            // Bill amount shown on the card:
-            // Prefer the summed per-order `displayTotal` (server `pricing.total`) where available;
-            // fall back to `table.billAmount` if no per-order totals are found.
             const tableBillAmount = (() => {
               const summed = getTableBillAmount(table.id)
               if (summed > 0) return summed
               return Number.isFinite(Number(table.billAmount)) ? Number(table.billAmount) : 0
             })()
 
-            if (process.env.NODE_ENV !== 'production') {
-              console.debug('[TableCard] tableId:', table.id, 'tableBillAmount:', tableBillAmount, 'raw.table.billAmount:', table.billAmount, 'relatedOrders:', (tableSessionOrders[table.id] || []).map((o: any) => o.id || o.orderId))
-            }
-
             return (
               <div
                 key={table.id}
-                className={`absolute transition-shadow ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
-                  }`}
+                className={`absolute transition-shadow ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
                 style={{
                   left: toFiniteNumber(table.x, 0),
                   top: toFiniteNumber(table.y, 0),
                   width: TABLE_WIDTH,
                   height: TABLE_HEIGHT,
+                  zIndex: 2,
                 }}
                 onMouseDown={(e) => handleTableMouseDown(e, table.id)}
               >
@@ -2120,31 +2268,17 @@ export function FloorCanvas() {
                 >
                   {/* Status row */}
                   <div className="flex items-center justify-between">
-                    <span
-                      className={`whitespace-nowrap text-[9px] font-medium leading-none ${isBillRequested ? 'text-red-600' : 'text-gray-500'
-                        }`}
-                    >
+                    <span className={`whitespace-nowrap text-[9px] font-medium leading-none ${isBillRequested ? 'text-red-600' : 'text-gray-500'}`}>
                       {isBillRequested ? 'Collect Money' : isTableActive ? 'Occupied' : 'Available'}
                     </span>
-                    <span
-                      className={`h-2 w-2 rounded-full ${isBillRequested
-                        ? 'bg-red-500'
-                        : isTableActive
-                          ? 'bg-emerald-500'
-                          : 'bg-gray-300'
-                        }`}
-                    />
+                    <span className={`h-2 w-2 rounded-full ${isBillRequested ? 'bg-red-500' : isTableActive ? 'bg-emerald-500' : 'bg-gray-300'}`} />
                   </div>
 
                   {/* Name + bill amount */}
                   <div className="text-center leading-tight py-0.5">
                     <div className="text-xs font-semibold text-gray-900 truncate">{table.name}</div>
                     <div className="text-[10px] text-gray-500 mt-0.5">Bill</div>
-                    {/* tableBillAmount = sum of server-provided order totals (displayTotal/pricing.total) */}
-                    <div
-                      className={`text-sm font-semibold mt-0.5 ${isBillRequested ? 'text-red-700' : 'text-gray-900'
-                        }`}
-                    >
+                    <div className={`text-sm font-semibold mt-0.5 ${isBillRequested ? 'text-red-700' : 'text-gray-900'}`}>
                       {formatRupee(tableBillAmount)}
                     </div>
                   </div>
@@ -2170,19 +2304,13 @@ export function FloorCanvas() {
                         >
                           <button
                             className="w-full px-3 py-2 text-left text-xs font-medium text-gray-700 hover:bg-gray-50"
-                            onClick={() => {
-                              openGenerateBill(table)
-                              setPrinterMenuTableId(null)
-                            }}
+                            onClick={() => { openGenerateBill(table); setPrinterMenuTableId(null) }}
                           >
                             Print Bill
                           </button>
                           <button
                             className="w-full px-3 py-2 text-left text-xs font-medium text-gray-700 hover:bg-gray-50"
-                            onClick={() => {
-                              printKOT(table)
-                              setPrinterMenuTableId(null)
-                            }}
+                            onClick={() => { printKOT(table); setPrinterMenuTableId(null) }}
                           >
                             Print KOT
                           </button>
@@ -2213,10 +2341,7 @@ export function FloorCanvas() {
                     {/* Close session */}
                     {!isEditMode && (isTableActive || isOrderingClosed) && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          closeSession(table)
-                        }}
+                        onClick={(e) => { e.stopPropagation(); closeSession(table) }}
                         className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
                         title="Close table session"
                       >
@@ -2227,10 +2352,7 @@ export function FloorCanvas() {
                     {/* Edit name */}
                     {isEditMode && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          editTableName(table)
-                        }}
+                        onClick={(e) => { e.stopPropagation(); editTableName(table) }}
                         className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
                         title="Edit table name"
                       >
@@ -2241,10 +2363,7 @@ export function FloorCanvas() {
                     {/* Delete table */}
                     {isEditMode && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          deleteTable(table.id)
-                        }}
+                        onClick={(e) => { e.stopPropagation(); deleteTable(table.id) }}
                         className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
                         title="Delete table"
                       >
@@ -2269,7 +2388,6 @@ export function FloorCanvas() {
             tableSessionOrders[activeTable.id]?.length
               ? {
                 tableId: activeTable.id,
-                // Build normalised items using correct DB keys
                 items: buildOrderItems(tableSessionOrders[activeTable.id]),
                 createdAt: new Date(),
               }
@@ -2300,34 +2418,25 @@ export function FloorCanvas() {
       {closingSessionTable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm px-4">
           <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-gray-500">
-              Close Session
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-gray-500">Close Session</p>
             <h3 className="mt-2 text-xl font-bold text-gray-900">{closingSessionTable.name}</h3>
             <p className="mt-2 text-sm text-gray-600">
-              Choose the payment result before closing this session. Successful payment will free the
-              table and reset the customer screen.
+              Choose the payment result before closing this session. Successful payment will free the table and reset the customer screen.
             </p>
             <div className="mt-5 space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Payment mode
-              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment mode</label>
               <select
                 value={closePaymentMode}
                 onChange={(e) => setClosePaymentMode(e.target.value as PaymentMode)}
                 className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
               >
                 {PAYMENT_MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {mode === 'OTHERS' ? 'Others' : mode}
-                  </option>
+                  <option key={mode} value={mode}>{mode === 'OTHERS' ? 'Others' : mode}</option>
                 ))}
               </select>
             </div>
             <div className="mt-4 space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Payment status
-              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment status</label>
               <select
                 value={closeStatus}
                 onChange={(e) => setCloseStatus(e.target.value as 'SUCCESS' | 'FAILED')}

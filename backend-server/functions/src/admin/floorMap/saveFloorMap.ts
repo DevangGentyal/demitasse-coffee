@@ -22,14 +22,14 @@ export const saveFloorMap = functions.https.onRequest(
 				return;
 			}
 
-			const { outletId, walls, tablePositions } = req.body;
+			const { outletId, walls, tablePositions, labelBoxes } = req.body;
 			if (!outletId) {
 				res.status(400).json({ success: false, message: "outletId is required" });
 				return;
 			}
 
 			const floorMapRef = db.collection("outlets").doc(outletId).collection("floorMap").doc("layout");
-			await floorMapRef.set({ outletId, walls: walls || [], tablePositions: tablePositions || [], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+			await floorMapRef.set({ outletId, walls: walls || [], tablePositions: tablePositions || [], labelBoxes: labelBoxes || [], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 
 			res.status(200).json({ success: true, message: "Floor map layout saved successfully" });
 		} catch (error) {
