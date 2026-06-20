@@ -1,5 +1,17 @@
 /**
- * QZ Tray Silent Printing Service
+ * @deprecated — This service has been replaced by brontePrintService.ts
+ *
+ * The Bronte Print Agent replaces QZ Tray for silent local printing.
+ * This file is kept for reference only.
+ *
+ * Migration:
+ *   import { silentPrintHTML } from '@/lib/services/brontePrintService'
+ *
+ * See: bronte-print-agent/README.md
+ */
+
+/**
+ * QZ Tray Silent Printing Service (DEPRECATED)
  *
  * Centralises all QZ Tray interactions:
  *  - Auto-connect / reconnect

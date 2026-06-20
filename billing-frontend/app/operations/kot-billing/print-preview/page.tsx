@@ -12,7 +12,7 @@ import { KotTemplate, KotData, PrintItem } from '@/app/components/print/KotTempl
 import { BillTemplate, BillData } from '@/app/components/print/BillTemplate'
 import { clearPrintPageSize, fitPrintPageToContent } from '@/app/components/print/printPageSize'
 import { useApp } from '@/app/context/AppContext'
-import { silentPrintHTML } from '@/lib/services/qzPrintService'
+import { silentPrintHTML } from '@/lib/services/brontePrintService'
 import { toast } from 'sonner'
 
 const MOCK_ITEMS: PrintItem[] = [
@@ -27,7 +27,7 @@ type PreviewTab = 'food' | 'beverage' | 'bill'
 
 export default function PrintPreviewPage() {
   const router = useRouter()
-  const { isLoggedIn, isLoading } = useAuth()
+  const { isLoggedIn, isLoading, outletId } = useAuth()
   const { printSettings } = useApp()
 
   const [activeTab, setActiveTab] = useState<PreviewTab>('food')
@@ -38,11 +38,11 @@ export default function PrintPreviewPage() {
   const settings = printSettings
 
   useEffect(() => {
-    if (isLoading || !isLoggedIn) return
+    if (isLoading || !isLoggedIn || !outletId) return
 
     const fetchData = async () => {
       try {
-        const printersSnap = await getDocs(collection(db, 'printerConfigs'))
+        const printersSnap = await getDocs(collection(db, 'outlets', outletId, 'printerConfigs'))
         let fConfig: any = null
         let cConfig: any = null
 
@@ -81,7 +81,7 @@ export default function PrintPreviewPage() {
     }
 
     fetchData()
-  }, [isLoading, isLoggedIn])
+  }, [isLoading, isLoggedIn, outletId])
 
   if (isLoading || dataLoading || !foodConfig || !coffeeConfig) {
     return (

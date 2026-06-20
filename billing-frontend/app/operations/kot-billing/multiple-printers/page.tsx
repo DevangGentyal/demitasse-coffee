@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { ArrowLeft, Edit2, Trash2 } from 'lucide-react'
+import { ArrowLeft, Edit2, Trash2, Search, TestTube, RefreshCw, Wifi, WifiOff, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { db } from '@/lib/firebase/app'
 import {
   collection,
@@ -22,6 +22,7 @@ import {
 } from 'firebase/firestore'
 import { createPrinterConfig, updatePrinterConfig, deletePrinterConfig } from '@/lib/services/printerConfigService'
 import { getOutletIdForCurrentUser } from '@/lib/services/orderService'
+import { checkHealth, listPrinters as discoverPrinters, testPrint } from '@/lib/services/brontePrintService'
 
 // ── Types ──────────────────────────────────────────────────────────
 interface PrinterMargins {
@@ -96,6 +97,14 @@ export default function MultiplePrintersPage() {
 
   const [outletId, setOutletId] = useState<string | null>(null)
 
+  // ── Bronte Agent State ────────────────────────────────────────────
+  const [agentStatus, setAgentStatus] = useState<'checking' | 'connected' | 'offline'>('checking')
+  const [agentVersion, setAgentVersion] = useState<string>('')
+  const [discoveredPrinters, setDiscoveredPrinters] = useState<string[]>([])
+  const [isDiscovering, setIsDiscovering] = useState(false)
+  const [testingPrinterId, setTestingPrinterId] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<{ printerId: string; success: boolean; message: string } | null>(null)
+
   useEffect(() => {
     if (isLoading || !isLoggedIn) return
 
@@ -137,6 +146,26 @@ export default function MultiplePrintersPage() {
     fetchPrinters()
   }, [isLoading, isLoggedIn, outletId])
 
+  // ── Agent health check on mount ──────────────────────────────────
+  useEffect(() => {
+    const checkAgentHealth = async () => {
+      try {
+        setAgentStatus('checking')
+        const health = await checkHealth()
+        if (health.status === 'ok') {
+          setAgentStatus('connected')
+          setAgentVersion(health.version || '')
+        } else {
+          setAgentStatus('offline')
+        }
+      } catch {
+        setAgentStatus('offline')
+      }
+    }
+
+    checkAgentHealth()
+  }, [])
+
   // ── Auth guards (match menu page pattern) ────────────────────────
   if (isLoading) {
     return (
@@ -163,6 +192,59 @@ export default function MultiplePrintersPage() {
         </div>
       </div>
     )
+  }
+
+  // ── Discover printers from agent ─────────────────────────────────
+  const handleDiscoverPrinters = async () => {
+    setIsDiscovering(true)
+    setError(null)
+    try {
+      const printerNames = await discoverPrinters()
+      setDiscoveredPrinters(printerNames)
+      setAgentStatus('connected')
+    } catch (err: any) {
+      setError('Failed to discover printers. Is Bronte Print Agent running?')
+      setAgentStatus('offline')
+    } finally {
+      setIsDiscovering(false)
+    }
+  }
+
+  // ── Test print handler ───────────────────────────────────────────
+  const handleTestPrint = async (printer: PrinterConfig) => {
+    if (!printer.systemPrinterName) {
+      setTestResult({ printerId: printer.id, success: false, message: 'No system printer configured' })
+      return
+    }
+
+    setTestingPrinterId(printer.id)
+    setTestResult(null)
+    try {
+      await testPrint(printer.systemPrinterName)
+      setTestResult({ printerId: printer.id, success: true, message: 'Test page sent successfully' })
+      setAgentStatus('connected')
+    } catch (err: any) {
+      setTestResult({ printerId: printer.id, success: false, message: err.message || 'Test print failed' })
+    } finally {
+      setTestingPrinterId(null)
+    }
+  }
+
+  // ── Retry agent connection ───────────────────────────────────────
+  const handleRetryAgent = async () => {
+    setAgentStatus('checking')
+    try {
+      const health = await checkHealth()
+      if (health.status === 'ok') {
+        setAgentStatus('connected')
+        setAgentVersion(health.version || '')
+        setError(null)
+      } else {
+        setAgentStatus('offline')
+      }
+    } catch {
+      setAgentStatus('offline')
+    }
   }
 
   // ── Handlers ─────────────────────────────────────────────────────
@@ -308,6 +390,45 @@ export default function MultiplePrintersPage() {
 
           {/* Main Content Card — matches menu page */}
           <div className="border border-border rounded-lg p-6">
+            {/* Agent Health Status Banner */}
+            {agentStatus === 'connected' && (
+              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded flex items-center gap-2 text-sm">
+                <Wifi size={16} className="text-emerald-600 shrink-0" />
+                <span className="font-medium">Bronte Print Agent Connected</span>
+                {agentVersion && <span className="text-emerald-600">(v{agentVersion})</span>}
+              </div>
+            )}
+
+            {agentStatus === 'offline' && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded text-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <WifiOff size={16} className="text-red-600 shrink-0" />
+                  <span className="font-medium">Bronte Print Agent is not running</span>
+                </div>
+                <div className="text-xs text-red-600 ml-6 space-y-1">
+                  <p>1. Install the Bronte Print Agent from the downloads page</p>
+                  <p>2. Start the agent — it runs in your system tray</p>
+                  <p>3. Click Retry to check connection</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 ml-6 border-red-300 text-red-700 hover:bg-red-100"
+                  onClick={handleRetryAgent}
+                >
+                  <RefreshCw size={14} className="mr-1" />
+                  Retry
+                </Button>
+              </div>
+            )}
+
+            {agentStatus === 'checking' && (
+              <div className="mb-4 p-3 bg-muted/50 border border-border text-muted-foreground rounded flex items-center gap-2 text-sm">
+                <Loader2 size={16} className="animate-spin shrink-0" />
+                <span>Checking Bronte Print Agent...</span>
+              </div>
+            )}
+
             {/* Error */}
             {error && (
               <div className="mb-4 p-3 bg-destructive/10 border border-destructive text-destructive rounded">
@@ -320,13 +441,28 @@ export default function MultiplePrintersPage() {
               <p className="text-sm text-muted-foreground">
                 {printers.length} printer{printers.length !== 1 ? 's' : ''} configured
               </p>
-              <Button
-                variant="outline"
-                onClick={() => openModal()}
-                className="border-foreground"
-              >
-                Add Printer
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleDiscoverPrinters}
+                  disabled={isDiscovering || agentStatus === 'offline'}
+                  className="border-foreground"
+                >
+                  {isDiscovering ? (
+                    <Loader2 size={14} className="mr-2 animate-spin" />
+                  ) : (
+                    <Search size={14} className="mr-2" />
+                  )}
+                  {isDiscovering ? 'Discovering...' : 'Discover Printers'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => openModal()}
+                  className="border-foreground"
+                >
+                  Add Printer
+                </Button>
+              </div>
             </div>
 
             {/* Table — matches menu page grid pattern */}
@@ -407,20 +543,48 @@ export default function MultiplePrintersPage() {
                       </div>
 
                       {/* Actions */}
-                      <div className="p-3 flex gap-3 justify-center">
+                      <div className="p-3 flex gap-2 justify-center items-center">
+                        <button
+                          onClick={() => handleTestPrint(printer)}
+                          disabled={testingPrinterId === printer.id || !printer.systemPrinterName || agentStatus !== 'connected'}
+                          className={`transition-colors ${
+                            testingPrinterId === printer.id
+                              ? 'text-muted-foreground'
+                              : testResult?.printerId === printer.id
+                                ? testResult.success
+                                  ? 'text-emerald-600'
+                                  : 'text-red-500'
+                                : 'text-blue-600 hover:text-blue-800'
+                          } disabled:opacity-40`}
+                          title={
+                            !printer.systemPrinterName
+                              ? 'Configure system printer name first'
+                              : agentStatus !== 'connected'
+                                ? 'Agent offline'
+                                : 'Send test page'
+                          }
+                        >
+                          {testingPrinterId === printer.id ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : testResult?.printerId === printer.id ? (
+                            testResult.success ? <CheckCircle2 size={16} /> : <XCircle size={16} />
+                          ) : (
+                            <TestTube size={16} />
+                          )}
+                        </button>
                         <button
                           onClick={() => openModal(printer)}
                           className="hover:text-primary transition-colors"
                           title="Edit printer"
                         >
-                          <Edit2 size={18} />
+                          <Edit2 size={16} />
                         </button>
                         <button
                           onClick={() => handleDelete(printer)}
                           className="text-destructive hover:text-destructive/70 transition-colors"
                           title="Delete printer"
                         >
-                          <Trash2 size={18} />
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     </div>
@@ -460,15 +624,36 @@ export default function MultiplePrintersPage() {
             {/* System Printer Name */}
             <div className="space-y-2">
               <Label htmlFor="systemPrinterName">System Printer Name</Label>
-              <Input
-                id="systemPrinterName"
-                value={formData.systemPrinterName}
-                onChange={e => handleChange('systemPrinterName', e.target.value)}
-                placeholder="OS printer name (filled later)"
-              />
-              <p className="text-[10px] text-muted-foreground italic">
-                Leave blank if not yet configured on device
-              </p>
+              {discoveredPrinters.length > 0 ? (
+                <>
+                  <select
+                    id="systemPrinterName"
+                    value={formData.systemPrinterName}
+                    onChange={e => handleChange('systemPrinterName', e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <option value="">— Select a printer —</option>
+                    {discoveredPrinters.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-emerald-600 italic">
+                    {discoveredPrinters.length} printer(s) detected by Bronte Agent
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Input
+                    id="systemPrinterName"
+                    value={formData.systemPrinterName}
+                    onChange={e => handleChange('systemPrinterName', e.target.value)}
+                    placeholder="OS printer name (click Discover Printers to detect)"
+                  />
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Use &quot;Discover Printers&quot; to auto-detect, or type manually
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

@@ -1,0 +1,68 @@
+appId: com.demitasse.bronte-print-agent
+productName: Bronte Print Agent
+copyright: Copyright © 2026 Demitasse Coffee
+
+# ── Directories ──────────────────────────────────────────────────────────────
+directories:
+  output: dist
+  buildResources: assets
+
+# ── Files to include ─────────────────────────────────────────────────────────
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+
+# ── Extra resources (available at runtime via process.resourcesPath) ─────────
+extraResources:
+  - from: assets/
+    to: assets/
+    filter:
+      - "**/*"
+
+# ── ASAR packaging ───────────────────────────────────────────────────────────
+asar: true
+asarUnpack:
+  - "node_modules/puppeteer/**/*"
+  - "node_modules/pdf-to-printer/**/*"
+
+# ── Windows (NSIS installer) ─────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  runAfterFinish: true
+  installerIcon: assets/icon.ico
+
+# ── macOS (DMG) ──────────────────────────────────────────────────────────────
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: assets/icon.icns
+  category: public.app-category.utilities
+
+dmg:
+  title: Bronte Print Agent
+  iconSize: 80
+
+# ── Linux (AppImage) ─────────────────────────────────────────────────────────
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: assets/icon.png
+  category: Utility
+  description: Silent local printing agent for Demitasse Cafe POS

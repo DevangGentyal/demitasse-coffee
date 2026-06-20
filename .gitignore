@@ -13,3 +13,5 @@ backend-server/functions/seedPassword.js
 billing-frontend/tsconfig.tsbuildinfo
 billing-frontend/tsconfig.tsbuildinfo
 backend-server/scripts/products.js
+bronte-print-agent/dist/
+bronte-print-agent/temp/
