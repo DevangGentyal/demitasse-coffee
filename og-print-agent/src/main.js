@@ -22,7 +22,7 @@ const { logger } = require('./utils/logger')
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
-  logger.warn('Another instance of Bronte Print Agent is already running. Exiting.')
+  logger.warn('Another instance of OG Print Agent is already running. Exiting.')
   app.quit()
 }
 
@@ -33,7 +33,7 @@ async function setupAutoLaunch() {
     const AutoLaunch = require('auto-launch')
 
     const autoLauncher = new AutoLaunch({
-      name: 'Bronte Print Agent',
+      name: 'OG Print Agent',
       isHidden: true, // Start minimized / in background
     })
 
@@ -55,7 +55,7 @@ let tray = null
 
 app.on('ready', async () => {
   logger.info('═══════════════════════════════════════════════')
-  logger.info('  Bronte Print Agent starting...')
+  logger.info('  OG Print Agent starting...')
   logger.info('═══════════════════════════════════════════════')
 
   try {
@@ -78,7 +78,7 @@ app.on('ready', async () => {
     // Show error dialog and exit
     const { dialog } = require('electron')
     dialog.showErrorBox(
-      'Bronte Print Agent — Start Failed',
+      'OG Print Agent — Start Failed',
       `The agent failed to start:\n\n${err.message}\n\nPlease check the logs or try restarting.`
     )
     app.quit()

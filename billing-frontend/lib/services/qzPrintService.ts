@@ -7,7 +7,7 @@
  * Migration:
  *   import { silentPrintHTML } from '@/lib/services/brontePrintService'
  *
- * See: bronte-print-agent/README.md
+ * See: og-print-agent/README.md
  */
 
 /**

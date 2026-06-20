@@ -35,7 +35,7 @@ function createTray(app, onRestart) {
     : icon.resize({ width: 16, height: 16 })
 
   trayInstance = new Tray(trayIcon)
-  trayInstance.setToolTip('Bronte Print Agent')
+  trayInstance.setToolTip('OG Print Agent')
 
   // Build context menu
   const contextMenu = buildContextMenu(app, onRestart)
@@ -52,7 +52,7 @@ function buildContextMenu(app, onRestart) {
 
   return Menu.buildFromTemplate([
     {
-      label: 'Bronte Print Agent',
+      label: 'OG Print Agent',
       enabled: false, // Title item, not clickable
     },
     { type: 'separator' },
@@ -66,8 +66,8 @@ function buildContextMenu(app, onRestart) {
       click: () => {
         dialog.showMessageBox({
           type: 'info',
-          title: 'Bronte Print Agent — Status',
-          message: 'Bronte Print Agent is running.',
+          title: 'OG Print Agent — Status',
+          message: 'OG Print Agent is running.',
           detail: [
             `Port: ${port}`,
             `Platform: ${process.platform}`,

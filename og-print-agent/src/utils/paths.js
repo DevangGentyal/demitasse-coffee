@@ -23,12 +23,12 @@ function getDataDir() {
 
   let base
   if (platform === 'win32') {
-    base = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'BrontePrintAgent')
+    base = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'OGPrintAgent')
   } else if (platform === 'darwin') {
-    base = path.join(os.homedir(), 'Library', 'Application Support', 'BrontePrintAgent')
+    base = path.join(os.homedir(), 'Library', 'Application Support', 'OGPrintAgent')
   } else {
     // Linux and others
-    base = path.join(os.homedir(), '.bronte-print-agent')
+    base = path.join(os.homedir(), '.og-print-agent')
   }
 
   return base

@@ -290,7 +290,7 @@ export const silentPrintHTML = async (
     if (err.message?.includes('fetch') || err.message?.includes('network') || err.code === 'ECONNREFUSED') {
       _isConnected = false
       console.error('[PRINT ERROR] Printer Offline')
-      throw new Error('Bronte Print Agent is not running. Please start the agent and try again.')
+      throw new Error('OG Print Agent is not running. Please start the agent and try again.')
     }
 
     throw err

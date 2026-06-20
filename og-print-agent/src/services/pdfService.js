@@ -66,7 +66,7 @@ async function generatePDF(html, options = {}) {
   } = options
 
   const tempDir = ensureDir(getTempDir())
-  const filename = `bronte-${uuidv4()}.pdf`
+  const filename = `og-${uuidv4()}.pdf`
   const outputPath = path.join(tempDir, filename)
 
   logger.info('PDF generation started', { outputPath, widthMm, heightMm })

@@ -1,7 +1,7 @@
 {
-  "name": "bronte-print-agent",
+  "name": "og-print-agent",
   "version": "1.0.0",
-  "description": "Bronte Print Agent — Silent local printing service for Demitasse Cafe POS",
+  "description": "OG Print Agent — Silent local printing service for Demitasse Cafe POS",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",

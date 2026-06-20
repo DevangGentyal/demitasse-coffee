@@ -1,5 +1,5 @@
-appId: com.demitasse.bronte-print-agent
-productName: Bronte Print Agent
+appId: com.demitasse.og-print-agent
+productName: OG Print Agent
 copyright: Copyright © 2026 Demitasse Coffee
 
 # ── Directories ──────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: assets/icon.ico
+  icon: assets/icon.png
 
 nsis:
   oneClick: true
@@ -41,7 +41,6 @@ nsis:
   createDesktopShortcut: false
   createStartMenuShortcut: true
   runAfterFinish: true
-  installerIcon: assets/icon.ico
 
 # ── macOS (DMG) ──────────────────────────────────────────────────────────────
 mac:
@@ -50,11 +49,11 @@ mac:
       arch:
         - x64
         - arm64
-  icon: assets/icon.icns
+  icon: assets/icon.png
   category: public.app-category.utilities
 
 dmg:
-  title: Bronte Print Agent
+  title: OG Print Agent
   iconSize: 80
 
 # ── Linux (AppImage) ─────────────────────────────────────────────────────────

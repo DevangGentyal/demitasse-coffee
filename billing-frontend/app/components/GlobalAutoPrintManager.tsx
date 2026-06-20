@@ -91,12 +91,12 @@ export function GlobalAutoPrintManager() {
   const [printConfigs, setPrintConfigs] = useState<any>(null)
   const isProcessingQueueRef = useRef(false)
 
-  // Auto-connect to Bronte Print Agent on mount
+  // Auto-connect to OG Print Agent on mount
   useEffect(() => {
-    console.log('[GlobalAutoPrint] Checking Bronte Print Agent connectivity...')
+    console.log('[GlobalAutoPrint] Checking OG Print Agent connectivity...')
     connectAgent()
-      .then(() => console.log('[GlobalAutoPrint] Bronte Print Agent connection ready'))
-      .catch((err) => console.warn('[GlobalAutoPrint] Bronte Print Agent not available on mount:', err))
+      .then(() => console.log('[GlobalAutoPrint] OG Print Agent connection ready'))
+      .catch((err) => console.warn('[GlobalAutoPrint] OG Print Agent not available on mount:', err))
   }, [])
 
   // 1. Calculate in-progress orders directly from global context

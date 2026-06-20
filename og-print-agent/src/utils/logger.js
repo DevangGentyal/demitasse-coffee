@@ -45,7 +45,7 @@ const bronteFormat = winston.format.printf(
 
 const fileRotateTransport = new DailyRotateFile({
   dirname: LOG_DIR,
-  filename: 'bronte-%DATE%.log',
+  filename: 'og-print-agent-%DATE%.log',
   datePattern: 'YYYY-MM-DD',
   maxSize: '10m',
   maxFiles: '14d', // Keep 14 days of logs

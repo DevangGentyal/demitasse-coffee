@@ -62,7 +62,7 @@ function buildTestReceiptHTML(printerName) {
       text-align: center;
       font-size: 12px;
       font-weight: 700;
-    }
+     }
   </style>
 </head>
 <body>
@@ -83,7 +83,7 @@ function buildTestReceiptHTML(printerName) {
   </div>
   <div class="row">
     <span class="bold">Agent:</span>
-    <span>Bronte v1.0.0</span>
+    <span>OG Print Agent v1.0.0</span>
   </div>
 
   <div class="divider"></div>
@@ -118,9 +118,9 @@ function buildTestReceiptHTML(printerName) {
   <div class="divider"></div>
 
   <div class="center footer">
-    <p>This is a test page from Bronte Print Agent.</p>
+    <p>This is a test page from OG Print Agent.</p>
     <p>If you can read this, your printer is configured correctly.</p>
-    <p>— Bronte Print Agent —</p>
+    <p>— OG Print Agent —</p>
   </div>
 </body>
 </html>

@@ -128,7 +128,7 @@ let serverInstance = null
 function startServer() {
   return new Promise((resolve, reject) => {
     serverInstance = app.listen(PORT, '0.0.0.0', () => {
-      logger.info(`Bronte Print Agent started on http://localhost:${PORT}`)
+      logger.info(`OG Print Agent started on http://localhost:${PORT}`)
       resolve(serverInstance)
     })
 
@@ -174,7 +174,7 @@ module.exports = {
 if (require.main === module) {
   startServer()
     .then(() => {
-      console.log(`\n  🖨️  Bronte Print Agent running at http://localhost:${PORT}\n`)
+      console.log(`\n  🖨️  OG Print Agent running at http://localhost:${PORT}\n`)
     })
     .catch((err) => {
       console.error('Failed to start server:', err.message)

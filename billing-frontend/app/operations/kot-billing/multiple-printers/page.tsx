@@ -203,7 +203,7 @@ export default function MultiplePrintersPage() {
       setDiscoveredPrinters(printerNames)
       setAgentStatus('connected')
     } catch (err: any) {
-      setError('Failed to discover printers. Is Bronte Print Agent running?')
+      setError('Failed to discover printers. Is OG Print Agent running?')
       setAgentStatus('offline')
     } finally {
       setIsDiscovering(false)
@@ -394,7 +394,7 @@ export default function MultiplePrintersPage() {
             {agentStatus === 'connected' && (
               <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded flex items-center gap-2 text-sm">
                 <Wifi size={16} className="text-emerald-600 shrink-0" />
-                <span className="font-medium">Bronte Print Agent Connected</span>
+                <span className="font-medium">OG Print Agent Connected</span>
                 {agentVersion && <span className="text-emerald-600">(v{agentVersion})</span>}
               </div>
             )}
@@ -403,10 +403,10 @@ export default function MultiplePrintersPage() {
               <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded text-sm">
                 <div className="flex items-center gap-2 mb-2">
                   <WifiOff size={16} className="text-red-600 shrink-0" />
-                  <span className="font-medium">Bronte Print Agent is not running</span>
+                  <span className="font-medium">OG Print Agent is not running</span>
                 </div>
                 <div className="text-xs text-red-600 ml-6 space-y-1">
-                  <p>1. Install the Bronte Print Agent from the downloads page</p>
+                  <p>1. Install the OG Print Agent from the downloads page</p>
                   <p>2. Start the agent — it runs in your system tray</p>
                   <p>3. Click Retry to check connection</p>
                 </div>
@@ -425,7 +425,7 @@ export default function MultiplePrintersPage() {
             {agentStatus === 'checking' && (
               <div className="mb-4 p-3 bg-muted/50 border border-border text-muted-foreground rounded flex items-center gap-2 text-sm">
                 <Loader2 size={16} className="animate-spin shrink-0" />
-                <span>Checking Bronte Print Agent...</span>
+                <span>Checking OG Print Agent...</span>
               </div>
             )}
 
@@ -638,7 +638,7 @@ export default function MultiplePrintersPage() {
                     ))}
                   </select>
                   <p className="text-[10px] text-emerald-600 italic">
-                    {discoveredPrinters.length} printer(s) detected by Bronte Agent
+                    {discoveredPrinters.length} printer(s) detected by OG Print Agent
                   </p>
                 </>
               ) : (
