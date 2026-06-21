@@ -11,7 +11,7 @@ import { updateTableState } from '@/lib/services/tableStateService'
 import { db } from '@/lib/firebase/app'
 import { collection, getDocs, doc, onSnapshot, deleteField } from 'firebase/firestore'
 import { toast } from 'sonner'
-import { connectQZ, silentPrintHTML } from '@/lib/services/qzPrintService'
+import { connectAgent, silentPrintHTML } from '@/lib/services/brontePrintService'
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
 import { CancellationModal } from '@/app/components/CancellationModal'
 import { removeOrderItem } from '@/lib/services/orderService'
@@ -1079,10 +1079,11 @@ export function FloorCanvas() {
   const [billPrinterName, setBillPrinterName] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!outletId) return
     let isMounted = true
     const fetchBillPrinter = async () => {
       try {
-        const printersSnap = await getDocs(collection(db, 'printerConfigs'))
+        const printersSnap = await getDocs(collection(db, 'outlets', outletId, 'printerConfigs'))
         let billPrinter: string | null = null
         let counterPrinter: string | null = null
         printersSnap.forEach(d => {
@@ -1101,7 +1102,7 @@ export function FloorCanvas() {
     }
     fetchBillPrinter()
     return () => { isMounted = false }
-  }, [])
+  }, [outletId])
 
   // Walls
   const [walls, setWalls] = useState<IWall[]>([])

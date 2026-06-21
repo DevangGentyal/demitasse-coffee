@@ -13,3 +13,5 @@ backend-server/functions/seedPassword.js
 billing-frontend/tsconfig.tsbuildinfo
 billing-frontend/tsconfig.tsbuildinfo
 backend-server/scripts/products.js
+og-print-agent/dist/
+og-print-agent/temp/

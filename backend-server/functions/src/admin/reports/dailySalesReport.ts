@@ -30,9 +30,19 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 		const startTimestamp = parseDateInput(startDate, "start");
 		const endTimestamp = parseDateInput(endDate, "end");
 
-		const outletsSnap = await db.collection("outletDetails").get();
+		const outletsSnap = await db.collection("outlets").get();
+		const outletsCache = new Map<string, any>();
+
 		const allOrdersPromises = outletsSnap.docs.map(async (outletDoc) => {
-			const ordersSnap = await db.collection("outlets").doc(outletDoc.id).collection("ordersHistory").get();
+			const [ordersSnap, detailsSnap] = await Promise.all([
+				db.collection("outlets").doc(outletDoc.id).collection("ordersHistory").get(),
+				db.collection("outlets").doc(outletDoc.id).collection("outletDetails").limit(1).get()
+			]);
+
+			if (!detailsSnap.empty) {
+				outletsCache.set(outletDoc.id, detailsSnap.docs[0].data());
+			}
+
 			return ordersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as any));
 		});
 
@@ -78,10 +88,6 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
 		}>();
 
 		const invoiceTotalsMap = new Map<string, number>();
-		const outletsCache = new Map<string, any>();
-		outletsSnap.docs.forEach((doc) => {
-			outletsCache.set(doc.id, doc.data());
-		});
 
 		for (const order of filteredOrders) {
 			const oId = readString(order.outletId || "unknown");

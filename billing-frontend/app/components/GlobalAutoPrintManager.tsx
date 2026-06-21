@@ -6,8 +6,9 @@ import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
 import { KotTemplate, KotData } from './print/KotTemplate'
 import { clearPrintPageSize, fitPrintPageToContent } from './print/printPageSize'
 import { useApp } from '@/app/context/AppContext'
-import { connectQZ, silentPrintHTML, isQZConnected } from '@/lib/services/qzPrintService'
+import { connectAgent, silentPrintHTML, isAgentConnected } from '@/lib/services/brontePrintService'
 import { toast } from 'sonner'
+import { useAuth } from '@/context/AuthContext'
 
 const MANUAL_KOT_PRINT_EVENT = 'demitasse:manual-kot-print'
 const DEBUG_AUTO_PRINT = false
@@ -81,6 +82,7 @@ const normalizeManagerItem = async (item: any) => {
 }
 
 export function GlobalAutoPrintManager() {
+  const { outletId, isLoggedIn } = useAuth()
   const { orders, tables, printSettings } = useApp()
   const printedOrdersRef = useRef<Set<string>>(new Set())
   const [printQueue, setPrintQueue] = useState<any[]>([])
@@ -89,12 +91,12 @@ export function GlobalAutoPrintManager() {
   const [printConfigs, setPrintConfigs] = useState<any>(null)
   const isProcessingQueueRef = useRef(false)
 
-  // Auto-connect to QZ Tray on mount
+  // Auto-connect to OG Print Agent on mount
   useEffect(() => {
-    console.log('[GlobalAutoPrint] Attempting QZ Tray connection on mount...')
-    connectQZ()
-      .then(() => console.log('[GlobalAutoPrint] QZ Tray connection ready'))
-      .catch((err) => console.warn('[GlobalAutoPrint] QZ Tray not available on mount:', err))
+    console.log('[GlobalAutoPrint] Checking OG Print Agent connectivity...')
+    connectAgent()
+      .then(() => console.log('[GlobalAutoPrint] OG Print Agent connection ready'))
+      .catch((err) => console.warn('[GlobalAutoPrint] OG Print Agent not available on mount:', err))
   }, [])
 
   // 1. Calculate in-progress orders directly from global context
@@ -109,22 +111,37 @@ export function GlobalAutoPrintManager() {
 
   // 2. Fetch configs and handle grace period
   useEffect(() => {
+    console.log('[GlobalAutoPrint] useEffect triggered. isLoggedIn:', isLoggedIn, 'outletId:', outletId)
+    if (!isLoggedIn || !outletId) {
+      console.log('[GlobalAutoPrint] Skipping fetch because isLoggedIn or outletId is falsy')
+      return
+    }
     let isMounted = true
     const fetchConfigs = async () => {
       try {
-        debugLog('[GlobalAutoPrint] ⏳ Fetching printerConfigs and settings...')
-        const printersSnap = await getDocs(collection(db, 'printerConfigs'))
+        console.log(`[GlobalAutoPrint] ⏳ Fetching printerConfigs from: outlets/${outletId}/printerConfigs`)
+        const printersSnap = await getDocs(collection(db, 'outlets', outletId, 'printerConfigs'))
+        
+        console.log(`[GlobalAutoPrint] Fetch completed. Found ${printersSnap.size} printer configs.`)
+        
         let foodConfig: any = null
         let coffeeConfig: any = null
 
         printersSnap.forEach(d => {
           const p = d.data()
-          if (p.role === 'food') foodConfig = p
-          else if (p.role === 'coffee') coffeeConfig = p
+          console.log(`[GlobalAutoPrint] Config doc ID: ${d.id}, data:`, p)
+          if (p.role === 'food') {
+            foodConfig = p
+            console.log('[GlobalAutoPrint] Assigned foodConfig:', p)
+          } else if (p.role === 'coffee') {
+            coffeeConfig = p
+            console.log('[GlobalAutoPrint] Assigned coffeeConfig:', p)
+          }
         })
 
         // Fallbacks
         if (!foodConfig) {
+          console.warn('[GlobalAutoPrint] ⚠️ No foodConfig found in Firestore. Using Chef Printer fallback.')
           foodConfig = {
             printerName: 'Chef Printer',
             assignedCategories: ['BAKERY & DESSERTS', 'BREAKFAST & SUPER FOOD', 'APPETIZERS & SMALL PLATES', 'SANDWICHES & BURGERS', 'MAINS', 'MEALS & GLOBAL PLATES'],
@@ -134,6 +151,7 @@ export function GlobalAutoPrintManager() {
           }
         }
         if (!coffeeConfig) {
+          console.warn('[GlobalAutoPrint] ⚠️ No coffeeConfig found in Firestore. Using Counter Printer fallback.')
           coffeeConfig = {
             printerName: 'Counter Printer',
             assignedCategories: ['BEVERAGES', 'COFFEE SPECIALTIES'],
@@ -154,7 +172,7 @@ export function GlobalAutoPrintManager() {
         }
 
         if (isMounted) {
-          debugLog('[GlobalAutoPrint] ✅ Configs loaded')
+          console.log('[GlobalAutoPrint] ✅ Setting configs:', { foodConfig, coffeeConfig, settings })
           setPrintConfigs({
             foodConfig,
             coffeeConfig,
@@ -164,7 +182,7 @@ export function GlobalAutoPrintManager() {
           // Grace period: Wait 3 seconds before allowing new orders to queue
           setTimeout(() => {
             if (isMounted) {
-              debugLog('[GlobalAutoPrint] ⏲️ 3-second grace period ended. Ready for new orders globally.')
+              console.log('[GlobalAutoPrint] ⏲️ 3-second grace period ended. Ready for new orders globally.')
               isReadyToQueue.current = true
             }
           }, 3000)
@@ -175,7 +193,7 @@ export function GlobalAutoPrintManager() {
     }
     fetchConfigs()
     return () => { isMounted = false }
-  }, [])
+  }, [isLoggedIn, outletId])
 
   // 3. Watch global inProgressOrders for new arrivals
   useEffect(() => {
@@ -416,16 +434,18 @@ export function GlobalAutoPrintManager() {
             const target = printTargets[index]
             if (!target) return
 
+            console.log('[GlobalAutoPrint] Active printConfigs in state:', printConfigs)
+
             // Determine printer name: food receipt uses food printer, bev uses coffee printer
             const isFoodReceipt = target.querySelector('.kot-print-wrapper')?.textContent?.includes('Food KOT')
-            const printerConfig = isFoodReceipt !== false
-              ? printConfigs.foodConfig
-              : printConfigs.coffeeConfig
             // Check if this specific receipt is beverage by looking at data attribute or content
             const receiptContent = target.textContent || ''
             const isBeverage = receiptContent.includes('Beverage KOT')
-            const selectedConfig = isBeverage ? printConfigs.coffeeConfig : printConfigs.foodConfig
-            const rawPrinterName = selectedConfig.systemPrinterName || selectedConfig.printerName
+            const selectedConfig = isBeverage ? printConfigs?.coffeeConfig : printConfigs?.foodConfig
+            
+            console.log('[GlobalAutoPrint] Selected config for receipt:', { isBeverage, selectedConfig })
+            
+            const rawPrinterName = selectedConfig?.systemPrinterName || selectedConfig?.printerName
             const printerName = rawPrinterName?.trim()
 
             console.log(`[GlobalAutoPrint] 🖨️ Sending receipt ${index + 1}/${printTargets.length} to printer: "${printerName}"`)

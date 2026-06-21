@@ -56,7 +56,7 @@ export const billingPrinterConfigCreate = functions.https.onRequest(
 			const docRef = db
 				.collection("outlets")
 				.doc(outletId)
-				.collection("printerSettings")
+				.collection("printerConfigs")
 				.doc();
 
 			const data = {
@@ -114,7 +114,7 @@ export const billingPrinterConfigUpdate = functions.https.onRequest(
 			const docRef = db
 				.collection("outlets")
 				.doc(outletId)
-				.collection("printerSettings")
+				.collection("printerConfigs")
 				.doc(printerId);
 
 			const updateData = {
@@ -167,11 +167,11 @@ export const billingPrinterConfigDelete = functions.https.onRequest(
 				docRef = db
 					.collection("outlets")
 					.doc(outletId)
-					.collection("printerSettings")
+					.collection("printerConfigs")
 					.doc(printerId);
 			} else {
 				const querySnap = await db
-					.collectionGroup("printerSettings")
+					.collectionGroup("printerConfigs")
 					.where("id", "==", printerId)
 					.limit(1)
 					.get();

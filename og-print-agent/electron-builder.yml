@@ -1,0 +1,66 @@
+appId: com.demitasse.og-print-agent
+productName: OG Print Agent
+copyright: Copyright © 2026 Demitasse Coffee
+
+# ── Directories ──────────────────────────────────────────────────────────────
+directories:
+  output: dist
+  buildResources: assets
+
+# ── Files to include ─────────────────────────────────────────────────────────
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+
+# ── Extra resources (available at runtime via process.resourcesPath) ─────────
+extraResources:
+  - from: assets/
+    to: assets/
+    filter:
+      - "**/*"
+
+# ── ASAR packaging ───────────────────────────────────────────────────────────
+asar: true
+asarUnpack:
+  - "node_modules/puppeteer/**/*"
+  - "node_modules/pdf-to-printer/**/*"
+
+# ── Windows (NSIS installer) ─────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.png
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  runAfterFinish: true
+
+# ── macOS (DMG) ──────────────────────────────────────────────────────────────
+mac:
+  target:
+    - target: dmg
+      arch:
+        - universal
+  icon: assets/icon.png
+  category: public.app-category.utilities
+
+dmg:
+  title: OG Print Agent
+  iconSize: 80
+
+# ── Linux (AppImage) ─────────────────────────────────────────────────────────
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: assets/icon.png
+  category: Utility
+  description: Silent local printing agent for Demitasse Cafe POS
