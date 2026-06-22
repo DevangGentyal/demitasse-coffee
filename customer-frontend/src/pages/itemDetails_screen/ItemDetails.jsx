@@ -148,23 +148,21 @@ export default function ItemDetails() {
 
       <ItemImage image={product.image} />
 
-      <div className="mx-4 mt-6 bg-white rounded-2xl p-4 max-h-[52vh] overflow-y-auto">
+      <div className="mx-4 mt-6 max-h-[52vh] overflow-y-auto pb-6 space-y-4">
 
-        <div className="flex justify-between items-start">
-
-          <h1 className="text-lg font-bold">
-            {product.name}
-          </h1>
-
-          <span className="text-lg font-semibold">
-            ₹{product.price}
-          </span>
-
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+          <div className="flex justify-between items-start">
+            <h1 className="text-lg font-bold">
+              {product.name}
+            </h1>
+            <span className="text-lg font-semibold">
+              ₹{product.price}
+            </span>
+          </div>
+          <p className="text-sm text-gray-600 mt-2">
+            {product.desc}
+          </p>
         </div>
-
-        <p className="text-sm text-gray-600 mt-2">
-          {product.desc}
-        </p>
 
         {/* 🔹 Variations */}
         {(product.variations || []).map((group, i) => (

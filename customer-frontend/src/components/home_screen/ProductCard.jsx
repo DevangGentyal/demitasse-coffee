@@ -25,7 +25,7 @@ export default function ProductCard({
           <img
             src={image}
             alt={name}
-            className="h-54 w-54 object-contain"
+            className="w-full h-full object-contain scale-[1.8]"
             loading="lazy"
           />
         ) : null}
