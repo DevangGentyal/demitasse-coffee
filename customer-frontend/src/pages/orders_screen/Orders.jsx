@@ -644,7 +644,9 @@ const Orders = () => {
       return undefined;
     }
 
-    if (!user) {
+    const isGuest = userType === "guest";
+
+    if (!user && !isGuest) {
       console.log("[Orders Debug] Auth user not ready yet. Skipping fetch.");
       setIsLoading(true);
       return undefined;
@@ -679,12 +681,44 @@ const Orders = () => {
       }
     };
 
-    const isGuest = userType === "guest";
+    console.log("User Type: " + userType);
 
     if (isGuest) {
-      console.log("[Orders Debug] Fetch source: API polling (guest flow)");
-      fetchOrdersFallback("guest init");
-      intervalId = setInterval(() => fetchOrdersFallback("guest poll"), 5000);
+      console.log("[Orders Debug] Fetch source: Firestore onSnapshot (guest flow)");
+
+      const q = query(
+        collection(db, `outlets/${selectedOutlet}/orders`),
+        where("sessionId", "==", selectedSessionId)
+      );
+
+      unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          if (!active) return;
+
+          const orders = [];
+
+          snapshot.forEach((docSnap) => {
+            orders.push({
+              id: docSnap.id,
+              ...docSnap.data(),
+            });
+          });
+
+          orders.sort((a, b) => toDate(a.createdAt) - toDate(b.createdAt));
+
+          setOrderGroups(orders);
+          setError(null);
+          setIsLoading(false);
+          setIsInitialized(true);
+        },
+        (err) => {
+          console.error("[Orders Debug] Guest Firestore error:", err);
+
+          // optional fallback
+          fetchOrdersFallback("guest firestore error");
+        }
+      );
     } else {
       console.log("[Orders Debug] Fetch source: Firestore onSnapshot (registered flow)");
       try {

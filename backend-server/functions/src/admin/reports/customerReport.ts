@@ -32,9 +32,9 @@ export const getCustomerReport = functions.https.onRequest(async (req: Request, 
 
 		let query: admin.firestore.Query;
 		if (outletId) {
-			query = db.collection("outlets").doc(outletId).collection("orderHistory");
+			query = db.collection("outlets").doc(outletId).collection("ordersHistory");
 		} else {
-			query = db.collectionGroup("orderHistory");
+			query = db.collectionGroup("ordersHistory");
 		}
 		if (startTimestamp) {
 			query = query.where("archivedAt", ">=", startTimestamp);
@@ -133,7 +133,7 @@ export const getCustomerReport = functions.https.onRequest(async (req: Request, 
 				totalOrders: data.totalOrders,
 				totalSpend: Math.round(data.totalSpend * 100) / 100,
 				avgOrderValue: Math.round((data.totalSpend / data.totalOrders) * 100) / 100,
-				lastVisit: data.lastVisit.getTime() > 0 
+				lastVisit: data.lastVisit.getTime() > 0
 					? data.lastVisit.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
 					: "NA",
 				favOutlet,

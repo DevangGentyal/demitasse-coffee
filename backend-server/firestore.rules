@@ -77,6 +77,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /{path=**}/orders/{docId}{
+    	allow get, list: if true;
+      allow write: if false;
+    }
+
+    match /{path=**}/sessions/{docId}{
+    	allow get, list: if true;
+      allow write: if false;
+    }
+    match /{path=**}/tables/{docId}{
+    	allow get, list: if true;
+      allow write: if false;
+    }
+
 
 
     /* ═══════════════════════════════════════════════════════════
@@ -87,6 +101,13 @@ service cloud.firestore {
       // Read own user document
       allow read: if isSignedIn() && request.auth.uid == userId;
       // All updates go through backend cloud functions
+      allow write: if false;
+    }
+
+    match /{path=**}/ordersHistory/{orderId} {
+      // Allow user to read only their own order
+      allow read: if isSignedIn() && resource.data.customerId == request.auth.uid;
+      // All writes blocked
       allow write: if false;
     }
 

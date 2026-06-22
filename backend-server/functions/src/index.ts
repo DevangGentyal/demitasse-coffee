@@ -7,7 +7,7 @@ delete process.env.FIREBASE_FIRESTORE_EMULATOR_HOST;
 
 // CRITICAL: Initialize Admin SDK before any other imports that might use Firestore
 if (admin.apps.length === 0) {
-  admin.initializeApp();
+    admin.initializeApp();
 }
 
 // Now import the actual function handlers with explicit imports to control execution order
@@ -101,11 +101,11 @@ export const debugData = functions.https.onRequest(async (req: Request, res: Res
     // Force using the real production Firestore instead of the local firestore emulator
     delete process.env.FIRESTORE_EMULATOR_HOST;
     delete process.env.FIREBASE_FIRESTORE_EMULATOR_HOST;
-    
+
     try {
         const db = admin.firestore();
         let logs: string[] = [];
-        
+
         logs.push('--- USERS ---');
         const users = await db.collection('users').get();
         let checked = 0;
@@ -117,7 +117,7 @@ export const debugData = functions.https.onRequest(async (req: Request, res: Res
             const outlets = await db.collection('outlets').get();
             for (const outlet of outlets.docs) {
                 const active = await outlet.ref.collection('orders').where('customerId', '==', uid).get();
-                const history = await outlet.ref.collection('orderHistory').where('customerId', '==', uid).get();
+                const history = await outlet.ref.collection('ordersHistory').where('customerId', '==', uid).get();
                 totalActive += active.size;
                 totalHistory += history.size;
             }

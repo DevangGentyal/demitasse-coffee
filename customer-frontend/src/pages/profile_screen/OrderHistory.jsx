@@ -38,7 +38,7 @@ export default function OrderHistory() {
 
       try {
         const historyQuery = query(
-          collection(db, "outlets", selectedOutlet, "orders"),
+          collection(db, "outlets", selectedOutlet, "ordersHistory"),
           where("customerId", "==", uid),
           orderBy("createdAt", "desc"),
           limit(ORDERS_LIMIT)
@@ -92,7 +92,7 @@ export default function OrderHistory() {
     try {
       // Create a query that begins *after* the last document we previously fetched
       const nextQuery = query(
-        collection(db, "outlets", selectedOutlet, "orders"),
+        collection(db, "outlets", selectedOutlet, "ordersHistory"),
         where("customerId", "==", uid),
         orderBy("createdAt", "desc"),
         startAfter(lastDoc),

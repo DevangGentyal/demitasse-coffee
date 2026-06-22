@@ -172,8 +172,8 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
 			const querySnap = await db.collectionGroup('orders').where(FieldPath.documentId(), '==', orderId).limit(1).get()
 			if (!querySnap.empty) return [{ id: querySnap.docs[0].id, ...querySnap.docs[0].data() }]
 
-			// 3. Try collectionGroup archived orderHistory (subcollection under outlets)
-			const historySnap = await db.collectionGroup('orderHistory').where(FieldPath.documentId(), '==', orderId).limit(1).get()
+			// 3. Try collectionGroup archived ordersHistory (subcollection under outlets)
+			const historySnap = await db.collectionGroup('ordersHistory').where(FieldPath.documentId(), '==', orderId).limit(1).get()
 			if (!historySnap.empty) return [{ id: historySnap.docs[0].id, ...historySnap.docs[0].data() }]
 
 			// 4. Try root archived ordersHistory collection

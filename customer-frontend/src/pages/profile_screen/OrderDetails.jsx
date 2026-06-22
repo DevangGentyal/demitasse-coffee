@@ -39,7 +39,7 @@ export default function OrderDetails() {
           db,
           "outlets",
           selectedOutlet,
-          "orders",
+          "ordersHistory",
           orderId
         )
         );
@@ -199,10 +199,10 @@ export default function OrderDetails() {
                         <span className="font-medium text-[#3e2723]">{item.name || "Item"}</span>
                         {isOffer && (
                           <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${item.isCombo ? "bg-[#8B4513]/10 text-[#8B4513]"
-                              : item.isManualB1G1 ? "bg-orange-100 text-orange-700"
-                                : item.isDiscount ? "bg-green-100 text-green-700"
-                                  : item.isBirthday ? "bg-pink-100 text-pink-600"
-                                    : "bg-blue-100 text-blue-600"
+                            : item.isManualB1G1 ? "bg-orange-100 text-orange-700"
+                              : item.isDiscount ? "bg-green-100 text-green-700"
+                                : item.isBirthday ? "bg-pink-100 text-pink-600"
+                                  : "bg-blue-100 text-blue-600"
                             }`}>
                             {item.isCombo ? "Combo" : item.isManualB1G1 ? "B1G1" : item.isDiscount ? "Discount" : item.isBirthday ? "Birthday" : "Offer"}
                           </span>
