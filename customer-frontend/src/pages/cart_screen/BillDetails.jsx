@@ -8,7 +8,7 @@ import offerImg from "../../assets/home_screen/offer.png";
 import { useCart } from "../../context/CartContext";
 import { revalidateCart } from "../../lib/offerUtils";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
+const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_LOCAL || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
 
 // ── Inline banner ──────────────────────────────────────────────────────────────
 const Banner = ({ message, type = "error", onClose }) => {

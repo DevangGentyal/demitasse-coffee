@@ -11,7 +11,7 @@ import { revalidateCart, validateOffer } from "../../lib/offerUtils";
 import CartHeader from "../../components/cart_screen/CartHeader.jsx";
 import CartItem from "../../components/cart_screen/CartItem.jsx";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
+const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_LOCAL || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
 
 const getOfferType = (item) => {
   if (item?.offerType) return String(item.offerType).trim();

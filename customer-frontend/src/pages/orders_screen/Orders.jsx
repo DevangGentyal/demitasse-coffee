@@ -8,6 +8,7 @@ import { getOrdersBySession } from "../../lib/backendApi";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
+  import.meta.env.VITE_API_LOCAL ||
   "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────

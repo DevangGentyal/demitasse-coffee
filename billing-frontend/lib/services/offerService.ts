@@ -1,6 +1,10 @@
 import { auth } from '@/lib/firebase/auth'
 import { getOffersByOutletId as getOffersByOutletIdFromBackend } from './backendApi'
 
+const API_LOCAL =
+  process.env.NEXT_PUBLIC_API_LOCAL ||
+  'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
+
 export interface Offer {
   id: string
   outletId: string
@@ -65,7 +69,7 @@ export const getOffersByOutletId = async (outletId: string): Promise<Offer[]> =>
 export const createOffer = async (outletId: string, data: any): Promise<string> => {
   const token = await auth.currentUser?.getIdToken()
 
-  const res = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/billingOffersCreate`, {
+  const res = await fetch(`${API_LOCAL}/billingOffersCreate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -91,7 +95,7 @@ export const createOffer = async (outletId: string, data: any): Promise<string> 
 export const updateOffer = async (offerId: string, outletId: string, updates: any) => {
   const token = await auth.currentUser?.getIdToken()
 
-  const res = await fetch(`http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1/billingOffersUpdate`, {
+  const res = await fetch(`${API_LOCAL}/billingOffersUpdate`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",

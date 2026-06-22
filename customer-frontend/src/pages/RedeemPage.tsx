@@ -7,7 +7,7 @@ const CUSTOMER_ID = "customer-123";
 
 // Update this API base URL with your deployed Firebase project URL or local emulator URL
 // @ts-ignore
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
+const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_LOCAL || "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
 
 export default function RedeemPage() {
   const navigate = useNavigate();
