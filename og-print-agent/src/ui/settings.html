@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>OG Print Agent Settings</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f9fafb;
+      color: #111827;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-top: 0;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 0.5rem;
+    }
+    p.description {
+      font-size: 0.875rem;
+      color: #4b5563;
+      margin-bottom: 1.5rem;
+    }
+    .domain-list {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 0;
+      margin: 0 0 1.5rem 0;
+      list-style: none;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+    .domain-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid #e5e7eb;
+      font-family: monospace;
+      font-size: 0.875rem;
+    }
+    .domain-item:last-child {
+      border-bottom: none;
+    }
+    .btn-remove {
+      background-color: transparent;
+      color: #ef4444;
+      border: none;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+    .btn-remove:hover {
+      text-decoration: underline;
+    }
+    .add-form {
+      display: flex;
+      gap: 0.5rem;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.875rem;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 1px #3b82f6;
+    }
+    .btn-add {
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.875rem;
+    }
+    .btn-add:hover {
+      background-color: #2563eb;
+    }
+    .btn-save {
+      background-color: #10b981;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.875rem;
+      width: 100%;
+      margin-top: 1rem;
+    }
+    .btn-save:hover {
+      background-color: #059669;
+    }
+    #status {
+      margin-top: 1rem;
+      font-size: 0.875rem;
+      text-align: center;
+      color: #10b981;
+      min-height: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Allowed Domains (CORS)</h1>
+  <p class="description">
+    These domains are permitted to send print requests to this local agent.
+    You can use exact URLs or regex patterns (e.g. <code>.*\.demitasse\.cafe$</code>).
+  </p>
+
+  <ul class="domain-list" id="domainList">
+    <!-- Items will be injected here -->
+  </ul>
+
+  <form class="add-form" id="addForm">
+    <input type="text" id="newDomain" placeholder="https://example.com" required>
+    <button type="submit" class="btn-add">Add</button>
+  </form>
+
+  <button class="btn-save" id="saveBtn">Save Settings</button>
+  <div id="status"></div>
+
+  <script>
+    let currentOrigins = [];
+    const listEl = document.getElementById('domainList');
+    const formEl = document.getElementById('addForm');
+    const inputEl = document.getElementById('newDomain');
+    const saveBtn = document.getElementById('saveBtn');
+    const statusEl = document.getElementById('status');
+
+    // Load initial origins
+    async function loadOrigins() {
+      try {
+        currentOrigins = await window.electronAPI.getOrigins();
+        renderList();
+      } catch (err) {
+        console.error('Failed to load origins', err);
+      }
+    }
+
+    function renderList() {
+      listEl.innerHTML = '';
+      currentOrigins.forEach((origin, index) => {
+        const li = document.createElement('li');
+        li.className = 'domain-item';
+        
+        const textSpan = document.createElement('span');
+        textSpan.textContent = origin;
+        
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'btn-remove';
+        removeBtn.textContent = 'Remove';
+        removeBtn.onclick = () => {
+          currentOrigins.splice(index, 1);
+          renderList();
+        };
+
+        li.appendChild(textSpan);
+        li.appendChild(removeBtn);
+        listEl.appendChild(li);
+      });
+    }
+
+    formEl.onsubmit = (e) => {
+      e.preventDefault();
+      const val = inputEl.value.trim();
+      if (val && !currentOrigins.includes(val)) {
+        currentOrigins.push(val);
+        inputEl.value = '';
+        renderList();
+      }
+    };
+
+    saveBtn.onclick = async () => {
+      try {
+        await window.electronAPI.setOrigins(currentOrigins);
+        statusEl.textContent = 'Settings saved successfully!';
+        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      } catch (err) {
+        statusEl.textContent = 'Failed to save settings.';
+        statusEl.style.color = '#ef4444';
+        console.error('Failed to save', err);
+      }
+    };
+
+    // Initialize
+    loadOrigins();
+  </script>
+</body>
+</html>

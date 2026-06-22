@@ -21,18 +21,7 @@ const printTestRouter = require('./routes/printTest')
 // ── Configuration ───────────────────────────────────────────────────────────
 const PORT = process.env.BRONTE_PORT || 8585
 
-const ALLOWED_ORIGINS = [
-  // Local development
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:3002',
-  'http://localhost:5173',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3001',
-  // Production domains (update these to match your actual domains)
-  /\.demitasse\.cafe$/,
-  /\.vercel\.app$/,
-]
+const configService = require('./services/configService')
 
 // ── App setup ───────────────────────────────────────────────────────────────
 
@@ -42,15 +31,8 @@ const app = express()
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. server-to-server, Postman, curl)
-      if (!origin) return callback(null, true)
-
-      // Check against allowed origins
-      const allowed = ALLOWED_ORIGINS.some((pattern) => {
-        if (typeof pattern === 'string') return origin === pattern
-        if (pattern instanceof RegExp) return pattern.test(origin)
-        return false
-      })
+      // Check against allowed origins dynamically
+      const allowed = configService.isAllowed(origin)
 
       if (allowed) {
         return callback(null, true)

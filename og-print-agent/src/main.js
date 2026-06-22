@@ -13,11 +13,13 @@
  * All user interaction happens through the system tray menu.
  */
 
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, ipcMain } = require('electron')
+const path = require('path')
 const { startServer, stopServer } = require('./server')
 const { createTray, destroyTray } = require('./tray')
 const { closeBrowser } = require('./services/pdfService')
 const { logger } = require('./utils/logger')
+const configService = require('./services/configService')
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock()
@@ -49,6 +51,46 @@ async function setupAutoLaunch() {
   }
 }
 
+// ── Settings Window ─────────────────────────────────────────────────────────
+
+let settingsWindow = null
+
+function openSettingsWindow() {
+  if (settingsWindow) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore()
+    settingsWindow.focus()
+    return
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 600,
+    height: 500,
+    title: 'OG Print Agent Settings',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'ui', 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+
+  settingsWindow.loadFile(path.join(__dirname, 'ui', 'settings.html'))
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null
+  })
+}
+
+// ── IPC Handlers ────────────────────────────────────────────────────────────
+
+ipcMain.handle('get-origins', () => {
+  return configService.getOrigins()
+})
+
+ipcMain.handle('set-origins', (event, origins) => {
+  configService.setOrigins(origins)
+})
+
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
 let tray = null
@@ -63,7 +105,7 @@ app.on('ready', async () => {
     await startServer()
 
     // Create system tray
-    tray = createTray(app, handleRestart)
+    tray = createTray(app, handleRestart, openSettingsWindow)
 
     // Setup auto-launch
     await setupAutoLaunch()
@@ -123,7 +165,7 @@ async function handleRestart() {
 
     // Rebuild tray (to update status text if needed)
     destroyTray()
-    tray = createTray(app, handleRestart)
+    tray = createTray(app, handleRestart, openSettingsWindow)
   } catch (err) {
     logger.error('Restart failed', { error: err.message })
 

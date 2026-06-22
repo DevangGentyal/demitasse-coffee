@@ -22,9 +22,10 @@ let trayInstance = null
  *
  * @param {import('electron').App} app  The Electron app instance
  * @param {Function} onRestart         Callback to restart the server
+ * @param {Function} onOpenSettings    Callback to open settings window
  * @returns {Tray}
  */
-function createTray(app, onRestart) {
+function createTray(app, onRestart, onOpenSettings) {
   // Resolve tray icon path
   const iconPath = getTrayIconPath()
   const icon = nativeImage.createFromPath(iconPath)
@@ -38,7 +39,7 @@ function createTray(app, onRestart) {
   trayInstance.setToolTip('OG Print Agent')
 
   // Build context menu
-  const contextMenu = buildContextMenu(app, onRestart)
+  const contextMenu = buildContextMenu(app, onRestart, onOpenSettings)
   trayInstance.setContextMenu(contextMenu)
 
   return trayInstance
@@ -47,7 +48,7 @@ function createTray(app, onRestart) {
 /**
  * Build the tray context menu.
  */
-function buildContextMenu(app, onRestart) {
+function buildContextMenu(app, onRestart, onOpenSettings) {
   const port = getPort()
 
   return Menu.buildFromTemplate([
@@ -59,6 +60,15 @@ function buildContextMenu(app, onRestart) {
     {
       label: `✅ Running on Port ${port}`,
       enabled: false,
+    },
+    { type: 'separator' },
+    {
+      label: '⚙️ Settings',
+      click: () => {
+        if (typeof onOpenSettings === 'function') {
+          onOpenSettings()
+        }
+      },
     },
     { type: 'separator' },
     {
