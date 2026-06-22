@@ -1,1 +1,1 @@
-export { updateOffer } from '../../admin/offers/update';
+export {updateOffer} from "../../admin/offers/update";

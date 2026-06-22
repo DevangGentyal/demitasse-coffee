@@ -1,1 +1,1 @@
-export { createOffer } from '../../admin/offers/create';
+export {createOffer} from "../../admin/offers/create";

@@ -1,1 +1,1 @@
-export { saveFloorMap } from '../../admin/floorMap/saveFloorMap';
+export {saveFloorMap} from "../../admin/floorMap/saveFloorMap";

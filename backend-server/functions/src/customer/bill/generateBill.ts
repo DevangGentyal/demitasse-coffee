@@ -1,9 +1,9 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { Request, Response } from "express";
-import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
-import { applyTax } from "../../shared/utilities/billing/tax";
-import { isOrderArchived } from "../../shared/utilities/orders/orderStatus";
+import {Request, Response} from "express";
+import {handleCustomerPreflight} from "../../shared/utilities/security/cors";
+import {applyTax} from "../../shared/utilities/billing/tax";
+import {isOrderArchived} from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -23,9 +23,9 @@ const getItemTotal = (item: Record<string, unknown>): number => {
     NaN
   );
 
-  const nested = Array.isArray(item.items)
-    ? (item.items as Record<string, unknown>[])
-    : [];
+  const nested = Array.isArray(item.items) ?
+    (item.items as Record<string, unknown>[]) :
+    [];
 
   if (Number.isFinite(direct) && direct >= 0) {
     return direct;
@@ -44,7 +44,6 @@ const getItemTotal = (item: Record<string, unknown>): number => {
 const getOrderTotal = (
   orderData: Record<string, unknown>
 ): number => {
-
   const subtotal = readNumber(
     orderData.subTotal,
     NaN
@@ -64,9 +63,9 @@ const getOrderTotal = (
     return direct;
   }
 
-  const items = Array.isArray(orderData.items)
-    ? (orderData.items as Record<string, unknown>[])
-    : [];
+  const items = Array.isArray(orderData.items) ?
+    (orderData.items as Record<string, unknown>[]) :
+    [];
 
   return items.reduce(
     (sum, item) => sum + getItemTotal(item),
@@ -88,7 +87,6 @@ const normalizeItem = (
   item: Record<string, unknown>,
   orderId: string
 ): Record<string, unknown> => {
-
   const qty = Math.max(
     readNumber(item.quantity ?? item.qty, 1),
     1
@@ -112,7 +110,7 @@ const normalizeItem = (
       totalPrice: item.totalPrice,
       discountedPrice: item.discountedPrice,
       isDiscount: item.isDiscount,
-      offerTitle: item.offerTitle
+      offerTitle: item.offerTitle,
     }
   );
   return {
@@ -126,25 +124,25 @@ const normalizeItem = (
     unitPrice: Math.round(unitPrice),
     totalPrice: Math.round(totalPrice),
 
-    addOns: Array.isArray(item.addOns)
-      ? item.addOns
-      : Array.isArray(item.addons)
-        ? item.addons
-        : [],
+    addOns: Array.isArray(item.addOns) ?
+      item.addOns :
+      Array.isArray(item.addons) ?
+        item.addons :
+        [],
 
-    variations: Array.isArray(item.variations)
-      ? item.variations
-      : [],
+    variations: Array.isArray(item.variations) ?
+      item.variations :
+      [],
 
-    customizations: Array.isArray(item.customizations)
-      ? item.customizations
-      : [],
+    customizations: Array.isArray(item.customizations) ?
+      item.customizations :
+      [],
 
-    items: Array.isArray(item.items)
-      ? (item.items as Record<string, unknown>[]).map(
+    items: Array.isArray(item.items) ?
+      (item.items as Record<string, unknown>[]).map(
         (child) => normalizeItem(child, orderId)
-      )
-      : [],
+      ) :
+      [],
 
     isCombo: Boolean(item.isCombo),
     isManualB1G1: Boolean(item.isManualB1G1),
@@ -159,7 +157,6 @@ const normalizeItem = (
     category: item.category ?? null,
     subcategory: item.subcategory ?? null,
   };
-
 };
 
 
@@ -211,15 +208,15 @@ const buildOfferBuckets = (
         offerId: bucketId,
         offerType:
           rawOfferType ||
-          (item.isCombo
-            ? "COMBO"
-            : item.isManualB1G1
-              ? "B1G1"
-              : item.isDiscount
-                ? "DISCOUNT"
-                : item.isBirthday
-                  ? "BIRTHDAY"
-                  : "OFFER"),
+          (item.isCombo ?
+            "COMBO" :
+            item.isManualB1G1 ?
+              "B1G1" :
+              item.isDiscount ?
+                "DISCOUNT" :
+                item.isBirthday ?
+                  "BIRTHDAY" :
+                  "OFFER"),
         offerTitle: rawOfferTitle || "Offer Group",
         items: [],
       });
@@ -238,7 +235,7 @@ export const generateBill = functions.https.onRequest(
   async (req: Request, res: Response): Promise<void> => {
     if (handleCustomerPreflight(req, res)) return;
     if (req.method !== "POST") {
-      res.status(405).json({ success: false, message: "Method not allowed" });
+      res.status(405).json({success: false, message: "Method not allowed"});
       return;
     }
 
@@ -315,7 +312,7 @@ export const generateBill = functions.https.onRequest(
       });
 
       if (candidateDocs.length === 0) {
-        res.status(404).json({ success: false, message: "Order not found" });
+        res.status(404).json({success: false, message: "Order not found"});
         return;
       }
 
@@ -328,9 +325,9 @@ export const generateBill = functions.https.onRequest(
       for (const doc of candidateDocs) {
         const data = doc.data() as Record<string, unknown>;
 
-        const rawItems = Array.isArray(data.items)
-          ? (data.items as Record<string, unknown>[])
-          : [];
+        const rawItems = Array.isArray(data.items) ?
+          (data.items as Record<string, unknown>[]) :
+          [];
 
         if (rawItems.length === 0) continue;
 
@@ -351,7 +348,7 @@ export const generateBill = functions.https.onRequest(
       }
 
       if (allNormalizedItems.length === 0) {
-        res.status(400).json({ success: false, message: "Cannot finalize empty order" });
+        res.status(400).json({success: false, message: "Cannot finalize empty order"});
         return;
       }
 
@@ -403,9 +400,9 @@ export const generateBill = functions.https.onRequest(
 
       const appliedOffers = displayBillGroups.map((g) => {
         const share =
-          totalChargedAcrossGroups > 0
-            ? g.groupDiscountedPrice / totalChargedAcrossGroups
-            : 0;
+          totalChargedAcrossGroups > 0 ?
+            g.groupDiscountedPrice / totalChargedAcrossGroups :
+            0;
         const amount = Math.round(totalDiscount * share);
 
         return {

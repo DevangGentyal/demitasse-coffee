@@ -94,8 +94,8 @@ export const removeOrderItem = customerRemoveOrderItemFn;
 export const cancelEntireOrder = customerCancelEntireOrderFn;
 export const updateCancellationPassword = adminUpdateCancellationPasswordFn;
 
-import * as functions from 'firebase-functions';
-import { Request, Response } from 'express';
+import * as functions from "firebase-functions";
+import { Request, Response } from "express";
 
 export const debugData = functions.https.onRequest(async (req: Request, res: Response) => {
     // Force using the real production Firestore instead of the local firestore emulator
@@ -104,20 +104,20 @@ export const debugData = functions.https.onRequest(async (req: Request, res: Res
 
     try {
         const db = admin.firestore();
-        let logs: string[] = [];
+        const logs: string[] = [];
 
-        logs.push('--- USERS ---');
-        const users = await db.collection('users').get();
+        logs.push("--- USERS ---");
+        const users = await db.collection("users").get();
         let checked = 0;
         for (const user of users.docs) {
             const uid = user.id;
             const userDoc = user.data();
             let totalActive = 0;
             let totalHistory = 0;
-            const outlets = await db.collection('outlets').get();
+            const outlets = await db.collection("outlets").get();
             for (const outlet of outlets.docs) {
-                const active = await outlet.ref.collection('orders').where('customerId', '==', uid).get();
-                const history = await outlet.ref.collection('ordersHistory').where('customerId', '==', uid).get();
+                const active = await outlet.ref.collection("orders").where("customerId", "==", uid).get();
+                const history = await outlet.ref.collection("ordersHistory").where("customerId", "==", uid).get();
                 totalActive += active.size;
                 totalHistory += history.size;
             }
@@ -129,16 +129,16 @@ export const debugData = functions.https.onRequest(async (req: Request, res: Res
             if (checked > 50) break;
         }
 
-        logs.push('\n--- OFFERS ---');
-        const outlets = await db.collection('outlets').get();
+        logs.push("\n--- OFFERS ---");
+        const outlets = await db.collection("outlets").get();
         for (const outlet of outlets.docs) {
-            const offers = await outlet.ref.collection('offers').get();
-            offers.forEach(doc => {
+            const offers = await outlet.ref.collection("offers").get();
+            offers.forEach((doc) => {
                 const data = doc.data();
                 logs.push(`Offer ${doc.id} at outlet ${outlet.id} - Title: "${data.title}", Category: "${data.category}", Type: "${data.type}", offerType: "${data.offerType}", applicableFor: "${data.applicableFor}", config: ${JSON.stringify(data.config || {})}`);
             });
         }
-        res.send(logs.join('\n'));
+        res.send(logs.join("\n"));
     } catch (e: any) {
         res.status(500).send(`Error: ${e.message}`);
     }
@@ -194,7 +194,7 @@ export const customerGetOrderHistory = customerGetOrderHistoryFn;
 export const billingOrdersCreate = billingCreateOrderFn;
 export const billingOrdersUpdate = billingUpdateOrderFn;
 export const billingOrdersDelete = billingDeleteOrderFn;
-export const billingOrdersRead = billingSyncOrderCreatedFn;
+// export const billingOrdersRead = billingSyncOrderCreatedFn;
 export const billingTablesAdd = billingAddTableFn;
 export const billingTablesUpdate = billingUpdateTableFn;
 export const billingTablesDelete = billingDeleteTableFn;

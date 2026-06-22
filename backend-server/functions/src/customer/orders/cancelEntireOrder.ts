@@ -1,77 +1,97 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { Request, Response } from "express";
-import { FieldValue } from "firebase-admin/firestore";
+import {Request, Response} from "express";
+import {FieldValue} from "firebase-admin/firestore";
 import * as bcrypt from "bcryptjs";
-import { handleCustomerPreflight } from "../../shared/utilities/security/cors";
-import { isOrderActive } from "../../shared/utilities/orders/orderStatus";
+import {handleCustomerPreflight} from "../../shared/utilities/security/cors";
+import {isOrderActive} from "../../shared/utilities/orders/orderStatus";
 
-const sanitizeOrderSnapshot = (orderData: FirebaseFirestore.DocumentData): FirebaseFirestore.DocumentData => ({ ...orderData, items: Array.isArray(orderData.items) ? orderData.items.map((item: any) => { const { customizations, variations, ...rest } = item || {}; return rest; }) : [], status: "CANCELLED", orderStatus: "CANCELLED", orderLifecycleStatus: "CANCELLED" });
-const getOrderTotal = (orderData: FirebaseFirestore.DocumentData): number => { const directTotal = Number(orderData.subTotal ?? orderData.totalAmount ?? orderData.itemTotal ?? orderData.pricing?.subtotal ?? orderData.pricing?.total); if (Number.isFinite(directTotal)) return directTotal; const items = Array.isArray(orderData.items) ? orderData.items : []; return items.reduce((sum: number, item: any) => { const qty = Number(item?.qty ?? item?.quantity ?? 1); const price = Number(item?.price ?? item?.finalUnitPrice ?? item?.priceRaw ?? 0); return sum + (Number.isFinite(qty) && Number.isFinite(price) ? qty * price : 0); }, 0); };
+const sanitizeOrderSnapshot = (orderData: FirebaseFirestore.DocumentData): FirebaseFirestore.DocumentData => ({...orderData, items: Array.isArray(orderData.items) ? orderData.items.map((item: any) => {
+  const {customizations, variations, ...rest} = item || {}; return rest;
+}) : [], status: "CANCELLED", orderStatus: "CANCELLED", orderLifecycleStatus: "CANCELLED"});
+const getOrderTotal = (orderData: FirebaseFirestore.DocumentData): number => {
+  const directTotal = Number(orderData.subTotal ?? orderData.totalAmount ?? orderData.itemTotal ?? orderData.pricing?.subtotal ?? orderData.pricing?.total); if (Number.isFinite(directTotal)) return directTotal; const items = Array.isArray(orderData.items) ? orderData.items : []; return items.reduce((sum: number, item: any) => {
+    const qty = Number(item?.qty ?? item?.quantity ?? 1); const price = Number(item?.price ?? item?.finalUnitPrice ?? item?.priceRaw ?? 0); return sum + (Number.isFinite(qty) && Number.isFinite(price) ? qty * price : 0);
+  }, 0);
+};
 
 export const cancelEntireOrder = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {
-	const db = admin.firestore();
-	if (handleCustomerPreflight(req, res)) return;
-	if (req.method !== "POST") { res.status(405).json({ success: false, message: "Method not allowed" }); return; }
+  const db = admin.firestore();
+  if (handleCustomerPreflight(req, res)) return;
+  if (req.method !== "POST") {
+    res.status(405).json({success: false, message: "Method not allowed"}); return;
+  }
 
-	const authHeader = req.headers.authorization;
-	if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ success: false, message: "Unauthorized: Missing token" }); return; }
-	let billerId = "";
-	try {
-		const decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]);
-		billerId = String(decodedToken.uid || "");
-	} catch {
-		res.status(401).json({ success: false, message: "Unauthorized: Invalid token" });
-		return;
-	}
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    res.status(401).json({success: false, message: "Unauthorized: Missing token"}); return;
+  }
+  let billerId = "";
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]);
+    billerId = String(decodedToken.uid || "");
+  } catch {
+    res.status(401).json({success: false, message: "Unauthorized: Invalid token"});
+    return;
+  }
 
-	try {
-		const { outletId, orderId, password, reason } = req.body as { outletId?: string; orderId?: string; password?: string; reason?: string };
-		if (!outletId || !orderId || !password || !reason) { res.status(400).json({ success: false, message: "Missing required fields: outletId, orderId, password, and reason" }); return; }
+  try {
+    const {outletId, orderId, password, reason} = req.body as { outletId?: string; orderId?: string; password?: string; reason?: string };
+    if (!outletId || !orderId || !password || !reason) {
+      res.status(400).json({success: false, message: "Missing required fields: outletId, orderId, password, and reason"}); return;
+    }
 
-		const passwordSnap = await db.collection("securityPasswords").doc("orderCancel").get();
-		if (!passwordSnap.exists) { res.status(500).json({ success: false, message: "Cancellation password is not configured. Set it in the admin panel first." }); return; }
+    const passwordSnap = await db.collection("securityPasswords").doc("orderCancel").get();
+    if (!passwordSnap.exists) {
+      res.status(500).json({success: false, message: "Cancellation password is not configured. Set it in the admin panel first."}); return;
+    }
 
-		const { password: passkeyHash } = passwordSnap.data() || {}; if (!passkeyHash) { res.status(500).json({ success: false, message: "Invalid configuration: Cancellation password hash is missing." }); return; }
+    const {password: passkeyHash} = passwordSnap.data() || {}; if (!passkeyHash) {
+      res.status(500).json({success: false, message: "Invalid configuration: Cancellation password hash is missing."}); return;
+    }
 
-		console.log("INPUT PASSWORD:", JSON.stringify(password));
-		console.log("HASH FROM DB:", passkeyHash);
-		const match = bcrypt.compareSync(password, passkeyHash);
-		console.log("PASSWORD MATCH:", match);
+    console.log("INPUT PASSWORD:", JSON.stringify(password));
+    console.log("HASH FROM DB:", passkeyHash);
+    const match = bcrypt.compareSync(password, passkeyHash);
+    console.log("PASSWORD MATCH:", match);
 
-		if (!bcrypt.compareSync(password, passkeyHash)) { res.status(401).json({ success: false, message: "Incorrect cancellation password" }); return; }
+    if (!bcrypt.compareSync(password, passkeyHash)) {
+      res.status(401).json({success: false, message: "Incorrect cancellation password"}); return;
+    }
 
-		const outletRef = db.collection("outlets").doc(outletId);
-		const ordersRef = outletRef.collection("orders");
-		const orderCancelRef = outletRef.collection("orderCancel");
+    const outletRef = db.collection("outlets").doc(outletId);
+    const ordersRef = outletRef.collection("orders");
+    const orderCancelRef = outletRef.collection("orderCancel");
 
-		const orderSnap = await ordersRef.doc(orderId).get();
-		if (!orderSnap.exists) {
-			res.status(404).json({ success: false, message: "Order not found" });
-			return;
-		}
+    const orderSnap = await ordersRef.doc(orderId).get();
+    if (!orderSnap.exists) {
+      res.status(404).json({success: false, message: "Order not found"});
+      return;
+    }
 
-		const orderData = orderSnap.data() || {};
-		if (!isOrderActive(orderData)) { res.status(400).json({ success: false, message: "Order is not active" }); return; }
+    const orderData = orderSnap.data() || {};
+    if (!isOrderActive(orderData)) {
+      res.status(400).json({success: false, message: "Order is not active"}); return;
+    }
 
-		const sessionId = orderData.sessionId || "";
-		const tableId = orderData.tableId || "";
-		const customerUserId = orderData.userId || orderData.ownerId || orderData.customerId || null;
+    const sessionId = orderData.sessionId || "";
+    const tableId = orderData.tableId || "";
+    const customerUserId = orderData.userId || orderData.ownerId || orderData.customerId || null;
 
-		const ordersToCancelSnap = sessionId ? await ordersRef.where("sessionId", "==", sessionId).get() : null;
-		const ordersToCancel = ordersToCancelSnap && !ordersToCancelSnap.empty ? ordersToCancelSnap.docs.filter((doc) => isOrderActive(doc.data())) : [orderSnap];
-		const orderSnapshots = ordersToCancel.map((doc) => ({ orderId: doc.id, ...sanitizeOrderSnapshot(doc.data() || {}) }));
-		const totalOrdersCost = ordersToCancel.reduce((sum, doc) => sum + getOrderTotal(doc.data() || {}), 0);
+    const ordersToCancelSnap = sessionId ? await ordersRef.where("sessionId", "==", sessionId).get() : null;
+    const ordersToCancel = ordersToCancelSnap && !ordersToCancelSnap.empty ? ordersToCancelSnap.docs.filter((doc) => isOrderActive(doc.data())) : [orderSnap];
+    const orderSnapshots = ordersToCancel.map((doc) => ({orderId: doc.id, ...sanitizeOrderSnapshot(doc.data() || {})}));
+    const totalOrdersCost = ordersToCancel.reduce((sum, doc) => sum + getOrderTotal(doc.data() || {}), 0);
 
-		const batch = db.batch();
-		ordersToCancel.forEach((doc) => batch.delete(doc.ref));
-		await batch.commit();
+    const batch = db.batch();
+    ordersToCancel.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
 
-		await orderCancelRef.doc(sessionId || tableId || orderId).set({ custId: customerUserId, billerId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp() }, { merge: true });
+    await orderCancelRef.doc(sessionId || tableId || orderId).set({custId: customerUserId, billerId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp()}, {merge: true});
 
-		res.status(200).json({ success: true, message: "Order cancelled successfully" });
-	} catch (error) {
-		console.error("cancelEntireOrder error:", error);
-		res.status(500).json({ success: false, message: "Internal server error" });
-	}
+    res.status(200).json({success: true, message: "Order cancelled successfully"});
+  } catch (error) {
+    console.error("cancelEntireOrder error:", error);
+    res.status(500).json({success: false, message: "Internal server error"});
+  }
 });

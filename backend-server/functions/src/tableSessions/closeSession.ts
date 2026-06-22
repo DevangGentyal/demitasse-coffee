@@ -1,8 +1,8 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { Request, Response } from "express";
-import { FieldValue } from "firebase-admin/firestore";
-import { isOrderCancelled } from "../shared/utilities/orders/orderStatus";
+import {Request, Response} from "express";
+import {FieldValue} from "firebase-admin/firestore";
+import {isOrderCancelled} from "../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -23,7 +23,7 @@ const markItemsCompleted = (items: unknown[]): unknown[] => {
     const currentStatus = String(item.status || "").trim().toLowerCase();
     // Preserve cancelled items; mark everything else as completed
     if (currentStatus === "cancelled") return item;
-    return { ...item, status: "completed" };
+    return {...item, status: "completed"};
   });
 };
 
@@ -60,7 +60,7 @@ const computePricingFromItems = (items: unknown[]): { subtotal: number; discount
   const tax = Math.max(taxFromItems, 0);
   const total = discountedPrice + tax;
 
-  return { subtotal, discount, tax, total };
+  return {subtotal, discount, tax, total};
 };
 
 /**
@@ -93,7 +93,7 @@ export const closeSession = functions.https.onRequest(
         return;
       }
 
-      const { sessionId, tableId, status, outletId } = req.body as { sessionId?: string; tableId?: string; status?: string, outletId: string };
+      const {sessionId, tableId, status, outletId} = req.body as { sessionId?: string; tableId?: string; status?: string, outletId: string };
       const closeStatus = readString(status).toUpperCase();
 
       // Validate input
@@ -163,9 +163,9 @@ export const closeSession = functions.https.onRequest(
       }
 
       // Fetch associated table
-      const resolvedTableId = allowTableForceClose
-        ? readString(tableId)
-        : readString(sessionData?.tableId);
+      const resolvedTableId = allowTableForceClose ?
+        readString(tableId) :
+        readString(sessionData?.tableId);
       const tableRef = tablesRef.doc(resolvedTableId);
 
       // Atomic update: finalize billing records + close session + free/reset table
@@ -227,7 +227,7 @@ export const closeSession = functions.https.onRequest(
               sessionClosedByAdmin: true,
               sessionClosedAt: archivedAt,
               updatedAt: FieldValue.serverTimestamp(),
-            }, { merge: true });
+            }, {merge: true});
           }
 
           const historyRef = ordersHistoryRef.doc(orderDoc.id);
@@ -255,7 +255,7 @@ export const closeSession = functions.https.onRequest(
             source: "admin.closeSession",
             createdAt: orderData.createdAt || null,
             updatedAt: archivedAt,
-          }, { merge: true });
+          }, {merge: true});
 
           if (!isCancelled) {
             // ✅ Increment offer usage counters
@@ -266,9 +266,13 @@ export const closeSession = functions.https.onRequest(
 
             // Collect all offer IDs from order-level and item-level
             const offerIdsToProcess = new Set<string>();
-            appliedOffers.forEach((o: any) => { if (o.offerId) offerIdsToProcess.add(o.offerId); });
+            appliedOffers.forEach((o: any) => {
+              if (o.offerId) offerIdsToProcess.add(o.offerId);
+            });
             if (orderData.offerId) offerIdsToProcess.add(String(orderData.offerId));
-            orderItems.forEach((item: any) => { if (item.offerId) offerIdsToProcess.add(item.offerId); });
+            orderItems.forEach((item: any) => {
+              if (item.offerId) offerIdsToProcess.add(item.offerId);
+            });
 
             if (offerIdsToProcess.size > 0) {
               for (const offerId of offerIdsToProcess) {
@@ -278,18 +282,18 @@ export const closeSession = functions.https.onRequest(
                 // Use a transaction get to log current count
                 const offerSnap = await tx.get(offerRef);
                 const currentUsedCount = readNumber(offerSnap.data()?.usedCount, 0);
-                console.log(`[OFFER_INCREMENT_DEBUG] offerId=${offerId}, currentUsedCount=${currentUsedCount}, userId=${ownerId || 'GUEST'}`);
+                console.log(`[OFFER_INCREMENT_DEBUG] offerId=${offerId}, currentUsedCount=${currentUsedCount}, userId=${ownerId || "GUEST"}`);
 
-                tx.update(offerRef, { usedCount: FieldValue.increment(1) });
+                tx.update(offerRef, {usedCount: FieldValue.increment(1)});
 
                 if (ownerId) {
                   const userRef = db.collection("users").doc(ownerId);
                   tx.set(userRef, {
-                    [`usedOffers.${offerId}`]: FieldValue.increment(1)
-                  }, { merge: true });
+                    [`usedOffers.${offerId}`]: FieldValue.increment(1),
+                  }, {merge: true});
                   console.log(`[OFFER_INCREMENT_SUCCESS] offerId=${offerId}, newUsedCount=${currentUsedCount + 1}`);
                 } else {
-                  console.log(`[OFFER_INCREMENT_SKIPPED] reason=No ownerId found for user-specific tracking`);
+                  console.log("[OFFER_INCREMENT_SKIPPED] reason=No ownerId found for user-specific tracking");
                   console.log(`[OFFER_INCREMENT_SUCCESS] offerId=${offerId}, newUsedCount=${currentUsedCount + 1} (Global Only)`);
                 }
               }

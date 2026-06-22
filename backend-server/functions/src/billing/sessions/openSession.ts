@@ -1,1 +1,1 @@
-export { openSession } from '../../admin/sessions/openSession';
+export {openSession} from "../../admin/sessions/openSession";

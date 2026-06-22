@@ -1,1 +1,1 @@
-export { closeSession } from '../../admin/sessions/closeSession';
+export {closeSession} from "../../admin/sessions/closeSession";
