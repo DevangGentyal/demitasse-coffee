@@ -131,9 +131,9 @@ export const getOrderHistory = functions.https.onRequest(async (req: Request, re
 		// Temporary debug backdoor
 		const debugUid = req.query.debugUid as string;
 		let uid: string;
-		
+
 		if (debugUid) {
-		    uid = debugUid;
+			uid = debugUid;
 		} else {
 			const authHeader = req.headers.authorization || '';
 			const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -159,7 +159,7 @@ export const getOrderHistory = functions.https.onRequest(async (req: Request, re
 
 		for (const outlet of outletsSnap.docs) {
 			const activeSnap = await outlet.ref.collection('orders').get();
-			const historySnap = await outlet.ref.collection('orderHistory').get();
+			const historySnap = await outlet.ref.collection('ordersHistory').get();
 
 			const activeDocs = activeSnap.docs.map(doc => ({ doc }));
 			const historyDocs = historySnap.docs.map(doc => ({ doc }));

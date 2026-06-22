@@ -35,14 +35,14 @@ export const validateRegistrationEligibility = async (uid: string, offerDocsById
 			let totalOrders = 0;
 			try {
 				const activeCountSnap = await db.collectionGroup('orders').where('customerId', '==', uid).count().get();
-				const historyCountSnap = await db.collectionGroup('orderHistory').where('customerId', '==', uid).count().get();
+				const historyCountSnap = await db.collectionGroup('ordersHistory').where('customerId', '==', uid).count().get();
 				totalOrders = activeCountSnap.data().count + historyCountSnap.data().count;
 			} catch (err: any) {
 				if (err.code === 9 || err.message?.includes('index')) {
 					const outletsSnap = await db.collection('outlets').get();
 					for (const outlet of outletsSnap.docs) {
 						const activeQ = await outlet.ref.collection('orders').where('customerId', '==', uid).count().get();
-						const historyQ = await outlet.ref.collection('orderHistory').where('customerId', '==', uid).count().get();
+						const historyQ = await outlet.ref.collection('ordersHistory').where('customerId', '==', uid).count().get();
 						totalOrders += activeQ.data().count + historyQ.data().count;
 					}
 				} else throw err;
