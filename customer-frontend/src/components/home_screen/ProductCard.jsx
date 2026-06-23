@@ -31,7 +31,7 @@ export default function ProductCard({
         ) : null}
       </div>
 
-      <h3 className="mt-3 font-bold text-lg truncate">{name}</h3>
+      <h3 className="mt-3 font-bold text-lg">{name}</h3>
 
       <p className="text-sm text-gray-500 line-clamp-2">{desc}</p>
 

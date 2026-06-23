@@ -56,7 +56,7 @@ export default function OfferCard() {
     // Start immediately showing first card
     scrollToIndex(0);
 
-    timer = setInterval(advance, 2000); // every 2s: ~1s visible + smooth movement
+    timer = setInterval(advance, 5000); // every 2s: ~1s visible + smooth movement
 
     const onEnter = () => { running = false; };
     const onLeave = () => { running = true; };

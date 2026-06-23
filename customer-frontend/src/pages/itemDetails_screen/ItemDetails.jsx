@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useMenu } from "@/context/MenuContext";
 import { useCart } from "@/context/CartContext";
 import { useFilter } from "@/context/FilterContext";
@@ -13,6 +13,7 @@ import { useState, useEffect } from "react";
 export default function ItemDetails() {
 
   const { id } = useParams();
+  const navigate = useNavigate();
 
   const { products } = useMenu();
   const { addToCart } = useCart();
@@ -136,6 +137,7 @@ export default function ItemDetails() {
 
     setTimeout(() => {
       setShowSnack(false);
+      navigate("/menu");
     }, 2000);
 
   };
