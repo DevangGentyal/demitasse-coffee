@@ -1946,7 +1946,7 @@ export function FloorCanvas() {
 
       try {
         const htmlContent = container.innerHTML
-        const fullHtml = `<html><head><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
+        const fullHtml = `<html><head><script src="https://cdn.tailwindcss.com"></script><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
         await silentPrintHTML(printerName, fullHtml, { widthMm: 80 })
         console.log('[FloorCanvas] ✅ Bill printed successfully')
         toast.success('✅ Printed successfully')
