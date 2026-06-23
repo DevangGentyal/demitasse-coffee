@@ -116,6 +116,46 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
             break-inside: avoid !important;
           }
         }
+
+        /* Fallback CSS for Tailwind classes in headless printing */
+        .bg-white { background-color: #fff; }
+        .text-black { color: #000; }
+        .font-sans { font-family: ui-sans-serif, system-ui, sans-serif; }
+        .mx-auto { margin-left: auto; margin-right: auto; }
+        .flex { display: flex; }
+        .justify-between { justify-content: space-between; }
+        .flex-1 { flex: 1 1 0%; }
+        .w-8 { width: 2rem; }
+        .w-16 { width: 4rem; }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .font-bold { font-weight: bold; }
+        .font-medium { font-weight: 500; }
+        .font-extrabold { font-weight: 800; }
+        .mb-1 { margin-bottom: 0.25rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .mt-0\\.5 { margin-top: 0.125rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .my-1 { margin-top: 0.25rem; margin-bottom: 0.25rem; }
+        .gap-2 { gap: 0.5rem; }
+        .pr-1 { padding-right: 0.25rem; }
+        .flex-shrink-0 { flex-shrink: 0; }
+        .uppercase { text-transform: uppercase; }
+        .italic { font-style: italic; }
+        .break-all { word-break: break-all; }
+        .break-words { overflow-wrap: break-word; }
+        .text-gray-600 { color: #4b5563; }
+        .border-b { border-bottom-width: 1px; }
+        .border-dashed { border-style: dashed; }
+        .border-black { border-color: #000; }
+        .text-\\[9px\\] { font-size: 9px; line-height: 12px; }
+        .text-\\[10px\\] { font-size: 10px; line-height: 14px; }
+        .text-\\[11px\\] { font-size: 11px; line-height: 16px; }
+        .text-\\[14px\\] { font-size: 14px; line-height: 20px; }
+        .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+        .space-y-0\\.5 > * + * { margin-top: 0.125rem; }
+
       `}</style>
 
       <div
