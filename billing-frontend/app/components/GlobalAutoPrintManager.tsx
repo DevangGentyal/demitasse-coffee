@@ -456,7 +456,7 @@ export function GlobalAutoPrintManager() {
               toast('🖨️ Printing started...')
 
               const htmlContent = target.innerHTML
-              const fullHtml = `<html><head><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
+              const fullHtml = `<html><head><script src="https://cdn.tailwindcss.com"></script><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
 
               console.log("Before qz.print()");
               await Promise.race([
