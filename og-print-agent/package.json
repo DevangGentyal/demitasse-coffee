@@ -12,6 +12,20 @@
     "build:all": "electron-builder --win --mac --linux",
     "server-only": "node src/server.js"
   },
+  "build": {
+    "appId": "com.demitasse.printagent",
+    "productName": "OG Print Agent",
+    "directories": {
+      "output": "dist"
+    },
+    "extraResources": [
+      {
+        "from": ".cache/puppeteer",
+        "to": "puppeteer",
+        "filter": ["**/*"]
+      }
+    ]
+  },
   "author": "Demitasse Coffee",
   "license": "UNLICENSED",
   "private": true,

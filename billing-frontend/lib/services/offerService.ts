@@ -3,7 +3,7 @@ import { getOffersByOutletId as getOffersByOutletIdFromBackend } from './backend
 
 const API_LOCAL =
   process.env.NEXT_PUBLIC_API_LOCAL ||
-  'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
+  'https://us-central1-demitasse-cafe-pilot.cloudfunctions.net'
 
 export interface Offer {
   id: string
