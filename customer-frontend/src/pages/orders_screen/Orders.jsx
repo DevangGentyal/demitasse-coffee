@@ -928,7 +928,7 @@ const Orders = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F6F2] pb-24">
+    <div className="min-h-screen bg-[#f7efe6] pb-24">
       {showPayOverlay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-[2rem] border border-white/15 bg-[#1b130f] p-6 text-center text-white shadow-2xl">
@@ -962,7 +962,7 @@ const Orders = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate("/home")}
-              className="w-9 h-9 flex items-center justify-center bg-[#F7F6F2] hover:bg-[#E2E8F0] rounded-full text-lg shadow-sm text-[#0F172A] transition-colors"
+              className="w-9 h-9 flex items-center justify-center bg-[#f7efe6] hover:bg-[#E2E8F0] rounded-full text-lg shadow-sm text-[#0F172A] transition-colors"
             >
               ←
             </button>
@@ -1019,23 +1019,6 @@ const Orders = () => {
               ))}
             </div>
 
-            {/* Bill Summary Block for all ongoing orders combined */}
-            <div className="rounded-2xl border border-[#E2E8F0] bg-white p-4 shadow-sm space-y-3 mt-4">
-              <h3 className="text-sm font-bold text-[#0F172A]">Bill Summary</h3>
-              <div className="flex justify-between items-center text-sm text-[#64748B]">
-                <span>Grand Total</span>
-                <span className="font-semibold text-[#0F172A]">{currency.format(grandTotalOfOrders)}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm text-[#64748B]">
-                <span>Tax (5% GST)</span>
-                <span className="font-semibold text-[#0F172A]">{currency.format(gstTaxOfOrders)}</span>
-              </div>
-              <div className="h-px bg-[#E2E8F0] my-2" />
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-[#0F172A]">Total Payable</span>
-                <span className="text-base font-extrabold text-[#16A34A]">{currency.format(totalPayableOfOrders)}</span>
-              </div>
-            </div>
           </>
         ) : (
           <div className="rounded-2xl border border-dashed border-[#E2E8F0] bg-white px-4 py-10 text-center text-sm text-gray-500">

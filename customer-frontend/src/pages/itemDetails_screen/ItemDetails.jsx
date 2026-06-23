@@ -142,7 +142,7 @@ export default function ItemDetails() {
 
   return (
 
-    <div className="fixed inset-0 flex flex-col overflow-hidden">
+        <div className="fixed inset-0 flex flex-col overflow-hidden">
 
       <HeaderBar />
 
