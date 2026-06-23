@@ -5,8 +5,20 @@
  * The PDF is sized for thermal receipt printers (80mm width by default).
  */
 
-const puppeteer = require('puppeteer')
 const path = require('path')
+
+// Determine if we are running in a packaged Electron app
+const isPackaged = process.versions && process.versions.electron && require('electron').app && require('electron').app.isPackaged;
+
+if (isPackaged) {
+  // In production, the cache is copied to the resources directory
+  process.env.PUPPETEER_CACHE_DIR = path.join(process.resourcesPath, 'puppeteer');
+} else {
+  // In development, it's in the local .cache folder
+  process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, '../../.cache/puppeteer');
+}
+
+const puppeteer = require('puppeteer')
 const fs = require('fs')
 const { v4: uuidv4 } = require('uuid')
 const { getTempDir, ensureDir } = require('../utils/paths')

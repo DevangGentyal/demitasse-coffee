@@ -31,6 +31,8 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:3001',
   // Production domains (update these to match your actual domains)
   /\.demitasse\.cafe$/,
+  /\.demitasse\.online$/,
+  'https://billing.demitasse.online',
   /\.vercel\.app$/,
 ]
 

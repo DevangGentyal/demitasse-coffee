@@ -1879,7 +1879,7 @@ export function FloorCanvas() {
       return
     }
     try {
-      const API_BASE = 'http://localhost:5001/demitasse-cafe-pilot/us-central1'
+      const API_BASE = process.env.NEXT_PUBLIC_API_LOCAL || 'https://us-central1-demitasse-cafe-pilot.cloudfunctions.net'
       const response = await fetch(`${API_BASE}/customerBillingGenerateBill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
