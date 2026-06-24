@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import {FieldValue} from "firebase-admin/firestore";
 import {Request, Response} from "express";
 
 const db = admin.firestore();
@@ -34,20 +35,20 @@ const deleteDocRefs = async (refs: FirebaseFirestore.DocumentReference[]): Promi
   }
 };
 
-const renumberOutletTables = async (outletId: string): Promise<void> => {
+const renumberOutletTables = async (outletId: string, deletedTableId?: string): Promise<void> => {
   if (!outletId) return;
   const tablesSnap = await db.collection("outlets").doc(outletId).collection("tables").get();
   const numberedTables = tablesSnap.docs
-    .filter((doc) => readString(doc.data()?.name).toLowerCase() !== "counter")
+    .filter((doc) => doc.id !== deletedTableId && readString(doc.data()?.name).toLowerCase() !== "counter")
     .map((doc) => ({ref: doc.ref, currentName: readString(doc.data()?.name), parsedNumber: extractTableNumber(doc.data()?.name) ?? Number.MAX_SAFE_INTEGER, createdAtMillis: typeof doc.data()?.createdAt?.toMillis === "function" ? doc.data().createdAt.toMillis() : 0}))
     .sort((a, b) => a.parsedNumber - b.parsedNumber || a.createdAtMillis - b.createdAtMillis || a.currentName.localeCompare(b.currentName, undefined, {numeric: true, sensitivity: "base"}));
 
   const batch = db.batch();
   numberedTables.forEach((table, index) => {
     const nextName = `Table ${index + 1}`;
-    if (table.currentName !== nextName) batch.update(table.ref, {name: nextName, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+    if (table.currentName !== nextName) batch.update(table.ref, {name: nextName, updatedAt: FieldValue.serverTimestamp()});
   });
-  batch.set(db.collection("outletTableCounters").doc(outletId), {outletId, latestTableNumber: numberedTables.length, updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true});
+  batch.set(db.collection("outletTableCounters").doc(outletId), {outletId, latestTableNumber: numberedTables.length, updatedAt: FieldValue.serverTimestamp()}, {merge: true});
   await batch.commit();
 };
 
@@ -96,7 +97,7 @@ export const deleteTable = functions.https.onRequest(async (req: Request, res: R
 
     const orderRefs = Array.from(orderRefMap.values());
     await deleteDocRefs([tableRef, ...sessionRefs, ...orderRefs]);
-    await renumberOutletTables(outletId);
+    await renumberOutletTables(outletId, tableId);
 
     res.status(200).json({success: true, message: "Table deleted successfully and remaining tables renumbered", deleted: {tables: 1, sessions: sessionRefs.length, orders: orderRefs.length}});
   } catch (error) {

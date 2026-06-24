@@ -85,6 +85,25 @@ export const cancelEntireOrder = functions.https.onRequest(async (req: Request, 
 
     const batch = db.batch();
     ordersToCancel.forEach((doc) => batch.delete(doc.ref));
+
+    if (tableId) {
+      const tableRef = outletRef.collection("tables").doc(tableId);
+      batch.update(tableRef, {
+        status: "IDLE",
+        occupied: false,
+        activeSessionId: null,
+        billAmount: 0,
+        owner: null,
+        participants: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (sessionId) {
+      const sessionRef = outletRef.collection("sessions").doc(sessionId);
+      batch.delete(sessionRef);
+    }
+
     await batch.commit();
 
     await orderCancelRef.doc(sessionId || tableId || orderId).set({custId: customerUserId, billerId, closeReason: reason, outletId, tableId: tableId || null, sessionId: sessionId || null, orderSnapshots, totalOrdersCost, cancelledAt: FieldValue.serverTimestamp()}, {merge: true});

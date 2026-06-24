@@ -15,7 +15,7 @@ import { connectAgent, silentPrintHTML } from '@/lib/services/brontePrintService
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
 import { CancellationModal } from '@/app/components/CancellationModal'
 import { removeOrderItem } from '@/lib/services/orderService'
-import { getFloorMap } from '@/lib/services/backendApi'
+import { getFloorMap, invalidateReadCache } from '@/lib/services/backendApi'
 import { BillTemplate, type BillData } from '@/app/components/print/BillTemplate'
 import { clearPrintPageSize, fitPrintPageToContent } from '@/app/components/print/printPageSize'
 
@@ -928,6 +928,7 @@ export function FloorCanvas() {
   const safeSetTables = typeof setTables === 'function' ? setTables : null
 
   const [isEditMode, setIsEditMode] = useState(false)
+  const [isSavingLayout, setIsSavingLayout] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const dragPositionRef = useRef<{ x: number; y: number } | null>(null)
   const initialTablesRef = useRef<Table[]>([])
@@ -1142,9 +1143,7 @@ export function FloorCanvas() {
           setSelectedWallIndex(null)
 
           // Load label boxes from floor map
-          if (Array.isArray(data.labelBoxes)) {
-            setLabelBoxes(data.labelBoxes)
-          }
+          setLabelBoxes(Array.isArray(data.labelBoxes) ? data.labelBoxes : [])
 
           const tablePositions = Array.isArray(data.tablePositions) ? data.tablePositions : []
           const positionsById = new Map(
@@ -1608,14 +1607,9 @@ export function FloorCanvas() {
     toast.success('Table removed from draft layout')
   }
 
-  // ── Save layout (includes labelBoxes) ────────────────────────────────────
   const saveLayout = async () => {
     if (!outletId) return
-    const confirmed = window.confirm(
-      'Save layout changes? This will apply table add/update/delete, section labels, and wall changes to the database.'
-    )
-    if (!confirmed) return
-
+    setIsSavingLayout(true)
     try {
       const originalTables = initialTablesRef.current
       const originalTableIds = new Set(originalTables.map((t: any) => t.id))
@@ -1669,7 +1663,7 @@ export function FloorCanvas() {
       // Serialise label boxes — strip any temp ids if needed, keep data clean
       const serialisedLabelBoxes = labelBoxes.map((box) => ({
         id: box.id,
-        name: box.name,
+        name: box.name || 'Section',
         x: toFiniteNumber(box.x, 0),
         y: toFiniteNumber(box.y, 0),
         width: toFiniteNumber(box.width, LABEL_BOX_DEFAULT_WIDTH),
@@ -1677,12 +1671,18 @@ export function FloorCanvas() {
       }))
 
       await floorMapService.saveFloorMap(outletId, walls, tablePositions, serialisedLabelBoxes)
+
+      // Invalidate the read cache so the next poll fetches fresh data from Firestore
+      invalidateReadCache('floorMap')
+
       setIsEditMode(false)
       setShowWallEditor(false)
       setSelectedLabelBoxId(null)
-      toast.success('Layout saved')
+      toast.success('Layout saved successfully')
     } catch (err) {
       toast.error('Failed to save layout')
+    } finally {
+      setIsSavingLayout(false)
     }
   }
 
@@ -1989,6 +1989,16 @@ export function FloorCanvas() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="w-full h-full flex flex-col gap-3">
+      {/* Full-screen saving overlay */}
+      {isSavingLayout && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4">
+            <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-base font-semibold text-gray-800">Saving Layout…</p>
+            <p className="text-sm text-gray-500">Please don&apos;t navigate away</p>
+          </div>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4 px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm">
         <h3 className="text-lg font-bold text-gray-900">Floor Plan</h3>
@@ -2062,9 +2072,19 @@ export function FloorCanvas() {
               if (isEditMode) saveLayout()
               else setIsEditMode(true)
             }}
-            className={`flex items-center gap-2 text-sm ${isEditMode ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
+            disabled={isSavingLayout}
+            className={`flex items-center gap-2 text-sm ${
+              isEditMode
+                ? 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
+                : 'bg-blue-600 hover:bg-blue-700'
+            } text-white`}
           >
-            {isEditMode ? (
+            {isSavingLayout ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Saving…
+              </>
+            ) : isEditMode ? (
               <><Check size={16} /> Save Layout</>
             ) : (
               <><Edit2 size={16} /> Edit Layout</>

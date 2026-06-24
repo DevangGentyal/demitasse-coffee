@@ -261,7 +261,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           needsPaymentCollection: Boolean(data.needsPaymentCollection ?? false),
         } as Table
       })
-      setTables(tablesList)
+      if (!isLayoutEditing) {
+        setTables(tablesList)
+      }
     })
 
     // Subscribe to orders for this outlet
