@@ -13,7 +13,7 @@ const Offers = () => {
   }, [refreshUserProfile, refreshOffers]);
 
   return (
-    <div className="h-screen bg-[#f7efe6] max-w-[420px] mx-auto flex flex-col overflow-hidden pb-20">
+    <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-[420px] bg-[#f7efe6] z-10 flex flex-col overflow-hidden pb-20">
       <OfferHeader />
       <div className="flex-1 overflow-hidden">
         <OfferList />
