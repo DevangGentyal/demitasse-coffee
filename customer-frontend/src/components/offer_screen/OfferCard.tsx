@@ -212,6 +212,18 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, badge, isAutoApplied = fal
   const [showBirthdayModal, setShowBirthdayModal] = useState(false);
   const [addedMsg, setAddedMsg] = useState("");
 
+  useEffect(() => {
+    const isModalOpen = showComboModal || showB1G1Modal || showDiscountModal || showBirthdayModal;
+    if (isModalOpen) {
+      document.body.classList.add("modal-open");
+    } else {
+      document.body.classList.remove("modal-open");
+    }
+    return () => {
+      document.body.classList.remove("modal-open");
+    };
+  }, [showComboModal, showB1G1Modal, showDiscountModal, showBirthdayModal]);
+
   const shouldAutoApply = offer?.autoApply === true;
 
   // ─── Product lookup map ─────────────────────────────────────────────────────

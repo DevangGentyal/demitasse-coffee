@@ -9,7 +9,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 
 export default function BottomNav() {
   return (
-    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-[#f4efe9] border-t z-50">
+    <div className="bottom-nav-bar fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-[#f4efe9] border-t z-50">
       <div className="flex justify-around items-center py-3">
         
         {/* HOME */}
