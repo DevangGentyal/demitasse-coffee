@@ -1,1 +1,5 @@
 @import "tailwindcss";
+
+body.modal-open .bottom-nav-bar {
+  display: none !important;
+}
