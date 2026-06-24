@@ -62,9 +62,9 @@ const OfferList = () => {
 
   if (!displayOffers.length) {
     return (
-      <div className="flex gap-0 min-h-[calc(100vh-120px)]">
+      <div className="flex gap-0 h-full overflow-hidden">
         {categories.length > 1 && (
-          <div className="w-[90px] shrink-0 bg-[#f0e6da] border-r border-[#e0d2c3] pt-2 pb-24 overflow-y-auto sticky top-[68px] h-[calc(100vh-68px)] self-start">
+          <div className="w-[90px] shrink-0 bg-[#f0e6da] border-r border-[#e0d2c3] pt-2 pb-24 overflow-y-auto h-full">
             {categories.map((cat) => {
               const isActive = selectedCategory === cat;
               return (
@@ -97,11 +97,11 @@ const OfferList = () => {
   }
 
   return (
-    <div className="flex gap-0 min-h-[calc(100vh-120px)]">
+    <div className="flex gap-0 h-full overflow-hidden">
       
       {/* LEFT PANEL: Categories */}
       {categories.length > 1 && (
-        <div className="w-[90px] shrink-0 bg-[#f0e6da] border-r border-[#e0d2c3] pt-2 pb-24 overflow-y-auto sticky top-[68px] h-[calc(100vh-68px)] self-start">
+        <div className="w-[90px] shrink-0 bg-[#f0e6da] border-r border-[#e0d2c3] pt-2 pb-24 overflow-y-auto h-full">
           {categories.map((cat) => {
             const isActive = selectedCategory === cat;
             return (
@@ -124,7 +124,7 @@ const OfferList = () => {
       )}
 
       {/* RIGHT PANEL: ALL active offers */}
-      <div className="flex-1 px-3 pt-2 pb-24 space-y-3 overflow-y-auto">
+      <div className="flex-1 px-3 pt-2 pb-24 space-y-3 overflow-y-auto h-full">
         {displayOffers.map((offer) => (
           <OfferCard
             key={offer.id}
