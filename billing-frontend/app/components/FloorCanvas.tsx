@@ -1862,6 +1862,24 @@ export function FloorCanvas() {
         paymentMode: closePaymentMode,
         outletId: outletId!
       })
+      // Optimistically reset the table so the floor map reflects the change
+      // immediately, without waiting for the Firestore snapshot to propagate.
+      const tableIdToReset = closingSessionTable.id
+      setTables((prev: any[]) =>
+        prev.map((t: any) =>
+          t.id === tableIdToReset
+            ? {
+                ...t,
+                status: 'IDLE',
+                occupied: false,
+                activeSessionId: null,
+                billAmount: 0,
+                owner: null,
+                needsPaymentCollection: false,
+              }
+            : t
+        )
+      )
       toast.success(response?.message || 'Session update saved')
       setClosingSessionTable(null)
     } catch (err) {
