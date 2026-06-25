@@ -125,8 +125,10 @@ function OrderCard({ order }) {
 
     if (bucketId && !seenOffers.has(bucketId)) {
       seenOffers.add(bucketId);
-      const savings = allItems
-        .filter(i => {
+
+      let savings = 0;
+      if (rawOfferType === "COMBO") {
+        const matchingItems = allItems.filter(i => {
           const rId = String(i.offerId || "").trim();
           const rTitle = String(i.offerTitle || "").trim();
           const rType = String(i.offerType || "").trim().toUpperCase();
@@ -134,8 +136,30 @@ function OrderCard({ order }) {
           const fId = `${rType || "offer"}::${rTitle || "group"}`;
           const bId = rId || (isOff ? fId : "");
           return bId === bucketId;
-        })
-        .reduce((s, i) => s + readNumber(i.discount, 0), 0);
+        });
+
+        savings = matchingItems.reduce((sumSavings, i) => {
+          const qty = Number(i.quantity ?? i.qty ?? 1) || 1;
+          const comboPrice = getItemTotal(i); // total price paid for this combo item
+          const nested = Array.isArray(i.items) ? i.items : [];
+          const sumSubItems = nested.reduce((s, sub) => s + getItemTotal(sub), 0);
+
+          const itemSavings = Math.max(0, (sumSubItems * qty) - comboPrice);
+          return sumSavings + itemSavings;
+        }, 0);
+      } else {
+        savings = allItems
+          .filter(i => {
+            const rId = String(i.offerId || "").trim();
+            const rTitle = String(i.offerTitle || "").trim();
+            const rType = String(i.offerType || "").trim().toUpperCase();
+            const isOff = i.isCombo || i.isManualB1G1 || i.isDiscount || i.isBirthday || i.isFree;
+            const fId = `${rType || "offer"}::${rTitle || "group"}`;
+            const bId = rId || (isOff ? fId : "");
+            return bId === bucketId;
+          })
+          .reduce((s, i) => s + readNumber(i.discount, 0), 0);
+      }
 
       uniqueAppliedOffers.push({
         id: bucketId,
@@ -147,7 +171,7 @@ function OrderCard({ order }) {
   });
 
   const itemOriginalTotalSum = allItems.reduce((sum, item) => sum + getItemOriginalTotal(item), 0);
-  const totalSaved = allItems.reduce((sum, item) => sum + readNumber(item.discount, 0), 0);
+  const totalSaved = uniqueAppliedOffers.reduce((sum, offer) => sum + offer.savings, 0);
 
   const toggle = (key) => setExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -971,10 +995,10 @@ const Orders = () => {
               <p className="text-xs text-[#64748B]">{resolvedTableName}</p>
             </div>
           </div>
-          <div className="border border-[#16A34A] rounded-xl px-3 py-1 bg-white text-right">
+          {/* <div className="border border-[#16A34A] rounded-xl px-3 py-1 bg-white text-right">
             <p className="text-[9px] uppercase tracking-wider text-[#16A34A] font-bold">Live Total</p>
             <p className="text-sm font-extrabold text-[#16A34A]">{currency.format(totalPayableOfOrders)}</p>
-          </div>
+          </div> */}
         </div>
       </div>
 

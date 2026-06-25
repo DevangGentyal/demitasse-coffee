@@ -46,7 +46,14 @@ export const syncOrderCreated = onDocumentCreated("outlets/{outletId}/orders/{or
       }
     }
 
+    const latestStatus = String(latestTableData?.status || "").trim().toUpperCase();
+    const isFreshSession = !latestStatus || latestStatus === "IDLE";
+    // For a fresh session start (IDLE → ACTIVE), set billAmount directly to avoid
+    // accumulating stale amounts from a previously closed session. For already-active
+    // tables, increment the existing billAmount correctly.
+    const billAmountUpdate = isFreshSession ? orderTotal : FieldValue.increment(orderTotal);
+
     tx.set(orderRef, {sessionId, updatedAt: FieldValue.serverTimestamp()}, {merge: true});
-    tx.set(tableRef, {occupied: true, activeSessionId: sessionId, status: nextStatus, billAmount: FieldValue.increment(orderTotal), customerName: orderData?.customerName || latestTableData.customerName || "", customerPhone: orderData?.customerPhone || latestTableData.customerPhone || "", updatedAt: FieldValue.serverTimestamp()}, {merge: true});
+    tx.set(tableRef, {occupied: true, activeSessionId: sessionId, status: nextStatus, billAmount: billAmountUpdate, customerName: orderData?.customerName || latestTableData.customerName || "", customerPhone: orderData?.customerPhone || latestTableData.customerPhone || "", updatedAt: FieldValue.serverTimestamp()}, {merge: true});
   });
 });

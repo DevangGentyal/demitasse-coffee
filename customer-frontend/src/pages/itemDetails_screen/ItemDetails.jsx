@@ -144,14 +144,13 @@ export default function ItemDetails() {
 
   return (
 
-        <div className="fixed inset-0 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 flex flex-col overflow-hidden">
 
       <HeaderBar />
 
       <ItemImage image={product.image} />
 
-      <div className="mx-4 mt-6 max-h-[52vh] overflow-y-auto pb-6 space-y-4">
-
+      <div className="mx-4 mt-6">
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
           <div className="flex justify-between items-start">
             <h1 className="text-lg font-bold">
@@ -165,7 +164,9 @@ export default function ItemDetails() {
             {product.desc}
           </p>
         </div>
+      </div>
 
+      <div className="mx-4 mt-6 max-h-[52vh] overflow-y-auto pb-6 space-y-4">
         {/* 🔹 Variations */}
         {(product.variations || []).map((group, i) => (
           <Variations
@@ -205,6 +206,8 @@ export default function ItemDetails() {
           );
 
         })}
+
+        <div className="mb-24"></div>
 
       </div>
 

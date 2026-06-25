@@ -77,6 +77,41 @@ const ProximityErrorModal = ({ message, onClose }) => {
   );
 };
 
+// ─── Location Error Modal ─────────────────────────────────────────────────────
+const LocationErrorModal = ({ message, onRefresh }) => {
+  if (!message) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+    >
+      <div
+        className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl text-center transform transition-all"
+        style={{ animation: "slideUp 0.3s ease-out" }}
+      >
+        <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4">
+          <span className="text-3xl">📍</span>
+        </div>
+        <h3 className="text-xl font-bold text-gray-900 mb-2">Location Access Required</h3>
+        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+          {message}
+        </p>
+        <button
+          onClick={onRefresh}
+          className="w-full py-3 bg-[#6B4F4F] text-white rounded-xl font-bold shadow-md hover:bg-[#5a4242] transition-colors"
+        >
+          Refresh Page
+        </button>
+      </div>
+      <style>{`
+        @keyframes slideUp {
+          from { transform: translateY(100%); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+      `}</style>
+    </div>
+  );
+};
+
 const SelectOutlet = ({ onClose }) => {
   const navigate = useNavigate()
 
@@ -86,6 +121,9 @@ const SelectOutlet = ({ onClose }) => {
   const { user } = useAuth()
 
   const [location, setLocation] = useState(null)
+  const [locationLoading, setLocationLoading] = useState(true)
+  const [locationError, setLocationError] = useState(null)
+
   const [outlets, setOutlets] = useState([])
   const [tables, setTables] = useState([])
   const [tablesLoading, setTablesLoading] = useState(false)
@@ -256,13 +294,13 @@ const SelectOutlet = ({ onClose }) => {
   // ────────────────────────────────────────────────────────────────────────────
 
   const getLocation = () => {
+    setLocationLoading(true)
+    setLocationError(null)
+
     if (!navigator.geolocation) {
-      showMsg(
-        "Geolocation is not supported by your browser. Showing all outlets instead."
-      )
-
-      fetchOutlets()
-
+      const errMsg = "Geolocation is not supported by your browser. Please use a browser that supports location services."
+      setLocationError(errMsg)
+      setLocationLoading(false)
       return
     }
 
@@ -274,19 +312,22 @@ const SelectOutlet = ({ onClose }) => {
         }
 
         setLocation(userLocation)
-
+        setLocationLoading(false)
         fetchOutlets(userLocation)
       },
 
       (error) => {
         console.error("Geolocation error:", error)
-
-        showMsg(
-          "Unable to retrieve your location. Showing all outlets instead."
-        )
-
-        // IMPORTANT FIX
-        fetchOutlets()
+        let errMsg = "Unable to retrieve your location. Please ensure location access is enabled in your browser settings and try again."
+        if (error.code === error.PERMISSION_DENIED) {
+          errMsg = "Location access was denied. Please enable location permissions for this website in your browser settings and refresh."
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          errMsg = "Location information is unavailable. Please verify your device's location services are turned on."
+        } else if (error.code === error.TIMEOUT) {
+          errMsg = "Location request timed out. Please try refreshing."
+        }
+        setLocationError(errMsg)
+        setLocationLoading(false)
       },
 
       {
@@ -545,13 +586,24 @@ const SelectOutlet = ({ onClose }) => {
           onClose={() => setBannerMsg("")}
         />
 
-        {location ? (
+        {locationError && (
+          <LocationErrorModal 
+            message={locationError} 
+            onRefresh={() => window.location.reload()} 
+          />
+        )}
+
+        {locationLoading ? (
+          <p className="text-sm text-amber-600 mb-4">
+            Detecting location...
+          </p>
+        ) : location ? (
           <p className="text-sm text-green-600 mb-4">
             Location detected successfully
           </p>
         ) : (
-          <p className="text-sm text-gray-600 mb-4">
-            Showing all available outlets
+          <p className="text-sm text-red-600 mb-4">
+            Location access required
           </p>
         )}
 
@@ -561,8 +613,11 @@ const SelectOutlet = ({ onClose }) => {
           className="w-full border rounded-md p-2 mb-4 outline-none focus:ring-1 focus:ring-brown-500"
           value={selectedOutlet}
           onChange={handleOutletChange}
+          disabled={locationLoading || !location}
         >
-          <option value="">Select Outlet</option>
+          <option value="">
+            {locationLoading ? "Detecting location..." : "Select Outlet"}
+          </option>
 
           {outlets.map((outlet) => (
             <option key={outlet.id} value={outlet.id}>

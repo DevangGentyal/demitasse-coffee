@@ -1,11 +1,11 @@
 import * as admin from "firebase-admin";
-import {FieldValue} from "firebase-admin/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 
 const db = admin.firestore();
 
 export interface UserBrief {
-	uid?: string | null;
-	name?: string | null;
+  uid?: string | null;
+  name?: string | null;
 }
 
 const cleanString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
@@ -36,7 +36,7 @@ export const createOrGetSession = async (
   const debugPrefix = `[sessionUtils:createOrGetSession table=${String(tableId)} outlet=${String(outletId)}]`;
   const tableRef = db.collection("outlets").doc(outletId).collection("tables").doc(String(tableId));
   const tableSnap = await tableRef.get();
-  console.info(debugPrefix, "table lookup", {exists: tableSnap.exists});
+  console.info(debugPrefix, "table lookup", { exists: tableSnap.exists });
   const participantId = cleanString(openedBy?.uid);
 
   if (tableSnap.exists) {
@@ -64,7 +64,7 @@ export const createOrGetSession = async (
             owner: ownerId || null,
             participants: participants,
             updatedAt: FieldValue.serverTimestamp(),
-          }, {merge: true});
+          }, { merge: true });
 
           tx.set(tableRef, {
             occupied: true,
@@ -72,13 +72,13 @@ export const createOrGetSession = async (
             owner: ownerId || null,
             participants: participants,
             updatedAt: FieldValue.serverTimestamp(),
-          }, {merge: true});
+          }, { merge: true });
         });
 
-        console.info(debugPrefix, "reusing active session", {sessionId: sessionSnap.id, ownerId, participants});
-        return {sessionId: sessionSnap.id, created: false, ownerId, participants};
+        console.info(debugPrefix, "reusing active session", { sessionId: sessionSnap.id, ownerId, participants });
+        return { sessionId: sessionSnap.id, created: false, ownerId, participants };
       }
-      console.warn(debugPrefix, "table points at missing active session", {activeSessionId: active});
+      console.warn(debugPrefix, "table points at missing active session", { activeSessionId: active });
     }
   }
 
@@ -116,16 +116,16 @@ export const createOrGetSession = async (
 
   await db.runTransaction(async (tx) => {
     tx.set(sessionRef, sessionPayload);
-    tx.set(tableRef, {occupied: true, activeSessionId: sessionRef.id, owner: ownerId || null, participants, status: resolveTableStatus(tableData.status, "ACTIVE"), updatedAt: FieldValue.serverTimestamp()}, {merge: true});
+    tx.set(tableRef, { occupied: true, activeSessionId: sessionRef.id, owner: ownerId || null, participants, status: resolveTableStatus(tableData.status, "ACTIVE"), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   });
-  console.info(debugPrefix, "new session committed", {sessionId: sessionRef.id, ownerId, participants});
+  console.info(debugPrefix, "new session committed", { sessionId: sessionRef.id, ownerId, participants });
 
-  return {sessionId: sessionRef.id, created: true, ownerId, participants};
+  return { sessionId: sessionRef.id, created: true, ownerId, participants };
 };
 
 export const closeSession = async (sessionId: string, outletId: string, closedBy?: UserBrief) => {
   if (!sessionId) return;
-  console.info("[sessionUtils:closeSession]", {sessionId, closedBy: closedBy || null});
+  console.info("[sessionUtils:closeSession]", { sessionId, closedBy: closedBy || null });
 
 
   const sessionSnap = await db.collection("outlets").doc(outletId).collection("sessions").doc(sessionId).get();
@@ -154,7 +154,7 @@ export const closeSession = async (sessionId: string, outletId: string, closedBy
 
     if (tableId) {
       const tableRef = db.collection("outlets").doc(outletId).collection("tables").doc(String(tableId));
-      tx.set(tableRef, {occupied: false, activeSessionId: null}, {merge: true});
+      tx.set(tableRef, { occupied: false, activeSessionId: null }, { merge: true });
     }
   });
 };
