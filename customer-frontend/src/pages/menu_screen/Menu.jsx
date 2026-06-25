@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import Header from "@/components/home_screen/Header";
 import SearchBar from "@/components/home_screen/SearchBar";
@@ -12,11 +13,11 @@ import { useMenu } from "@/context/MenuContext";
 import { useFilter } from "@/context/FilterContext";
 
 export default function Menu() {
-
   const { products, loading } = useMenu();
   const { vegOnly } = useFilter();
+  const location = useLocation();
 
-  const [activeCategory, setActiveCategory] = useState(null);
+  const [activeCategory, setActiveCategory] = useState(location.state?.category || null);
   const [activeSubcategory, setActiveSubcategory] = useState(null);
   const [search, setSearch] = useState("");
 

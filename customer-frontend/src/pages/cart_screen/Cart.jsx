@@ -777,7 +777,7 @@ const Cart = () => {
             <button
               disabled={cart.length === 0 || isValidating}
               onClick={handlePlaceOrder}
-              className="flex-1 bg-green-500 text-white py-3 rounded-full font-semibold disabled:opacity-50"
+              className="flex-1 bg-green-500 text-white py-3 rounded-full font-semibold disabled:opacity-30"
             >
               {isValidating ? "Validating..." : `Place Order (${totalItems})`}
             </button>

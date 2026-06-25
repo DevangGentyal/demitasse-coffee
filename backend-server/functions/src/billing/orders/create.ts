@@ -1,18 +1,18 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import {Request, Response} from "express";
-import {FieldValue} from "firebase-admin/firestore";
-import {earnPoints} from "../../customer/loyalty/earnPoints";
-import {createOrGetSession} from "../../shared/session/sessionUtils";
-import {calculateSubtotal} from "../../shared/utilities/billing/pricing";
-import {applyTax} from "../../shared/utilities/billing/tax";
-import {getOfferDocs, getProductDoc} from "../../shared/utilities/firestoreCatalog";
+import { Request, Response } from "express";
+import { FieldValue } from "firebase-admin/firestore";
+import { earnPoints } from "../../customer/loyalty/earnPoints";
+import { createOrGetSession } from "../../shared/session/sessionUtils";
+import { calculateSubtotal } from "../../shared/utilities/billing/pricing";
+import { applyTax } from "../../shared/utilities/billing/tax";
+import { getOfferDocs, getProductDoc } from "../../shared/utilities/firestoreCatalog";
 import {
   normalizeOrderItemsForPricing,
   applyOfferPricingByGroup,
   buildPricingSummaryFromItems,
 } from "../../shared/utilities/offers/orderPricing";
-import {applyOffer} from "../../shared/utilities/offers/applyOffer";
+import { applyOffer } from "../../shared/utilities/offers/applyOffer";
 
 const db = admin.firestore();
 
@@ -39,7 +39,7 @@ export const createOrder = functions.https.onRequest(
 
     try {
       if (req.method !== "PUT") {
-        res.status(405).json({success: false, message: "Method not allowed"});
+        res.status(405).json({ success: false, message: "Method not allowed" });
         return;
       }
 
@@ -57,18 +57,18 @@ export const createOrder = functions.https.onRequest(
         orderType: requestedOrderType,
       } = req.body;
       if (!outletId || !items || !Array.isArray(items)) {
-        res.status(400).json({success: false, message: "outletId and items array are required"});
+        res.status(400).json({ success: false, message: "outletId and items array are required" });
         return;
       }
       if (items.length === 0) {
-        res.status(400).json({success: false, message: "Order must contain at least one item"});
+        res.status(400).json({ success: false, message: "Order must contain at least one item" });
         return;
       }
 
       let activeSessionId = null;
       if (tableId) {
         try {
-          const sessionResult = await createOrGetSession(outletId, String(tableId), {uid: customerId || null, name: customerName || null});
+          const sessionResult = await createOrGetSession(outletId, String(tableId), { uid: customerId || null, name: customerName || null });
           activeSessionId = sessionResult.sessionId;
         } catch (err) {
           console.error("Failed to create/get session for order:", err);
@@ -117,7 +117,7 @@ export const createOrder = functions.https.onRequest(
       const subTotal = calculateSubtotal(normalizedItems);
       const itemsWithPricing = applyOfferPricingByGroup(normalizedItems, offerDocsById as any, applyTax);
       const primaryOfferDoc = requestedOfferId ? (offerDocsById.get(requestedOfferId) || null) : null;
-      const {orderType: appliedOrderType} = applyOffer({subTotal, items: itemsWithPricing}, primaryOfferDoc);
+      const { orderType: appliedOrderType } = applyOffer({ subTotal, items: itemsWithPricing }, primaryOfferDoc);
       const resolvedOrderType = readString(requestedOrderType).toUpperCase() || appliedOrderType;
       const pricing = buildPricingSummaryFromItems(itemsWithPricing);
       const computedTotalAmount = readNumber(totalAmount, Number.NaN);
@@ -133,7 +133,7 @@ export const createOrder = functions.https.onRequest(
         placedBy: resolvePlacedBy(placedBy),
         orderType: resolvedOrderType,
         tableId: tableId || null,
-        sessionId: activeSessionId,
+        activeSessionId: activeSessionId,
         items: itemsWithPricing,
         offerId: requestedOfferId,
         autoAppliedOfferId: requestedOfferId,
@@ -161,7 +161,7 @@ export const createOrder = functions.https.onRequest(
             offerRef = db.collection("offers").doc(offId);
             offerSnap = await tx.get(offerRef);
           }
-          offersMap.set(offId, {ref: offerRef, snap: offerSnap});
+          offersMap.set(offId, { ref: offerRef, snap: offerSnap });
 
           if (offerSnap.exists) {
             const offerData = offerSnap.data() || {};
@@ -202,15 +202,15 @@ export const createOrder = functions.https.onRequest(
         earnPoints(customerId, customerName, finalTotalAmount, itemsWithPricing, orderRef.id);
       }
 
-      res.status(201).json({success: true, id: orderRef.id, message: "Order created successfully"});
+      res.status(201).json({ success: true, id: orderRef.id, message: "Order created successfully" });
     } catch (error) {
       console.error("Error creating order:", error);
       const message = error instanceof Error ? error.message : "Internal server error";
       if (message === "OFFER_USAGE_LIMIT_REACHED") {
-        res.status(409).json({success: false, message: "Offer usage limit reached. Please remove the offer and try again."});
+        res.status(409).json({ success: false, message: "Offer usage limit reached. Please remove the offer and try again." });
         return;
       }
-      res.status(500).json({success: false, message, error: String(error)});
+      res.status(500).json({ success: false, message, error: String(error) });
     }
   }
 );

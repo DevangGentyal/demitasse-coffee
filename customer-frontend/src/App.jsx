@@ -1,5 +1,5 @@
 // src/App.jsx
-import React from "react";
+import React, { useEffect } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -64,6 +64,10 @@ function AppContent() {
 function Layout() {
   const location = useLocation();
   const { paymentLockActive, selectedTableName, tableNumber, selectedOutlet, outletName } = useLocationContext();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   if (paymentLockActive) {
     return <PaymentRequestScreen tableName={selectedTableName || tableNumber || "your table"} outletName={outletName || selectedOutlet || "the outlet"} />;
