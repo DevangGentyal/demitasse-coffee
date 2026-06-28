@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { setGlobalOptions } from "firebase-functions/v2";
 
 // Force using the real production Firestore instead of the local firestore emulator
 // (since firestore emulator is not running, but firebase emulators:start might set the env var)
@@ -9,6 +10,9 @@ delete process.env.FIREBASE_FIRESTORE_EMULATOR_HOST;
 if (admin.apps.length === 0) {
     admin.initializeApp();
 }
+
+// Set region for ALL Cloud Functions (v1 and v2) globally
+setGlobalOptions({ region: "asia-south1" });
 
 // Now import the actual function handlers with explicit imports to control execution order
 import { openSession as adminOpenSessionFn } from "./admin/sessions/openSession";
