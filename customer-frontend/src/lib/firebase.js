@@ -17,7 +17,7 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
-export const functions = getFunctions(app);
+export const functions = getFunctions(app, "asia-south1");
 
 // Connect to the Functions emulator when running locally (dev mode).
 // This must happen once at module load, before any httpsCallable is invoked.
