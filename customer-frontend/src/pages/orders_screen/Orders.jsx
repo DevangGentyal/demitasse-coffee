@@ -397,7 +397,7 @@ function BillModal({ billData, tableName, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-6">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-6">
       <div className="flex w-full max-w-[520px] max-h-[90vh] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
@@ -610,6 +610,20 @@ const Orders = () => {
   const [error, setError] = useState(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    const nav = document.querySelector(".bottom-nav-bar");
+    if (nav) {
+      if (showBillModal) {
+        nav.style.setProperty("display", "none", "important");
+      } else {
+        nav.style.display = "";
+      }
+    }
+    return () => {
+      if (nav) nav.style.display = "";
+    };
+  }, [showBillModal]);
 
   const resolvedTableName = selectedTableName || tableNumber || "Current Table";
   const viewerId = String(user?.uid || selectedTableOwnerId || "");
