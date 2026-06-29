@@ -19,6 +19,7 @@ const getFriendlyError = (errorCode) => {
     "auth/network-request-failed": "No internet connection. Please try again.",
     "auth/popup-closed-by-user": "Google sign-in was cancelled.",
     "auth/too-many-requests": "Too many attempts. Please wait a moment and try again.",
+    "auth/account-exists-with-different-credential": "This email is registered with a password. Please go to the Login page to link your Google account.",
   };
   return map[errorCode] || "Something went wrong. Please try again.";
 };

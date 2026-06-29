@@ -3,18 +3,45 @@ import { getCurrentUserProfile, getProductsByOutletId as getProductsByOutletIdFr
 import { buildCloudFunctionsUrl } from './cloudFunctions'
 import { parseJsonOrFallback } from './httpUtils'
 
+export interface CustomizationOption {
+  name: string
+  price: number
+  isAvailable: boolean
+}
+
+export interface CustomizationGroup {
+  groupName: string
+  min: number
+  max: number
+  options: CustomizationOption[]
+}
+
+export interface VariationOption {
+  name: string
+  price: number
+}
+
+export interface Variation {
+  label: string
+  min: number
+  max: number
+  options: VariationOption[]
+}
+
 export interface Product {
   id: string
   outletId: string
   name: string
   category: string
   subcategory?: string
+  description?: string
   price: number
   taxPercent?: number
   isVeg?: boolean
   imageUrl?: string
   isAvailable: boolean
-  customizations?: any[]
+  customizations?: CustomizationGroup[]
+  variations?: Variation[]
   sortOrder?: number
   createdAt?: any
   updatedAt?: any

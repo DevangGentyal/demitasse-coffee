@@ -5,12 +5,18 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   EmailAuthProvider,
+  GoogleAuthProvider,
   linkWithCredential,
   fetchSignInMethodsForEmail,
   signInAnonymously,
 } from "firebase/auth";
 import { auth, googleProvider } from "../../lib/firebase";
 import { getCurrentUserProfile, upsertUserProfile } from "../../lib/backendApi";
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  import.meta.env.VITE_API_LOCAL ||
+  "http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1";
 
 // ─── Friendly error map ───────────────────────────────────────────────────────
 const getFriendlyError = (code) => {
@@ -22,6 +28,7 @@ const getFriendlyError = (code) => {
     "auth/too-many-requests":     "Too many attempts. Please wait a moment and try again.",
     "auth/network-request-failed":"No internet connection. Please try again.",
     "auth/popup-closed-by-user":  "Google sign-in was cancelled.",
+    "auth/cancelled-popup-request":"Google sign-in was cancelled. Please try again.",
     "auth/provider-already-linked":"Email login is already enabled for your account.",
     "auth/weak-password":         "Password must be at least 6 characters.",
     "auth/email-already-in-use":  "This email is already registered. Please login with your password.",
@@ -45,110 +52,7 @@ const Banner = ({ message, type = "error", onClose }) => {
   );
 };
 
-// ─── Set-password modal (for Google users who want email login) ────────────────
-const LinkPasswordModal = ({ email, user, onSuccess, onClose }) => {
-  const [pw, setPw]         = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [err, setErr]       = useState("");
-  const [linking, setLinking] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const handleLink = async () => {
-    setErr("");
-    if (pw.length < 6)       { setErr("Password must be at least 6 characters."); return; }
-    if (pw !== confirm)      { setErr("Passwords do not match."); return; }
-
-    setLinking(true);
-    try {
-      const credential = EmailAuthProvider.credential(email, pw);
-      await linkWithCredential(user, credential);
-      onSuccess("You're all set! You can now login using email & password 🎉");
-    } catch (error) {
-      setErr(getFriendlyError(error.code));
-    } finally {
-      setLinking(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center"
-      style={{ backgroundColor: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-[420px] bg-white rounded-t-3xl px-6 pt-5 pb-10 shadow-2xl"
-        style={{ animation: "slideUp 0.3s ease-out" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
-        <h2 className="text-lg font-bold text-gray-800 text-center mb-1">Set a Password</h2>
-        <p className="text-sm text-gray-500 text-center mb-4">
-          Add a password so you can also login with <strong>{email}</strong>
-        </p>
-
-        {err && <Banner message={err} onClose={() => setErr("")} />}
-
-        <div className="space-y-3 mt-3">
-          <div className="relative">
-            <input
-              type={showNewPassword ? "text" : "password"}
-              placeholder="New password"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              className="w-full pl-4 pr-10 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513]"
-            />
-            <button
-              type="button"
-              onClick={() => setShowNewPassword(!showNewPassword)}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label={showNewPassword ? "Hide password" : "Show password"}
-            >
-              {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
-          <div className="relative">
-            <input
-              type={showConfirmPassword ? "text" : "password"}
-              placeholder="Confirm password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              className="w-full pl-4 pr-10 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513]"
-            />
-            <button
-              type="button"
-              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-            >
-              {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
-          <button
-            onClick={handleLink}
-            disabled={linking}
-            className="w-full py-3 bg-[#8B4513] text-white font-bold rounded-xl shadow-md hover:bg-[#A0522D] disabled:opacity-50 transition"
-          >
-            {linking ? "Linking..." : "Save Password"}
-          </button>
-          <button
-            onClick={onClose}
-            className="w-full py-3 bg-gray-100 text-gray-600 font-semibold rounded-xl hover:bg-gray-200 transition"
-          >
-            Skip for now
-          </button>
-        </div>
-      </div>
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateY(100%); opacity: 0; }
-          to   { transform: translateY(0);    opacity: 1; }
-        }
-      `}</style>
-    </div>
-  );
-};
 
 // ─── Navigate after successful login ──────────────────────────────────────────
 const navigateAfterLogin = async (uid, setShowOutletPopup, navigate) => {
@@ -164,13 +68,17 @@ const navigateAfterLogin = async (uid, setShowOutletPopup, navigate) => {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const Login_Page = ({ setShowOutletPopup }) => {
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [loading, setLoading]   = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
-  const [linkModal, setLinkModal]   = useState(null); // { user, email }
   const [waitingForApproval, setWaitingForApproval] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [linkingGoogleCred, setLinkingGoogleCred] = useState(null);
+  const [linkingEmail, setLinkingEmail] = useState("");
+  const [linkPasswordInput, setLinkPasswordInput] = useState("");
+  const [showLinkPasswordPrompt, setShowLinkPasswordPrompt] = useState(false);
   const navigate = useNavigate();
 
   const clearMessages = () => { setErrorMsg(""); setSuccessMsg(""); };
@@ -244,7 +152,9 @@ const Login_Page = ({ setShowOutletPopup }) => {
 
   // ── Google login ─────────────────────────────────────────────────────────
   const handleGoogleLogin = async () => {
+    if (googleLoading) return; // Prevent multiple concurrent popup requests
     clearMessages();
+    setGoogleLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user   = result.user;
@@ -265,18 +175,61 @@ const Login_Page = ({ setShowOutletPopup }) => {
         });
       }
 
-      // Check if password provider is already linked
-      const hasPassword = user.providerData.some(p => p.providerId === "password");
-      if (!hasPassword) {
-        // Offer to link a password — non-blocking, user can skip
-        setLinkModal({ user, email: user.email });
-        return; // navigateAfterLogin happens onClose or onSuccess
-      }
-
       await navigateAfterLogin(user.uid, setShowOutletPopup, navigate);
     } catch (error) {
       console.error(error);
-      setErrorMsg(getFriendlyError(error.code));
+      if (error.code === "auth/account-exists-with-different-credential") {
+        const email = error.customData.email;
+        const credential = GoogleAuthProvider.credentialFromError(error);
+        setLinkingEmail(email);
+        setLinkingGoogleCred(credential);
+        setShowLinkPasswordPrompt(true);
+        setErrorMsg("");
+      } else {
+        setErrorMsg(getFriendlyError(error.code));
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleResolveLinking = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMsg("");
+    try {
+      // 1. Sign in with the existing password credential
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        linkingEmail,
+        linkPasswordInput
+      );
+      // 2. Link the google credential to this user
+      await linkWithCredential(userCredential.user, linkingGoogleCred);
+
+      // Update provider field in Firestore profile database
+      await upsertUserProfile({
+        uid: userCredential.user.uid,
+        provider: "both",
+        updatedAt: new Date(),
+      });
+
+      setSuccessMsg("Accounts successfully linked! 🎉");
+      setShowLinkPasswordPrompt(false);
+      setLinkPasswordInput("");
+      setLinkingGoogleCred(null);
+
+      localStorage.setItem("userType", "registered");
+      await navigateAfterLogin(userCredential.user.uid, setShowOutletPopup, navigate);
+    } catch (error) {
+      console.error("Linking failed:", error);
+      setErrorMsg(
+        error.code === "auth/wrong-password" || error.code === "auth/invalid-credential"
+          ? "Incorrect password. Please try again."
+          : getFriendlyError(error.code)
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -295,33 +248,7 @@ const Login_Page = ({ setShowOutletPopup }) => {
     setLoading(false);
   };
 
-  // ── Link modal callbacks ─────────────────────────────────────────────────
-  const handleLinkSuccess = async (msg) => {
-    setLinkModal(null);
-    setSuccessMsg(msg);
-    // Navigate after a brief delay so user sees the success message
-    setTimeout(async () => {
-      if (auth.currentUser) {
-        try {
-          await navigateAfterLogin(auth.currentUser.uid, setShowOutletPopup, navigate);
-        } catch (e) {
-          // Error already handled and set in navigateAfterLogin
-        }
-      }
-    }, 1800);
-  };
 
-  const handleLinkClose = async () => {
-    const user = linkModal?.user;
-    setLinkModal(null);
-    if (user) {
-      try {
-        await navigateAfterLogin(user.uid, setShowOutletPopup, navigate);
-      } catch (e) {
-        // Error already handled
-      }
-    }
-  };
 
   if (waitingForApproval) {
     return (
@@ -421,14 +348,15 @@ const Login_Page = ({ setShowOutletPopup }) => {
           <button
             type="button"
             onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center gap-3 border py-3 rounded-xl font-medium hover:bg-gray-100 transition duration-300 shadow-sm"
+            disabled={googleLoading}
+            className="w-full flex items-center justify-center gap-3 border py-3 rounded-xl font-medium hover:bg-gray-100 transition duration-300 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <img
               src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
               alt="Google"
               className="w-5 h-5"
             />
-            Continue with Google
+            {googleLoading ? "Signing in..." : "Continue with Google"}
           </button>
 
           {/* Guest */}
@@ -449,14 +377,54 @@ const Login_Page = ({ setShowOutletPopup }) => {
         </form>
       </div>
 
-      {/* Link Password Modal */}
-      {linkModal && (
-        <LinkPasswordModal
-          email={linkModal.email}
-          user={linkModal.user}
-          onSuccess={handleLinkSuccess}
-          onClose={handleLinkClose}
-        />
+      {/* Link Password Prompt */}
+      {showLinkPasswordPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ backgroundColor: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }}
+        >
+          <form
+            onSubmit={handleResolveLinking}
+            className="w-full max-w-[420px] bg-white rounded-t-3xl px-6 pt-5 pb-10 shadow-2xl space-y-4"
+            style={{ animation: "slideUp 0.3s ease-out" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
+            <h2 className="text-lg font-bold text-gray-800 text-center mb-1">Link Google Account</h2>
+            <p className="text-sm text-gray-500 text-center mb-4">
+              An account with <strong>{linkingEmail}</strong> already exists using a password. Enter your password to link Google.
+            </p>
+
+            <input
+              type="password"
+              placeholder="Enter your account password"
+              required
+              value={linkPasswordInput}
+              onChange={(e) => setLinkPasswordInput(e.target.value)}
+              className="w-full px-4 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#8B4513] bg-[#faf6f1]"
+            />
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-[#8B4513] text-white font-bold rounded-xl shadow-md hover:bg-[#A0522D] disabled:opacity-50 transition"
+            >
+              {loading ? "Linking..." : "Link Google Account"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowLinkPasswordPrompt(false);
+                setLinkPasswordInput("");
+                setLinkingGoogleCred(null);
+                setLinkingEmail("");
+              }}
+              className="w-full py-3 bg-gray-100 text-gray-600 font-semibold rounded-xl hover:bg-gray-200 transition"
+            >
+              Cancel
+            </button>
+          </form>
+        </div>
       )}
     </>
   );
