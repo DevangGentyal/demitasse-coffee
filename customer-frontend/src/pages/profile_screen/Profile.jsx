@@ -7,6 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useOffers } from "../../context/OfferContext";
 import UpdateNameModal from "../../components/profile/UpdateNameModal";
 import UpdatePasswordModal from "../../components/profile/UpdatePasswordModal";
+import SetPasswordModal from "../../components/profile/SetPasswordModal";
 
 // Icons from heroicons
 import {
@@ -30,6 +31,7 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [showNameModal, setShowNameModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showSetPasswordModal, setShowSetPasswordModal] = useState(false);
   const [toast, setToast] = useState(null);
 
   const isGuest = !user && localStorage.getItem("userType") === "guest";
@@ -96,6 +98,13 @@ export default function Profile() {
   const handlePasswordSuccess = () => {
     setShowPasswordModal(false);
     showToast("Password updated successfully! 🔒");
+  };
+
+  const handleSetPasswordSuccess = () => {
+    setShowSetPasswordModal(false);
+    showToast("Password set successfully! Now you can also log in with email and password 🔒");
+    // Force re-render/fetch user context to update isGoogleOnly state
+    window.location.reload();
   };
 
   // Format DOB
@@ -269,17 +278,12 @@ export default function Profile() {
 
           {/* Update Password */}
           {isGoogleOnly ? (
-            <div className="flex items-center gap-4 px-5 py-4 border-t border-gray-50">
-              <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400">
-                <LockClosedIcon className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-400">Password</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Google sign-in only — no password set
-                </p>
-              </div>
-            </div>
+            <MenuItem
+              icon={<LockClosedIcon className="w-5 h-5" />}
+              label="Set Password"
+              subtitle="Set a password for email login"
+              onClick={() => setShowSetPasswordModal(true)}
+            />
           ) : (
             <MenuItem
               icon={<LockClosedIcon className="w-5 h-5" />}
@@ -318,6 +322,13 @@ export default function Profile() {
         <UpdatePasswordModal
           onClose={() => setShowPasswordModal(false)}
           onSuccess={handlePasswordSuccess}
+        />
+      )}
+
+      {showSetPasswordModal && (
+        <SetPasswordModal
+          onClose={() => setShowSetPasswordModal(false)}
+          onSuccess={handleSetPasswordSuccess}
         />
       )}
 
