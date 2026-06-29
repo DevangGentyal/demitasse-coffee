@@ -130,8 +130,8 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .font-bold { font-weight: bold; }
-        .font-medium { font-weight: 500; }
-        .font-extrabold { font-weight: 800; }
+        .font-medium { font-weight: 700; }
+        .font-extrabold { font-weight: 900; }
         .mb-1 { margin-bottom: 0.25rem; }
         .mb-2 { margin-bottom: 0.5rem; }
         .mt-0\\.5 { margin-top: 0.125rem; }
@@ -145,15 +145,15 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
         .italic { font-style: italic; }
         .break-all { word-break: break-all; }
         .break-words { overflow-wrap: break-word; }
-        .text-gray-600 { color: #4b5563; }
+        .text-gray-600 { color: #000; font-weight: bold; }
         .border-b { border-bottom-width: 1px; }
         .border-dashed { border-style: dashed; }
         .border-black { border-color: #000; }
-        .text-\\[9px\\] { font-size: 9px; line-height: 12px; }
-        .text-\\[10px\\] { font-size: 10px; line-height: 14px; }
-        .text-\\[11px\\] { font-size: 11px; line-height: 16px; }
-        .text-\\[14px\\] { font-size: 14px; line-height: 20px; }
-        .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+        .text-\\[9px\\] { font-size: 12px; line-height: 16px; }
+        .text-\\[10px\\] { font-size: 13px; line-height: 18px; }
+        .text-\\[11px\\] { font-size: 14px; line-height: 20px; }
+        .text-\\[14px\\] { font-size: 18px; line-height: 24px; }
+        .text-sm { font-size: 16px; line-height: 22px; }
         .space-y-0\\.5 > * + * { margin-top: 0.125rem; }
 
       `}</style>
