@@ -54,13 +54,13 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   lineHeight = 1.2,
 }) => {
   const paperWidth = Number(width) || 280
-  const titleSize = '13px'
-  const headerSize = '16px'
-  const metaSize = '11px'
-  const itemHeaderSize = '12px'
-  const itemFontSize = '12px'
-  const notesFontSize = '11px'
-  const footerSize = '11px'
+  const titleSize = '16px'
+  const headerSize = '20px'
+  const metaSize = '13px'
+  const itemHeaderSize = '14px'
+  const itemFontSize = '15px'
+  const notesFontSize = '13px'
+  const footerSize = '13px'
   const itemGap = '8px'
   const sectionGap = '6px'
 
@@ -235,7 +235,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
                 alignItems: 'flex-start',
                 gap: '6px',
                 fontSize: itemFontSize,
-                fontWeight: 500,
+                fontWeight: 700,
               }}
             >
               <span
@@ -263,7 +263,8 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
               <div
                 style={{
                   fontSize: notesFontSize,
-                  color: '#444',
+                  color: '#000',
+                  fontWeight: 700,
                   paddingLeft: '8px',
                   marginTop: '2px',
                   wordBreak: 'break-word',
