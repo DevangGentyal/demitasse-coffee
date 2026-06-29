@@ -87,7 +87,7 @@ export function Sidebar() {
   return (
     <aside className="w-64 h-screen bg-sidebar text-sidebar-foreground flex flex-col p-6">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight">
+        <h1 className="text-[1.375rem] font-bold tracking-tight">
           {outlet?.name || "Loading..."}
         </h1>
 
