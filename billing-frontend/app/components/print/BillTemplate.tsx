@@ -86,12 +86,12 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
     : Math.max(Number(data.subTotal || 0) - discount, 0)
   const totalPayable = Number.isFinite(Number(data.grandTotal)) ? Number(data.grandTotal) : 0
 
-  // Combine margins into padding so the wrapper never exceeds paper width
+  // Shift content left by reducing left padding and adding safety margin on the right
   const combinedPadding = {
     top: (margins.top || 0) + (padding.top || 0),
-    right: (margins.right || 0) + (padding.right || 0),
+    right: (margins.right || 0) + (padding.right || 0) + 12,
     bottom: (margins.bottom || 0) + (padding.bottom || 0),
-    left: (margins.left || 0) + (padding.left || 0),
+    left: Math.max((margins.left || 0) + (padding.left || 0) - 8, 2),
   }
 
   return (
@@ -116,7 +116,7 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
           }
 
           .bill-print-wrapper {
-            width: 80mm !important;
+            width: 72mm !important;
             margin: 0 !important;
             box-sizing: border-box !important;
             height: auto !important;
@@ -171,7 +171,7 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
       <div
         className="bill-print-wrapper bg-white text-black font-sans"
         style={{
-          width: `${width}px`,
+          width: `${width - 10}px`,
           minHeight: 'fit-content',
           height: 'auto',
           margin: 0,
