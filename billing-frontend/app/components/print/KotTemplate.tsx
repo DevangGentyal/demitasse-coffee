@@ -99,7 +99,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
       <div
         className="kot-print-wrapper bg-white text-black font-sans"
         style={{
-          width: `${paperWidth}px`,
+          width: `${Math.max(paperWidth - margins.left - margins.right, 100)}px`,
           minHeight: 'fit-content',
           height: 'auto',
           marginTop: `${margins.top}px`,
@@ -112,7 +112,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
           paddingLeft: `${padding.left}px`,
           lineHeight,
           boxSizing: 'border-box',
-          overflow: 'visible',
+          overflow: 'hidden',
         }}
       >
         {/* Header */}
@@ -171,37 +171,22 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
         <hr style={{ borderTop: '1px dashed black', margin: sectionGap + ' 0' }} />
 
         {/* Meta */}
-        <div style={{ fontSize: metaSize, marginBottom: itemGap }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span><b>Order #:</b></span>
-            <span>{data.orderNumber}</span>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span><b>Table:</b></span>
-            <span>{data.tableNumber}</span>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span><b>Date:</b></span>
-            <span>{data.date.toLocaleString()}</span>
-          </div>
-        </div>
+        <table style={{ fontSize: metaSize, marginBottom: itemGap, width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            <tr>
+              <td style={{ fontWeight: 700, whiteSpace: 'nowrap', paddingRight: '6px', verticalAlign: 'top' }}>Order #:</td>
+              <td style={{ textAlign: 'right', wordBreak: 'break-all', verticalAlign: 'top' }}>{data.orderNumber}</td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, whiteSpace: 'nowrap', paddingRight: '6px', verticalAlign: 'top' }}>Table:</td>
+              <td style={{ textAlign: 'right', wordBreak: 'break-all', verticalAlign: 'top' }}>{data.tableNumber}</td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, whiteSpace: 'nowrap', paddingRight: '6px', verticalAlign: 'top' }}>Date:</td>
+              <td style={{ textAlign: 'right', wordBreak: 'break-all', verticalAlign: 'top' }}>{data.date.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
 
         <hr style={{ borderTop: '1px dashed black', margin: sectionGap + ' 0' }} />
 
