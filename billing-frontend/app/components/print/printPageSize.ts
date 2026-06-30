@@ -62,7 +62,7 @@ export const fitPrintPageToContent = (
   }
 
   const pageWidthMm = clamp(Math.ceil(widthPx * PX_TO_MM) + 2, 58, 90)
-  const pageHeightMm = clamp(Math.ceil(measuredHeightPx * PX_TO_MM) + 4, 35, 500)
+  const pageHeightMm = clamp(Math.ceil(measuredHeightPx * PX_TO_MM) + 4, 90, 500)
   document.body.classList.add(PRINTING_CLASS)
 
   let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null

@@ -178,7 +178,7 @@ export default function PrintPreviewPage() {
       const fullHtml = `<html><head><script src="https://cdn.tailwindcss.com"></script><style>html, body { margin: 0 !important; padding: 0 !important; background: #fff; } body { font-family: sans-serif; color: #000; }</style></head><body>${htmlContent}</body></html>`
 
       await silentPrintHTML(printerName, fullHtml, {
-        widthMm: pageWidthMm,
+        widthMm: 80,
         heightMm: pageHeightMm,
       })
 
