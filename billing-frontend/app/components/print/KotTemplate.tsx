@@ -68,7 +68,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   // Specialize margins and widths for Food KOT (58mm printer) vs Beverage KOT (80mm printer)
   const isFood = data.kotType === 'Food'
   const combinedPadding = {
-    top: (margins.top || 0) + (padding.top || 0),
+    top: 0, // stick to top to save paper
     right: isFood ? 6 : (margins.right || 0) + (padding.right || 0) + 8,
     bottom: (margins.bottom || 0) + (padding.bottom || 0),
     left: isFood ? 5 : Math.max((margins.left || 0) + (padding.left || 0) - 4, 4),
@@ -102,6 +102,8 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
             page-break-after: avoid !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
           }
 
           .kot-print-wrapper.food {
@@ -142,6 +144,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
               style={{
                 fontSize: headerSize,
                 fontWeight: 700,
+                marginTop: '0px',
                 marginBottom: '4px',
               }}
             >
@@ -155,6 +158,8 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
               fontWeight: 700,
               textTransform: 'uppercase',
               lineHeight: 1.05,
+              marginTop: '0px',
+              marginBottom: '2px',
             }}
           >
             {data.kotType} KOT

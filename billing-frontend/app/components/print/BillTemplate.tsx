@@ -88,7 +88,7 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
 
   // Shift content left by reducing left padding and adding safety margin on the right
   const combinedPadding = {
-    top: 2, // Keep top padding to absolute minimum to avoid wasting paper
+    top: 0, // stick to top to save paper
     right: (margins.right || 0) + (padding.right || 0) + 8,
     bottom: (margins.bottom || 0) + (padding.bottom || 0),
     left: Math.max((margins.left || 0) + (padding.left || 0) - 4, 4),
@@ -124,6 +124,8 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
             page-break-after: avoid !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
           }
         }
 
@@ -184,9 +186,9 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
           overflow: 'hidden',
         }}
       >
-        <div className="text-center mb-2" style={{ lineHeight }}>
-          {showRestaurantHeader && <h2 className="font-bold text-sm mb-1">{restaurantHeader}</h2>}
-          <h3 className="font-bold text-[11px] mt-1 uppercase">Tax Invoice</h3>
+        <div className="text-center mb-2" style={{ lineHeight, marginTop: '0px', paddingTop: '0px' }}>
+          {showRestaurantHeader && <h2 className="font-bold text-sm mb-1 mt-0">{restaurantHeader}</h2>}
+          <h3 className="font-bold text-[11px] mt-0 mb-1 uppercase">Tax Invoice</h3>
         </div>
 
         <div className="border-b border-dashed border-black mb-2"></div>
