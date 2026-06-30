@@ -8,14 +8,14 @@ const clamp = (value: number, min: number, max: number) =>
 
 export const fitPrintPageToContent = (
   target: string | HTMLElement = '.print-container'
-): { pageWidthMm: number; pageHeightMm: number } | undefined => {
-  if (typeof document === 'undefined') return undefined
+) => {
+  if (typeof document === 'undefined') return
 
   const container =
     typeof target === 'string'
       ? document.querySelector(target) as HTMLElement | null
       : target
-  if (!container) return undefined
+  if (!container) return
 
   document.getElementById(PRINT_ROOT_ID)?.remove()
 
@@ -54,11 +54,11 @@ export const fitPrintPageToContent = (
 
   if (!Number.isFinite(widthPx) || widthPx <= 0) {
     printRoot.remove()
-    return undefined
+    return
   }
   if (!Number.isFinite(measuredHeightPx) || measuredHeightPx <= 0) {
     printRoot.remove()
-    return undefined
+    return
   }
 
   const pageWidthMm = clamp(Math.ceil(widthPx * PX_TO_MM) + 2, 58, 90)
@@ -116,7 +116,6 @@ export const fitPrintPageToContent = (
       }
     }
   `
-  return { pageWidthMm, pageHeightMm }
 }
 
 export const clearPrintPageSize = () => {

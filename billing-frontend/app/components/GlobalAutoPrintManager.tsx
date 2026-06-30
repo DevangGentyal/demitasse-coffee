@@ -452,20 +452,16 @@ export function GlobalAutoPrintManager() {
 
             try {
               // Keep fitPrintPageToContent for now
-              const printSize = fitPrintPageToContent(target)
-              const pageWidthMm = printSize?.pageWidthMm ?? 80
-              const pageHeightMm = printSize?.pageHeightMm ?? null
-              
+              fitPrintPageToContent(target)
               toast('🖨️ Printing started...')
 
               const htmlContent = target.innerHTML
-              const fullHtml = `<html><head><script src="https://cdn.tailwindcss.com"></script><style>html, body { margin: 0 !important; padding: 0 !important; background: #fff; } body { font-family: sans-serif; color: #000; }</style></head><body>${htmlContent}</body></html>`
+              const fullHtml = `<html><head><script src="https://cdn.tailwindcss.com"></script><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
 
               console.log("Before qz.print()");
               await Promise.race([
                 silentPrintHTML(printerName, fullHtml, {
-                  widthMm: pageWidthMm,
-                  heightMm: pageHeightMm,
+                  widthMm: 80,
                 }),
                 new Promise((_, reject) =>
                   setTimeout(() => reject(new Error("QZ timeout")), 10000)

@@ -1977,21 +1977,15 @@ export function FloorCanvas() {
         return
       }
 
-      const printSize = fitPrintPageToContent('.print-container')
-      const pageWidthMm = printSize?.pageWidthMm ?? 80
-      const pageHeightMm = printSize?.pageHeightMm ?? null
-
+      fitPrintPageToContent('.print-container')
       const printerName = billPrinterName
       console.log(`[FloorCanvas] 🖨️ Printing bill to: "${printerName || 'default printer'}"`)
       toast('🖨️ Printing started...')
 
       try {
         const htmlContent = container.innerHTML
-        const fullHtml = `<html><head><script src="https://cdn.tailwindcss.com"></script><style>html, body { margin: 0 !important; padding: 0 !important; background: #fff; } body { font-family: sans-serif; color: #000; }</style></head><body>${htmlContent}</body></html>`
-        await silentPrintHTML(printerName, fullHtml, {
-          widthMm: pageWidthMm,
-          heightMm: pageHeightMm,
-        })
+        const fullHtml = `<html><head><script src="https://cdn.tailwindcss.com"></script><style>body{margin:0;padding:0;font-family:sans-serif;color:#000;background:#fff;}</style></head><body>${htmlContent}</body></html>`
+        await silentPrintHTML(printerName, fullHtml, { widthMm: 80 })
         console.log('[FloorCanvas] ✅ Bill printed successfully')
         toast.success('✅ Printed successfully')
       } catch (err) {
