@@ -64,6 +64,14 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   const itemGap = '8px'
   const sectionGap = '6px'
 
+  // Combine margins into padding so the wrapper never exceeds paper width
+  const combinedPadding = {
+    top: (margins.top || 0) + (padding.top || 0),
+    right: (margins.right || 0) + (padding.right || 0),
+    bottom: (margins.bottom || 0) + (padding.bottom || 0),
+    left: (margins.left || 0) + (padding.left || 0),
+  }
+
   return (
     <>
       <style>{`
@@ -87,8 +95,10 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
 
           .kot-print-wrapper {
             width: 80mm !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
             height: auto !important;
-            overflow: visible !important;
+            overflow: hidden !important;
             page-break-after: avoid !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
@@ -97,22 +107,22 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
       `}</style>
 
       <div
-        className="kot-print-wrapper bg-white text-black font-sans"
+        className="kot-print-wrapper"
         style={{
-          width: `${Math.max(paperWidth - margins.left - margins.right, 100)}px`,
+          width: `${paperWidth}px`,
           minHeight: 'fit-content',
           height: 'auto',
-          marginTop: `${margins.top}px`,
-          marginRight: `${margins.right}px`,
-          marginBottom: `${margins.bottom}px`,
-          marginLeft: `${margins.left}px`,
-          paddingTop: `${padding.top}px`,
-          paddingRight: `${padding.right}px`,
-          paddingBottom: `${padding.bottom}px`,
-          paddingLeft: `${padding.left}px`,
+          margin: 0,
+          paddingTop: `${combinedPadding.top}px`,
+          paddingRight: `${combinedPadding.right}px`,
+          paddingBottom: `${combinedPadding.bottom}px`,
+          paddingLeft: `${combinedPadding.left}px`,
           lineHeight,
           boxSizing: 'border-box',
           overflow: 'hidden',
+          background: '#fff',
+          color: '#000',
+          fontFamily: 'sans-serif',
         }}
       >
         {/* Header */}
