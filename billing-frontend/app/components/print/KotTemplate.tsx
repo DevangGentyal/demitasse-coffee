@@ -216,7 +216,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
           }}
         >
           <span>ITEM</span>
-          <span>QTY</span>
+          <span style={{ width: '36px', minWidth: '36px', textAlign: 'center' }}>QTY</span>
         </div>
 
         {/* Items */}
@@ -251,8 +251,10 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
               <span
                 style={{
                   flexShrink: 0,
-                  minWidth: '20px',
-                  textAlign: 'right',
+                  width: '36px',
+                  minWidth: '36px',
+                  textAlign: 'center',
+                  display: 'inline-block',
                 }}
               >
                 {item.quantity}

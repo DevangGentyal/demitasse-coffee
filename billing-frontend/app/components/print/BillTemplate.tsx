@@ -210,9 +210,9 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
           <div className="border-b border-dashed border-black mb-1"></div>
 
           {data.items.map((item, index) => {
-            const noteText = Array.isArray(item.notes)
-              ? item.notes.filter(Boolean).join(', ')
-              : item.notes || ''
+            const notesList = Array.isArray(item.notes)
+              ? item.notes.filter(Boolean)
+              : item.notes ? [item.notes] : []
 
             return (
               <div key={`${item.id}-${index}`} className="mb-2" style={{ lineHeight }}>
@@ -221,13 +221,11 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
                   <span className="w-8 text-center flex-shrink-0">{item.quantity}</span>
                   <span className="w-16 text-right flex-shrink-0">{formatAmount(item.price)}</span>
                 </div>
-                {(item.category || noteText) && (
-                  <div className="flex justify-between gap-2 text-[9px] text-gray-600 mt-0.5">
-                    <span className="flex-1 pr-1 break-words uppercase">
-                      {item.category ? `${item.category}` : ''}
-                      {item.category && noteText ? ' · ' : ''}
-                      {noteText}
-                    </span>
+                {notesList.length > 0 && (
+                  <div className="text-[9px] text-gray-600 mt-0.5" style={{ paddingLeft: '8px' }}>
+                    {notesList.map((note, i) => (
+                      <div key={i} className="break-words">+ {note}</div>
+                    ))}
                   </div>
                 )}
               </div>

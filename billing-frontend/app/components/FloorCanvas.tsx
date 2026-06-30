@@ -1317,16 +1317,36 @@ export function FloorCanvas() {
 
     const items = sourceItems.map((item: any, index: number) => {
       const quantity = Math.max(1, Math.floor(toSafeNumber(item.quantity ?? item.qty, 1)))
-      const unitPrice = toSafeNumber(item.price ?? item.unitPrice, quantity > 0 ? toSafeNumber(item.totalPrice, 0) / quantity : 0)
-      const originalUnitPrice = toSafeNumber(item.originalPrice ?? item.unitPrice ?? item.price, unitPrice)
-      const finalUnitPrice = toSafeNumber(item.finalPrice ?? item.price ?? item.unitPrice, unitPrice)
-      const notes = Array.isArray(item.notes)
-        ? item.notes
-        : Array.isArray(item.addOns)
-          ? item.addOns.map((addon: any) => `${addon.name}${addon.price ? ` (+₹${addon.price})` : ''}`)
-          : Array.isArray(item.addons)
-            ? item.addons.map((addon: any) => `${addon.name}${addon.price ? ` (+₹${addon.price})` : ''}`)
-            : item.notes || undefined
+      const baseUnitPrice = toSafeNumber(item.price ?? item.unitPrice, quantity > 0 ? toSafeNumber(item.totalPrice, 0) / quantity : 0)
+      const originalBasePrice = toSafeNumber(item.originalPrice ?? item.unitPrice ?? item.price, baseUnitPrice)
+      
+      // Calculate addon prices total
+      const addOnsArray = Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : []
+      const addonsTotal = addOnsArray.reduce((sum: number, addon: any) => sum + toSafeNumber(addon.price, 0), 0)
+      
+      // Calculate variation prices total
+      const variationsArray = Array.isArray(item.variations) ? item.variations : []
+      const variationsTotal = variationsArray.reduce((sum: number, v: any) => sum + toSafeNumber(v.price, 0), 0)
+      
+      // Final unit price = base price + addons + variations
+      const finalUnitPrice = baseUnitPrice + addonsTotal + variationsTotal
+      const originalUnitPrice = originalBasePrice + addonsTotal + variationsTotal
+
+      // Build notes: show variations and addons one below another
+      const noteLines: string[] = []
+      variationsArray.forEach((v: any) => {
+        const vName = v.name || v.option || v.type || ''
+        if (vName) noteLines.push(`${vName}${v.price ? ` (+₹${v.price})` : ''}`)
+      })
+      addOnsArray.forEach((addon: any) => {
+        if (addon.name) noteLines.push(`${addon.name}${addon.price ? ` (+₹${addon.price})` : ''}`)
+      })
+      // Also include any existing text notes
+      if (Array.isArray(item.notes)) {
+        item.notes.forEach((n: any) => { if (typeof n === 'string' && n.trim()) noteLines.push(n) })
+      } else if (typeof item.notes === 'string' && item.notes.trim()) {
+        noteLines.push(item.notes)
+      }
 
       return {
         id: String(item.id || item.productId || `${table.id}-bill-item-${index}`),
@@ -1336,7 +1356,7 @@ export function FloorCanvas() {
         price: finalUnitPrice,
         originalPrice: originalUnitPrice,
         finalPrice: finalUnitPrice,
-        notes,
+        notes: noteLines.length > 0 ? noteLines : undefined,
       }
     })
 
