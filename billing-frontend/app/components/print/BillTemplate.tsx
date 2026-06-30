@@ -97,34 +97,30 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
   return (
     <>
       <style>{`
-        @page {
-          size: 80mm auto;
-          margin: 0 !important;
-        }
-
-        html, body {
-          width: 80mm;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: white;
-        }
-
-        .bill-print-wrapper {
-          width: 76mm !important;
-          margin: 0 !important;
-          padding-top: 0px !important; /* Move content all the way to the top */
-          box-sizing: border-box !important;
-          height: auto !important;
-          overflow: hidden !important;
-        }
-
         @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0 !important;
+          }
+
+          html, body {
+            width: 80mm;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white;
+          }
+
           body {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
 
           .bill-print-wrapper {
+            width: 76mm !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
+            height: auto !important;
+            overflow: hidden !important;
             page-break-after: avoid !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
