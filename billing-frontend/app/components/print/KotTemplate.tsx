@@ -206,82 +206,93 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
         <hr style={{ borderTop: '1px dashed black', margin: sectionGap + ' 0' }} />
 
         {/* Item Header */}
-        <div
+        <table
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontWeight: 700,
+            width: '100%',
+            borderCollapse: 'collapse',
             fontSize: itemHeaderSize,
+            fontWeight: 700,
             marginBottom: sectionGap,
           }}
         >
-          <span>ITEM</span>
-          <span style={{ width: '36px', minWidth: '36px', textAlign: 'center' }}>QTY</span>
-        </div>
+          <colgroup>
+            <col style={{ width: 'auto' }} />
+            <col style={{ width: '40px' }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', fontWeight: 700, padding: '0 4px 0 0' }}>ITEM</th>
+              <th style={{ textAlign: 'center', fontWeight: 700, width: '40px', padding: 0 }}>QTY</th>
+            </tr>
+          </thead>
+        </table>
 
         {/* Items */}
-        {data.items.map((item, index) => (
-          <div
-            key={`${item.id}-${item.name}-${index}`}
-            style={{
-              marginBottom: itemGap,
-              pageBreakInside: 'avoid',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                gap: '6px',
-                fontSize: itemFontSize,
-                fontWeight: 700,
-              }}
-            >
-              <span
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  wordBreak: 'break-word',
-                  overflowWrap: 'anywhere',
-                }}
-              >
-                {item.name}
-              </span>
-              <span
-                style={{
-                  flexShrink: 0,
-                  width: '36px',
-                  minWidth: '36px',
-                  textAlign: 'center',
-                  display: 'inline-block',
-                }}
-              >
-                {item.quantity}
-              </span>
-            </div>
-
-            {item.notes && (
-              <div
-                style={{
-                  fontSize: notesFontSize,
-                  color: '#000',
-                  fontWeight: 700,
-                  paddingLeft: '8px',
-                  marginTop: '2px',
-                  wordBreak: 'break-word',
-                  overflowWrap: 'anywhere',
-                }}
-              >
-                {Array.isArray(item.notes)
-                  ? item.notes.map((note, i) => (
-                      <div key={i}>+ {note}</div>
-                    ))
-                  : <div>+ {item.notes}</div>}
-              </div>
-            )}
-          </div>
-        ))}
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: itemFontSize,
+            fontWeight: 700,
+          }}
+        >
+          <colgroup>
+            <col style={{ width: 'auto' }} />
+            <col style={{ width: '40px' }} />
+          </colgroup>
+          <tbody>
+            {data.items.map((item, index) => (
+              <React.Fragment key={`${item.id}-${item.name}-${index}`}>
+                <tr style={{ pageBreakInside: 'avoid' }}>
+                  <td
+                    style={{
+                      padding: `0 6px ${itemGap} 0`,
+                      wordBreak: 'break-word',
+                      overflowWrap: 'anywhere',
+                      verticalAlign: 'top',
+                    }}
+                  >
+                    {item.name}
+                  </td>
+                  <td
+                    style={{
+                      width: '40px',
+                      minWidth: '40px',
+                      textAlign: 'center',
+                      verticalAlign: 'top',
+                      padding: `0 0 ${itemGap} 0`,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {item.quantity}
+                  </td>
+                </tr>
+                {item.notes && (
+                  <tr style={{ pageBreakInside: 'avoid' }}>
+                    <td
+                      colSpan={2}
+                      style={{
+                        fontSize: notesFontSize,
+                        color: '#000',
+                        fontWeight: 700,
+                        paddingLeft: '8px',
+                        paddingBottom: itemGap,
+                        wordBreak: 'break-word',
+                        overflowWrap: 'anywhere',
+                      }}
+                    >
+                      {Array.isArray(item.notes)
+                        ? item.notes.map((note, i) => (
+                            <div key={i}>+ {note}</div>
+                          ))
+                        : <div>+ {item.notes}</div>}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
 
         <hr style={{ borderTop: '1px dashed black', margin: '6px 0' }} />
 
@@ -298,4 +309,4 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
       </div>
     </>
   )
-}
+}
