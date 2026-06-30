@@ -107,8 +107,8 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
           }
 
           .kot-print-wrapper.food {
-            width: 55mm !important;
-            margin: 0 auto !important; /* Center the food KOT */
+            width: 57mm !important;
+            margin: 0 !important; /* Left-align to fit perfectly within the left 58mm of the 80mm page */
           }
 
           .kot-print-wrapper.beverage {
@@ -121,10 +121,10 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
       <div
         className={`kot-print-wrapper ${isFood ? 'food' : 'beverage'}`}
         style={{
-          width: `${isFood ? 210 : paperWidth - 6}px`,
+          width: `${isFood ? 215 : paperWidth - 6}px`,
           minHeight: 'fit-content',
           height: 'auto',
-          margin: isFood ? '0 auto' : '0',
+          margin: '0',
           paddingTop: `${combinedPadding.top}px`,
           paddingRight: `${combinedPadding.right}px`,
           paddingBottom: `${combinedPadding.bottom}px`,

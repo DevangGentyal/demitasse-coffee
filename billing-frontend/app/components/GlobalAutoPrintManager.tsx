@@ -464,7 +464,7 @@ export function GlobalAutoPrintManager() {
               console.log("Before qz.print()");
               await Promise.race([
                 silentPrintHTML(printerName, fullHtml, {
-                  widthMm: pageWidthMm,
+                  widthMm: 80,
                   heightMm: pageHeightMm,
                 }),
                 new Promise((_, reject) =>
