@@ -68,7 +68,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   // Specialize margins and widths for Food KOT (58mm printer) vs Beverage KOT (80mm printer)
   const isFood = data.kotType === 'Food'
   const combinedPadding = {
-    top: 2, // Keep top padding to absolute minimum to avoid wasting paper
+    top: (margins.top || 0) + (padding.top || 0),
     right: isFood ? 6 : (margins.right || 0) + (padding.right || 0) + 8,
     bottom: (margins.bottom || 0) + (padding.bottom || 0),
     left: isFood ? 5 : Math.max((margins.left || 0) + (padding.left || 0) - 4, 4),
@@ -77,46 +77,41 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   return (
     <>
       <style>{`
-        @page {
-          size: 80mm auto;
-          margin: 0 !important;
-        }
-
-        html, body {
-          width: 80mm;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: white;
-        }
-
-        .kot-print-wrapper {
-          box-sizing: border-box !important;
-          height: auto !important;
-          overflow: hidden !important;
-        }
-
-        .kot-print-wrapper.food {
-          width: 55mm !important;
-          margin: 0 auto !important; /* Center the food KOT */
-          padding-top: 0px !important; /* Move content all the way to the top */
-        }
-
-        .kot-print-wrapper.beverage {
-          width: 76mm !important;
-          margin: 0 !important;
-          padding-top: 0px !important; /* Move content all the way to the top */
-        }
-
         @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0 !important;
+          }
+
+          html, body {
+            width: 80mm;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white;
+          }
+
           body {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
 
           .kot-print-wrapper {
+            box-sizing: border-box !important;
+            height: auto !important;
+            overflow: hidden !important;
             page-break-after: avoid !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+          }
+
+          .kot-print-wrapper.food {
+            width: 55mm !important;
+            margin: 0 auto !important; /* Center the food KOT */
+          }
+
+          .kot-print-wrapper.beverage {
+            width: 76mm !important;
+            margin: 0 !important;
           }
         }
       `}</style>
