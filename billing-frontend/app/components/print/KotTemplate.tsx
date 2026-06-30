@@ -69,9 +69,9 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
   const isFood = data.kotType === 'Food'
   const combinedPadding = {
     top: (margins.top || 0) + (padding.top || 0),
-    right: isFood ? 4 : (margins.right || 0) + (padding.right || 0) + 12,
+    right: isFood ? 6 : (margins.right || 0) + (padding.right || 0) + 8,
     bottom: (margins.bottom || 0) + (padding.bottom || 0),
-    left: isFood ? 2 : Math.max((margins.left || 0) + (padding.left || 0) - 8, 2),
+    left: isFood ? 5 : Math.max((margins.left || 0) + (padding.left || 0) - 4, 4),
   }
 
   return (
@@ -97,6 +97,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
 
           .kot-print-wrapper {
             margin: 0 !important;
+            padding-top: 2px !important; /* Eliminate excessive top margin on print */
             box-sizing: border-box !important;
             height: auto !important;
             overflow: hidden !important;
@@ -106,11 +107,11 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
           }
 
           .kot-print-wrapper.food {
-            width: 50mm !important;
+            width: 55mm !important;
           }
 
           .kot-print-wrapper.beverage {
-            width: 72mm !important;
+            width: 76mm !important;
           }
         }
       `}</style>
@@ -118,7 +119,7 @@ export const KotTemplate: React.FC<KotTemplateProps> = ({
       <div
         className={`kot-print-wrapper ${isFood ? 'food' : 'beverage'}`}
         style={{
-          width: `${isFood ? 190 : paperWidth - 10}px`,
+          width: `${isFood ? 210 : paperWidth - 6}px`,
           minHeight: 'fit-content',
           height: 'auto',
           margin: 0,

@@ -89,9 +89,9 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
   // Shift content left by reducing left padding and adding safety margin on the right
   const combinedPadding = {
     top: (margins.top || 0) + (padding.top || 0),
-    right: (margins.right || 0) + (padding.right || 0) + 12,
+    right: (margins.right || 0) + (padding.right || 0) + 8,
     bottom: (margins.bottom || 0) + (padding.bottom || 0),
-    left: Math.max((margins.left || 0) + (padding.left || 0) - 8, 2),
+    left: Math.max((margins.left || 0) + (padding.left || 0) - 4, 4),
   }
 
   return (
@@ -116,8 +116,9 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
           }
 
           .bill-print-wrapper {
-            width: 72mm !important;
+            width: 76mm !important;
             margin: 0 !important;
+            padding-top: 2px !important; /* Eliminate excessive top margin on print */
             box-sizing: border-box !important;
             height: auto !important;
             overflow: hidden !important;
@@ -171,7 +172,7 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
       <div
         className="bill-print-wrapper bg-white text-black font-sans"
         style={{
-          width: `${width - 10}px`,
+          width: `${width - 6}px`,
           minHeight: 'fit-content',
           height: 'auto',
           margin: 0,
