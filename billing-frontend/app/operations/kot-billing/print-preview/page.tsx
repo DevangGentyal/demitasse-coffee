@@ -153,7 +153,7 @@ export default function PrintPreviewPage() {
     // Keep fitPrintPageToContent for now
     const printSize = fitPrintPageToContent('.print-container')
     const pageWidthMm = printSize?.pageWidthMm ?? 80
-    const pageHeightMm = printSize?.pageHeightMm ?? null
+    const pageHeightMm = printSize?.pageHeightMm ?? undefined
 
     const container = document.querySelector('.print-container') as HTMLElement | null
     if (!container) {

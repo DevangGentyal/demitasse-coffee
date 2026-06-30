@@ -454,7 +454,7 @@ export function GlobalAutoPrintManager() {
               // Keep fitPrintPageToContent for now
               const printSize = fitPrintPageToContent(target)
               const pageWidthMm = printSize?.pageWidthMm ?? 80
-              const pageHeightMm = printSize?.pageHeightMm ?? null
+              const pageHeightMm = printSize?.pageHeightMm ?? undefined
               
               toast('🖨️ Printing started...')
 

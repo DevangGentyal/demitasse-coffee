@@ -1979,7 +1979,7 @@ export function FloorCanvas() {
 
       const printSize = fitPrintPageToContent('.print-container')
       const pageWidthMm = printSize?.pageWidthMm ?? 80
-      const pageHeightMm = printSize?.pageHeightMm ?? null
+      const pageHeightMm = printSize?.pageHeightMm ?? undefined
 
       const printerName = billPrinterName
       console.log(`[FloorCanvas] 🖨️ Printing bill to: "${printerName || 'default printer'}"`)
