@@ -88,7 +88,7 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
 
   // Shift content left by reducing left padding and adding safety margin on the right
   const combinedPadding = {
-    top: (margins.top || 0) + (padding.top || 0),
+    top: 2, // Keep top padding to absolute minimum to avoid wasting paper
     right: (margins.right || 0) + (padding.right || 0) + 8,
     bottom: (margins.bottom || 0) + (padding.bottom || 0),
     left: Math.max((margins.left || 0) + (padding.left || 0) - 4, 4),
@@ -97,31 +97,34 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
   return (
     <>
       <style>{`
+        @page {
+          size: 80mm auto;
+          margin: 0 !important;
+        }
+
+        html, body {
+          width: 80mm;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white;
+        }
+
+        .bill-print-wrapper {
+          width: 76mm !important;
+          margin: 0 !important;
+          padding-top: 0px !important; /* Move content all the way to the top */
+          box-sizing: border-box !important;
+          height: auto !important;
+          overflow: hidden !important;
+        }
+
         @media print {
-          @page {
-            size: 80mm auto;
-            margin: 0;
-          }
-
-          html, body {
-            width: 80mm;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white;
-          }
-
           body {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
 
           .bill-print-wrapper {
-            width: 76mm !important;
-            margin: 0 !important;
-            padding-top: 2px !important; /* Eliminate excessive top margin on print */
-            box-sizing: border-box !important;
-            height: auto !important;
-            overflow: hidden !important;
             page-break-after: avoid !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
