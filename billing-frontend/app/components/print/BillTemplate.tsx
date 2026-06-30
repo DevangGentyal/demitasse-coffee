@@ -161,7 +161,7 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
       <div
         className="bill-print-wrapper bg-white text-black font-sans mx-auto"
         style={{
-          width: `${width}px`,
+          width: `${Math.max(width - margins.left - margins.right, 100)}px`,
           minHeight: 'fit-content',
           height: 'auto',
           marginTop: `${margins.top}px`,
@@ -174,7 +174,7 @@ export const BillTemplate: React.FC<BillTemplateProps> = ({
           paddingLeft: `${padding.left}px`,
           lineHeight,
           boxSizing: 'border-box',
-          overflow: 'visible',
+          overflow: 'hidden',
         }}
       >
         <div className="text-center mb-2" style={{ lineHeight }}>
