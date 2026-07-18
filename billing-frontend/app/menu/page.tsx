@@ -34,7 +34,7 @@ import {
   Variation,
   VariationOption,
 } from '@/lib/services/productService'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, Check, Search } from 'lucide-react'
 import { getOutletIdForCurrentUser } from '@/lib/services/orderService'
 import { auth } from '@/lib/firebase/auth'
 
@@ -112,6 +112,15 @@ export default function MenuPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [outletId, setOutletId] = useState<string | null>(null)
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all')
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [dropdownSearch, setDropdownSearch] = useState('')
+
+  const handleSelectSubcategory = (value: string) => {
+    setSelectedSubcategory(value)
+    setIsDropdownOpen(false)
+    setDropdownSearch('')
+  }
 
   // Modal states
   const [isItemModalOpen, setIsItemModalOpen] = useState(false)
@@ -174,16 +183,16 @@ export default function MenuPage() {
     fetchData()
   }, [isLoading, isLoggedIn])
 
-  // Filter products based on search
+  // Filter products based on search and subcategory
   const filteredProducts = useMemo(() => {
-    if (!searchQuery.trim()) return products
-    const query = searchQuery.toLowerCase()
-    return products.filter(
-      product =>
-        product.name.toLowerCase().includes(query) ||
-        product.id.includes(query)
-    )
-  }, [products, searchQuery])
+    return products.filter(product => {
+      const matchesSearch = !searchQuery.trim() || 
+        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.id.includes(searchQuery.toLowerCase())
+      const matchesSubcategory = selectedSubcategory === 'all' || product.subcategory === selectedSubcategory
+      return matchesSearch && matchesSubcategory
+    })
+  }, [products, searchQuery, selectedSubcategory])
 
   const categories = useMemo(
     () =>
@@ -196,6 +205,16 @@ export default function MenuPage() {
       ).sort((a, b) => a.localeCompare(b)),
     [products]
   )
+
+  const subcategories = useMemo(() => {
+    return Array.from(new Set(products.map(p => p.subcategory).filter((sub): sub is string => !!sub)))
+  }, [products])
+
+  const filteredSubcategoriesInDropdown = useMemo(() => {
+    return subcategories.filter(sub =>
+      sub.toLowerCase().includes(dropdownSearch.toLowerCase())
+    )
+  }, [subcategories, dropdownSearch])
 
   const subcategoriesByCategory = useMemo(() => {
     const grouped = new Map<string, Set<string>>()
@@ -501,7 +520,7 @@ export default function MenuPage() {
 
             {/* Search and Add Item Row */}
             <div className="flex items-center justify-between gap-4 mb-4">
-              <div className="flex-1 max-w-xl">
+              <div className="flex-1 max-w-xl flex gap-2">
                 <Input
                   type="text"
                   placeholder="Search products..."
@@ -509,6 +528,90 @@ export default function MenuPage() {
                   onChange={e => setSearchQuery(e.target.value)}
                   className="w-full border-foreground"
                 />
+                
+                {/* Searchable Subcategory Combobox */}
+                <div className="relative w-[180px] shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDropdownOpen(!isDropdownOpen)
+                      setDropdownSearch('')
+                    }}
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-foreground bg-input px-3 py-2 text-sm shadow-xs outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 text-left text-foreground hover:bg-input/80 transition-colors"
+                  >
+                    <span className="truncate">
+                      {selectedSubcategory === 'all' ? 'All Subcategories' : selectedSubcategory}
+                    </span>
+                    <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-1" />
+                  </button>
+
+                  {isDropdownOpen && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-40 cursor-default" 
+                        onClick={() => setIsDropdownOpen(false)}
+                      />
+                      <div className="absolute right-0 mt-1 w-56 rounded-md border border-border bg-popover text-popover-foreground shadow-md z-50 p-1 flex flex-col max-h-60 overflow-hidden">
+                        <div className="flex items-center border-b border-border px-2 pb-1.5 pt-1">
+                          <Search className="h-3.5 w-3.5 shrink-0 opacity-50 mr-2" />
+                          <input
+                            placeholder="Search subcategory..."
+                            value={dropdownSearch}
+                            onChange={e => setDropdownSearch(e.target.value)}
+                            className="flex h-7 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                            autoFocus
+                          />
+                        </div>
+                        
+                        <div className="overflow-y-auto py-1 flex-1">
+                          {('all'.includes(dropdownSearch.toLowerCase()) || dropdownSearch === '') && (
+                            <button
+                              type="button"
+                              onClick={() => handleSelectSubcategory('all')}
+                              className={`flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground text-left ${
+                                selectedSubcategory === 'all' ? 'bg-accent font-medium' : ''
+                              }`}
+                            >
+                              {selectedSubcategory === 'all' ? (
+                                <Check className="mr-2 h-4 w-4 shrink-0 text-foreground" />
+                              ) : (
+                                <span className="pl-6" />
+                              )}
+                              <span>All Subcategories</span>
+                            </button>
+                          )}
+
+                          {filteredSubcategoriesInDropdown.map(subcat => {
+                            const isSelected = selectedSubcategory === subcat
+                            return (
+                              <button
+                                key={subcat}
+                                type="button"
+                                onClick={() => handleSelectSubcategory(subcat)}
+                                className={`flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground text-left ${
+                                  isSelected ? 'bg-accent font-medium' : ''
+                                }`}
+                              >
+                                {isSelected ? (
+                                  <Check className="mr-2 h-4 w-4 shrink-0 text-foreground" />
+                                ) : (
+                                  <span className="pl-6" />
+                                )}
+                                <span>{subcat}</span>
+                              </button>
+                            )
+                          })}
+
+                          {filteredSubcategoriesInDropdown.length === 0 && !'all'.includes(dropdownSearch.toLowerCase()) && (
+                            <div className="py-6 text-center text-sm text-muted-foreground">
+                              No subcategory found.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
               <Button
                 variant="outline"
