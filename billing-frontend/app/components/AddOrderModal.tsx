@@ -572,8 +572,8 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
               ) : (
                 <div className="space-y-4">
                   {/* Filters and Search - Pattern reused from Offer section */}
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="relative w-[300px]">
                       <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                       <Input
                         placeholder="Search menu items..."
