@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
-import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag, UserPlus, Settings } from 'lucide-react'
+import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag, UserPlus, Settings, FileSpreadsheet } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { getCurrentUserProfile, getOutletIdForCurrentUser, getOutletDetailsById } from "@/lib/services/backendApi"
 
@@ -102,9 +102,10 @@ export function Sidebar() {
           { label: 'Orders', href: '/orders', icon: ShoppingCart },
           { label: 'Menu', href: '/menu', icon: MenuIcon },
           { label: 'Offer', href: '/offer', icon: Tag },
+          { label: 'Reports', href: '/reports', icon: FileSpreadsheet },
         ].map(item => {
           const Icon = item.icon
-          const isActive = pathname === item.href
+          const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
           return (
             <button
               key={item.href}

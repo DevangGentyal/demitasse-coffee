@@ -12,7 +12,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from '@/components/ui/dialog'
-import { X, Plus, Trash2, Search, Tag } from 'lucide-react'
+import { X, Plus, Trash2, Search, Tag, ChevronDown, Check } from 'lucide-react'
 import { getProductsByOutletId, Product } from '@/lib/services/productService'
 import { createOrder as createOrderService } from '@/lib/services/orderService'
 
@@ -61,11 +61,19 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [items, setItems] = useState<OrderItem[]>([])
-  
+
   const [products, setProducts] = useState<Product[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<string>('all')
-  
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all')
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [dropdownSearch, setDropdownSearch] = useState('')
+
+  const handleSelectSubcategory = (value: string) => {
+    setSelectedSubcategory(value)
+    setIsDropdownOpen(false)
+    setDropdownSearch('')
+  }
+
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -121,12 +129,12 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
 
   const activeTable = useMemo(() => {
     if (!initialTableId) return undefined
-    return tables.find( (table: any) => table.id === initialTableId)
+    return tables.find((table: any) => table.id === initialTableId)
   }, [initialTableId, tables])
 
   const tableOrders = useMemo(() => {
     if (!initialTableId) return []
-    return orders.filter( (order: any) => {
+    return orders.filter((order: any) => {
       if (order.tableId === initialTableId) return true
       if (activeTable?.activeSessionId && order.sessionId === activeTable.activeSessionId) return true
       return false
@@ -147,19 +155,25 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   const isContinuingBill = Boolean(activeTable?.activeSessionId || tableOrders.length > 0)
   const canReuseCustomerInfo = Boolean(reusableCustomerName)
 
-  // Memoized categories from items
-  const categories = useMemo(() => {
-    return Array.from(new Set(products.map(p => p.category).filter(Boolean)))
+  // Memoized subcategories from items
+  const subcategories = useMemo(() => {
+    return Array.from(new Set(products.map(p => p.subcategory).filter((sub): sub is string => !!sub)))
   }, [products])
+
+  const filteredSubcategoriesInDropdown = useMemo(() => {
+    return subcategories.filter(sub =>
+      sub.toLowerCase().includes(dropdownSearch.toLowerCase())
+    )
+  }, [subcategories, dropdownSearch])
 
   // Memoized filtered products
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory
-      return matchesSearch && matchesCategory
+      const matchesSubcategory = selectedSubcategory === 'all' || p.subcategory === selectedSubcategory
+      return matchesSearch && matchesSubcategory
     })
-  }, [products, searchQuery, selectedCategory])
+  }, [products, searchQuery, selectedSubcategory])
 
   // Fetch menu items when modal opens
   useEffect(() => {
@@ -211,7 +225,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
 
     setItems([])
     setSearchQuery('')
-    setSelectedCategory('all')
+    setSelectedSubcategory('all')
     setError(null)
 
     if (isContinuingBill && canReuseCustomerInfo) {
@@ -230,7 +244,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
 
     if (hasVariations || hasCustomizations) {
       setSelectedProduct(product);
-      
+
       const initialVar: Record<number, string> = {};
       (product.variations || []).forEach((g: any, i: number) => {
         if (g.options?.length) {
@@ -246,8 +260,8 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   }
 
   const handleAddItemConfigured = (
-    product: Product, 
-    finalPrice: number, 
+    product: Product,
+    finalPrice: number,
     finalVariation: Record<number, string>,
     finalAddons: any[]
   ) => {
@@ -267,8 +281,8 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       const existingItem = prevItems.find(i => i.id === itemId)
       if (existingItem && !isCustomized) {
         return prevItems.map(i =>
-        i.id === itemId
-          ? (() => {
+          i.id === itemId
+            ? (() => {
               const nextQty = (Number(i.qty ?? i.quantity ?? 1) || 1) + 1
               const unitPrice = Number(i.unitPrice ?? i.price ?? finalPrice ?? 0) || 0
               const nextTotal = unitPrice * nextQty
@@ -285,7 +299,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                 finalPrice: unitPrice,
               }
             })()
-          : i
+            : i
         )
       }
 
@@ -321,7 +335,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
     if (!selectedProduct) return 0;
     let totalPrice = selectedProduct.price;
 
-    ;(selectedProduct.variations || []).forEach((group: any, i: number) => {
+    ; (selectedProduct.variations || []).forEach((group: any, i: number) => {
       const selected = variation[i];
       const opt = group.options?.find((o: any) => o.name === selected);
       if (opt && opt.price) totalPrice += opt.price;
@@ -342,7 +356,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   const handleConfirmCustomization = () => {
     if (!selectedProduct) return;
     const totalPrice = calculateTotalPrice();
-    
+
     const transformedAddons: any[] = [];
     Object.entries(addons || {}).forEach(([groupIndex, names]) => {
       const group = selectedProduct.customizations?.[parseInt(groupIndex)];
@@ -386,22 +400,22 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
         .map(item =>
           item.id === itemId
             ? (() => {
-                const nextQty = Math.max(0, Number(item.qty ?? item.quantity ?? 1) - 1)
-                const unitPrice = Number(item.unitPrice ?? item.price ?? item.finalUnitPrice ?? 0) || 0
-                const nextTotal = unitPrice * nextQty
-                return {
-                  ...item,
-                  quantity: nextQty,
-                  qty: nextQty,
-                  unitPrice,
-                  price: unitPrice,
-                  totalPrice: nextTotal,
-                  discountedPrice: nextTotal,
-                  finalUnitPrice: unitPrice,
-                  originalPrice: Number.isFinite(Number(item.originalPrice)) ? Number(item.originalPrice) : unitPrice,
-                  finalPrice: unitPrice,
-                }
-              })()
+              const nextQty = Math.max(0, Number(item.qty ?? item.quantity ?? 1) - 1)
+              const unitPrice = Number(item.unitPrice ?? item.price ?? item.finalUnitPrice ?? 0) || 0
+              const nextTotal = unitPrice * nextQty
+              return {
+                ...item,
+                quantity: nextQty,
+                qty: nextQty,
+                unitPrice,
+                price: unitPrice,
+                totalPrice: nextTotal,
+                discountedPrice: nextTotal,
+                finalUnitPrice: unitPrice,
+                originalPrice: Number.isFinite(Number(item.originalPrice)) ? Number(item.originalPrice) : unitPrice,
+                finalPrice: unitPrice,
+              }
+            })()
             : item
         )
         .filter(item => item.quantity > 0)
@@ -456,7 +470,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
       setCustomerPhone('')
       setItems([])
       setSearchQuery('')
-      setSelectedCategory('all')
+      setSelectedSubcategory('all')
       setError(null)
       onClose()
 
@@ -478,8 +492,8 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
+      <Card className="w-[80vw] max-w-[1400px] h-[90vh] max-w-[80vw] max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="p-6 flex flex-col h-full overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-foreground">
               {isContinuingBill ? 'Add Items to Bill' : 'New Order'}
@@ -498,7 +512,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
             </div>
           )}
 
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 overflow-y-auto pr-1">
             {isContinuingBill && canReuseCustomerInfo ? (
               <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-1">
                 <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
@@ -558,36 +572,108 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
               ) : (
                 <div className="space-y-4">
                   {/* Filters and Search - Pattern reused from Offer section */}
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="relative w-[300px]">
                       <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        placeholder="Search menu items..." 
-                        value={searchQuery} 
-                        onChange={e => setSearchQuery(e.target.value)} 
+                      <Input
+                        placeholder="Search menu items..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
                         className="pl-9 bg-input border-border"
                       />
                     </div>
-                    <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                      <SelectTrigger className="w-[160px] bg-input border-border">
-                        <SelectValue placeholder="Category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
-                        {categories.map(cat => (
-                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {/* Searchable Subcategory Combobox */}
+                    <div className="relative w-[180px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsDropdownOpen(!isDropdownOpen)
+                          setDropdownSearch('')
+                        }}
+                        className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-input px-3 py-2 text-sm shadow-xs outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 text-left text-foreground hover:bg-input/80 transition-colors"
+                      >
+                        <span className="truncate">
+                          {selectedSubcategory === 'all' ? 'All Subcategories' : selectedSubcategory}
+                        </span>
+                        <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-1" />
+                      </button>
+
+                      {isDropdownOpen && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-40 cursor-default" 
+                            onClick={() => setIsDropdownOpen(false)}
+                          />
+                          <div className="absolute right-0 mt-1 w-56 rounded-md border border-border bg-popover text-popover-foreground shadow-md z-50 p-1 flex flex-col max-h-60 overflow-hidden">
+                            <div className="flex items-center border-b border-border px-2 pb-1.5 pt-1">
+                              <Search className="h-3.5 w-3.5 shrink-0 opacity-50 mr-2" />
+                              <input
+                                placeholder="Search subcategory..."
+                                value={dropdownSearch}
+                                onChange={e => setDropdownSearch(e.target.value)}
+                                className="flex h-7 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                                autoFocus
+                              />
+                            </div>
+                            
+                            <div className="overflow-y-auto py-1 flex-1">
+                              {('all'.includes(dropdownSearch.toLowerCase()) || dropdownSearch === '') && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectSubcategory('all')}
+                                  className={`flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground text-left ${
+                                    selectedSubcategory === 'all' ? 'bg-accent font-medium' : ''
+                                  }`}
+                                >
+                                  {selectedSubcategory === 'all' ? (
+                                    <Check className="mr-2 h-4 w-4 shrink-0 text-foreground" />
+                                  ) : (
+                                    <span className="pl-6" />
+                                  )}
+                                  <span>All Subcategories</span>
+                                </button>
+                              )}
+
+                              {filteredSubcategoriesInDropdown.map(subcat => {
+                                const isSelected = selectedSubcategory === subcat
+                                return (
+                                  <button
+                                    key={subcat}
+                                    type="button"
+                                    onClick={() => handleSelectSubcategory(subcat)}
+                                    className={`flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground text-left ${
+                                      isSelected ? 'bg-accent font-medium' : ''
+                                    }`}
+                                  >
+                                    {isSelected ? (
+                                      <Check className="mr-2 h-4 w-4 shrink-0 text-foreground" />
+                                    ) : (
+                                      <span className="pl-6" />
+                                    )}
+                                    <span>{subcat}</span>
+                                  </button>
+                                )
+                              })}
+
+                              {filteredSubcategoriesInDropdown.length === 0 && !'all'.includes(dropdownSearch.toLowerCase()) && (
+                                <div className="py-6 text-center text-sm text-muted-foreground">
+                                  No subcategory found.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   {/* Menu Display - Structured Grid/Cards pattern */}
-                  <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1 p-1">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-[40vh] overflow-y-auto pr-1 p-1">
                     {filteredProducts.map(product => (
                       <Card key={product.id} className="p-3 bg-secondary/20 border-border hover:border-primary/50 transition-all flex flex-col justify-between group">
                         <div className="mb-3">
                           <div className="flex justify-between items-start gap-1 mb-1">
-                            <p className="text-sm font-bold text-foreground leading-tight truncate" title={product.name}>
+                            <p className="text-sm font-bold text-foreground leading-tight line-clamp-2 h-10" title={product.name}>
                               {product.name}
                             </p>
                             <div className="flex items-center gap-1 bg-background/80 px-1.5 py-0.5 rounded border border-border text-[9px] font-bold text-muted-foreground uppercase flex-shrink-0">
@@ -597,9 +683,9 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                           </div>
                           <p className="text-sm font-sans font-bold text-primary">{formatRupee(product.price)}</p>
                         </div>
-                        <Button 
-                          size="sm" 
-                          onClick={() => handleAddClick(product)} 
+                        <Button
+                          size="sm"
+                          onClick={() => handleAddClick(product)}
                           className="w-full h-8 text-xs bg-sidebar text-sidebar-foreground hover:bg-sidebar/90 flex items-center gap-1.5 transition-transform active:scale-95"
                         >
                           <Plus size={14} /> Add to Order
@@ -666,7 +752,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
 
                           // 3. HANDLE variations ARRAY
                           if (Array.isArray((item as any).variations)) {
-                            ;(item as any).variations.forEach((v: any) => {
+                            ; (item as any).variations.forEach((v: any) => {
                               const variationName = v?.name || v?.title || v?.label || v?.option || v?.type
                               if (variationName) {
                                 extractedOptions.push(`+ ${variationName}`)
@@ -686,7 +772,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                                     extractedOptions.push(`+ ${optionName}`)
                                   }
                                 })
-                              // If it's a group object with options array
+                                // If it's a group object with options array
                               } else if (group && typeof group === 'object' && Array.isArray(group.options)) {
                                 group.options.forEach((opt: any) => {
                                   const optionName = opt?.name || opt?.title || opt?.label
@@ -694,7 +780,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                                     extractedOptions.push(`+ ${optionName}`)
                                   }
                                 })
-                              // If it's a direct option object
+                                // If it's a direct option object
                               } else if (group && typeof group === 'object') {
                                 const optionName = group?.name || group?.title || group?.label
                                 if (optionName && group?.isSelected !== false) {
@@ -742,24 +828,25 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
               </div>
             )}
 
-            {/* Action Buttons */}
-            <div className="flex gap-2 pt-4">
-              <Button
-                onClick={handleCreateOrder}
-                disabled={items.length === 0 || isSaving || isLoading}
-                className="flex-1 bg-black hover:bg-gray-800 text-white disabled:opacity-50"
-              >
-                {isSaving ? 'Creating...' : isContinuingBill ? 'Add to Bill' : 'Place Order'}
-              </Button>
-              <Button
-                onClick={onClose}
-                disabled={isSaving}
-                variant="outline"
-                className="flex-1 bg-transparent"
-              >
-                Cancel
-              </Button>
-            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-4 mt-auto border-t border-border">
+            <Button
+              onClick={handleCreateOrder}
+              disabled={items.length === 0 || isSaving || isLoading}
+              className="flex-1 bg-black hover:bg-gray-800 text-white disabled:opacity-50"
+            >
+              {isSaving ? 'Creating...' : isContinuingBill ? 'Add to Bill' : 'Place Order'}
+            </Button>
+            <Button
+              onClick={onClose}
+              disabled={isSaving}
+              variant="outline"
+              className="flex-1 bg-transparent"
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       </Card>
@@ -770,7 +857,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
           <DialogHeader>
             <DialogTitle>Customize {selectedProduct?.name}</DialogTitle>
           </DialogHeader>
-          
+
           <div className="space-y-6 py-4">
             {/* Variations */}
             {(selectedProduct?.variations || []).map((group: any, i: number) => (
@@ -783,11 +870,10 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                       <button
                         key={opt.name}
                         onClick={() => setVariation(prev => ({ ...prev, [i]: opt.name }))}
-                        className={`px-4 py-2 rounded-full border text-sm transition-all ${
-                          active
-                            ? "bg-green-700 text-white border-green-700 font-medium"
-                            : "bg-background border-border hover:border-green-600 text-foreground"
-                        }`}
+                        className={`px-4 py-2 rounded-full border text-sm transition-all ${active
+                          ? "bg-green-700 text-white border-green-700 font-medium"
+                          : "bg-background border-border hover:border-green-600 text-foreground"
+                          }`}
                       >
                         {opt.name} {opt.price ? `(+₹${opt.price})` : ''}
                       </button>
@@ -800,7 +886,7 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
             {/* Add-ons */}
             {(selectedProduct?.customizations || []).map((group: any, i: number) => {
               if (!group.options?.length) return null;
-              
+
               return (
                 <div key={`addon-${i}`} className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -813,16 +899,15 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                     {group.options.map((opt: any) => {
                       const selectedList = addons[i] || [];
                       const active = selectedList.includes(opt.name);
-                      
+
                       return (
                         <div
                           key={opt.name}
                           onClick={() => toggleAddon(i, opt.name)}
-                          className={`flex justify-between items-center p-3 rounded-xl border cursor-pointer transition-all ${
-                            active
-                              ? "border-green-700 bg-green-50 dark:bg-green-900/20"
-                              : "border-border bg-background hover:border-green-600"
-                          }`}
+                          className={`flex justify-between items-center p-3 rounded-xl border cursor-pointer transition-all ${active
+                            ? "border-green-700 bg-green-50 dark:bg-green-900/20"
+                            : "border-border bg-background hover:border-green-600"
+                            }`}
                         >
                           <span className="text-sm font-medium">{opt.name}</span>
                           {opt.price > 0 && (

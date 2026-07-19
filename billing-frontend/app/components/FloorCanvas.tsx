@@ -14,6 +14,13 @@ import { toast } from 'sonner'
 import { connectAgent, silentPrintHTML } from '@/lib/services/brontePrintService'
 import { AddOrderModal as SharedAddOrderModal } from '@/app/components/AddOrderModal'
 import { CancellationModal } from '@/app/components/CancellationModal'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter
+} from '@/components/ui/dialog'
 import { removeOrderItem } from '@/lib/services/orderService'
 import { getFloorMap, invalidateReadCache } from '@/lib/services/backendApi'
 import { BillTemplate, type BillData } from '@/app/components/print/BillTemplate'
@@ -929,6 +936,7 @@ export function FloorCanvas() {
 
   const [isEditMode, setIsEditMode] = useState(false)
   const [isSavingLayout, setIsSavingLayout] = useState(false)
+  const [showCloseConfirmDialog, setShowCloseConfirmDialog] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const dragPositionRef = useRef<{ x: number; y: number } | null>(null)
   const initialTablesRef = useRef<Table[]>([])
@@ -1861,18 +1869,18 @@ export function FloorCanvas() {
     setClosePaymentMode('UPI')
   }
 
-  const confirmCloseSession = async () => {
+  const handleConfirmCloseClick = () => {
     if (!closingSessionTable) return
     if (!closePaymentMode) {
       toast.error('Please select payment mode before marking payment status.')
       return
     }
-    const confirmMessage =
-      closeStatus === 'SUCCESS'
-        ? `Mark payment as completed for ${closingSessionTable.name} via ${closePaymentMode} and close the session?`
-        : `Mark payment as failed for ${closingSessionTable.name} via ${closePaymentMode}? The table will be freed, but the customer payment wall will stay locked until they pay.`
-    const confirmed = window.confirm(confirmMessage)
-    if (!confirmed) return
+    setShowCloseConfirmDialog(true)
+  }
+
+  const executeCloseSession = async () => {
+    if (!closingSessionTable) return
+    setShowCloseConfirmDialog(false)
     setIsClosingSession(true)
     try {
       const response = await tableSessionService.closeSession({
@@ -2522,7 +2530,7 @@ export function FloorCanvas() {
                 Cancel
               </Button>
               <Button
-                onClick={confirmCloseSession}
+                onClick={handleConfirmCloseClick}
                 className="flex-1 bg-gray-900 text-white hover:bg-black"
                 disabled={isClosingSession || !closePaymentMode}
               >
@@ -2531,6 +2539,38 @@ export function FloorCanvas() {
             </div>
           </div>
         </div>
+      )}
+
+      {showCloseConfirmDialog && (
+        <Dialog open={showCloseConfirmDialog} onOpenChange={setShowCloseConfirmDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Confirm Close Session</DialogTitle>
+            </DialogHeader>
+            <div className="py-4 text-sm text-muted-foreground">
+              {closingSessionTable && (
+                closeStatus === 'SUCCESS'
+                  ? `Mark payment as completed for ${closingSessionTable.name} via ${closePaymentMode} and close the session?`
+                  : `Mark payment as failed for ${closingSessionTable.name} via ${closePaymentMode}? The table will be freed, but the customer payment wall will stay locked until they pay.`
+              )}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                onClick={() => setShowCloseConfirmDialog(false)}
+                variant="outline"
+                className="flex-1 bg-transparent"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={executeCloseSession}
+                className="flex-1 bg-gray-900 text-white hover:bg-black"
+              >
+                Confirm Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {printBillData && (
