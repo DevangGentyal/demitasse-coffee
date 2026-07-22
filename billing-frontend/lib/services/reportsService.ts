@@ -138,3 +138,60 @@ export const getReportsByOutletId = async (outletId: string): Promise<ReportData
     avgOrderValue: report.summary.totalInvoices > 0 ? report.summary.finalTotal / report.summary.totalInvoices : 0,
   }
 }
+
+export interface CashCardPaymentSummaryRow {
+  paymentMode: string
+  transactionsCount: number
+  amountCollected: number
+}
+
+export interface CashCardPaymentDetailRow {
+  orderId: string
+  date: string
+  timestamp: string
+  outletName: string
+  paymentMode: string
+  amountPaid: number
+}
+
+export interface CashCardPaymentReportResponse {
+  success: boolean
+  filters: {
+    outletId: string
+    startDate: string
+    endDate: string
+  }
+  outlet: {
+    id: string
+    name: string
+  } | null
+  summary: {
+    totalTransactions: number
+    totalCollection: number
+    totalPaymentSources: number
+  }
+  paymentSummary: CashCardPaymentSummaryRow[]
+  transactions: CashCardPaymentDetailRow[]
+}
+
+export const getCashCardPaymentReport = async (filters: {
+  outletId?: string
+  startDate?: string
+  endDate?: string
+}): Promise<CashCardPaymentReportResponse> => {
+  const token = await getIdToken()
+  const response = await fetch(buildCloudFunctionsUrl('adminReportCashCardPayment', filters), {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+
+  const data = await parseJsonOrFallback(response)
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || 'Failed to fetch cash/card payment report')
+  }
+
+  return data as CashCardPaymentReportResponse
+}
+

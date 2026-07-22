@@ -1327,15 +1327,15 @@ export function FloorCanvas() {
       const quantity = Math.max(1, Math.floor(toSafeNumber(item.quantity ?? item.qty, 1)))
       const baseUnitPrice = toSafeNumber(item.price ?? item.unitPrice, quantity > 0 ? toSafeNumber(item.totalPrice, 0) / quantity : 0)
       const originalBasePrice = toSafeNumber(item.originalPrice ?? item.unitPrice ?? item.price, baseUnitPrice)
-      
+
       // Calculate addon prices total
       const addOnsArray = Array.isArray(item.addOns) ? item.addOns : Array.isArray(item.addons) ? item.addons : []
       const addonsTotal = addOnsArray.reduce((sum: number, addon: any) => sum + toSafeNumber(addon.price, 0), 0)
-      
+
       // Calculate variation prices total
       const variationsArray = Array.isArray(item.variations) ? item.variations : []
       const variationsTotal = variationsArray.reduce((sum: number, v: any) => sum + toSafeNumber(v.price, 0), 0)
-      
+
       // Final unit price = base price + addons + variations
       const finalUnitPrice = baseUnitPrice + addonsTotal + variationsTotal
       const originalUnitPrice = originalBasePrice + addonsTotal + variationsTotal
@@ -1897,14 +1897,14 @@ export function FloorCanvas() {
         prev.map((t: any) =>
           t.id === tableIdToReset
             ? {
-                ...t,
-                status: 'IDLE',
-                occupied: false,
-                activeSessionId: null,
-                billAmount: 0,
-                owner: null,
-                needsPaymentCollection: false,
-              }
+              ...t,
+              status: 'IDLE',
+              occupied: false,
+              activeSessionId: null,
+              billAmount: 0,
+              owner: null,
+              needsPaymentCollection: false,
+            }
             : t
         )
       )
@@ -2125,11 +2125,10 @@ export function FloorCanvas() {
               else setIsEditMode(true)
             }}
             disabled={isSavingLayout}
-            className={`flex items-center gap-2 text-sm ${
-              isEditMode
+            className={`flex items-center gap-2 text-sm ${isEditMode
                 ? 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
                 : 'bg-blue-600 hover:bg-blue-700'
-            } text-white`}
+              } text-white`}
           >
             {isSavingLayout ? (
               <>
@@ -2517,7 +2516,7 @@ export function FloorCanvas() {
                 disabled={!closePaymentMode}
               >
                 <option value="SUCCESS">Payment Settled</option>
-                <option value="FAILED">Payment Failed</option>
+                <option value="FAILED">Payment Due</option>
               </select>
             </div>
             <div className="mt-6 flex gap-3">
