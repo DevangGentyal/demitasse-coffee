@@ -70,6 +70,12 @@ export default function PaymentModeCollectionReportPage() {
     { header: 'Amount Collected', key: 'amountCollected', align: 'right' as const },
   ]
 
+  const dueTableColumns = [
+    { header: 'Payment Status', key: 'paymentStatus' },
+    { header: 'Transactions Count', key: 'transactionsCount', align: 'center' as const },
+    { header: 'Due Amount', key: 'dueAmount', align: 'right' as const },
+  ]
+
   const detailedTableColumns = [
     { header: 'Order ID', key: 'orderId' },
     { header: 'Date', key: 'date' },
@@ -77,24 +83,66 @@ export default function PaymentModeCollectionReportPage() {
     { header: 'Amount Paid', key: 'amountPaid', align: 'right' as const },
   ]
 
+  const isDueMode = (mode: string) => {
+    const upper = (mode || '').trim().toUpperCase()
+    return upper === 'DUE' || upper === 'UNKNOWN'
+  }
+
+  const paymentSummaryRows = report
+    ? report.paymentSummary.filter(row => !isDueMode(row.paymentMode))
+    : []
+
+  const dueSummaryRows = report
+    ? report.dueSummary
+      ? report.dueSummary
+      : (() => {
+          const dueCount = report.transactions.filter(t => isDueMode(t.paymentMode))
+          const rows: { paymentStatus: string; transactionsCount: number; dueAmount: number }[] = []
+          if (dueCount.length > 0) {
+            rows.push({
+              paymentStatus: 'Due',
+              transactionsCount: dueCount.length,
+              dueAmount: dueCount.reduce((sum, t) => sum + t.amountPaid, 0)
+            })
+          }
+          return rows
+        })()
+    : []
+
+  const transactionRows = report
+    ? report.transactions.map(t => {
+        if (isDueMode(t.paymentMode)) return { ...t, paymentMode: 'Due' }
+        return t
+      })
+    : []
+
   const handleExportExcel = () => {
     if (!report) return
     setExporting('excel')
     try {
       const formatExcelCurrency = (val: number) => `₹${val.toFixed(2)}`
 
-      const excelSummaryTableRows = report.paymentSummary.map(row => ({
+      const excelSummaryTableRows = paymentSummaryRows.map(row => ({
         paymentMode: row.paymentMode,
         transactionsCount: row.transactionsCount,
         amountCollected: formatExcelCurrency(row.amountCollected),
       }))
 
-      const excelDetailedTableRows = report.transactions.map(row => ({
+      const excelDueTableRows = dueSummaryRows.map(row => ({
+        paymentStatus: row.paymentStatus,
+        transactionsCount: row.transactionsCount,
+        dueAmount: formatExcelCurrency(row.dueAmount),
+      }))
+
+      const excelDetailedTableRows = transactionRows.map(row => ({
         orderId: row.orderId,
         date: row.date,
         paymentMode: row.paymentMode,
         amountPaid: formatExcelCurrency(row.amountPaid),
       }))
+
+      const totalTxCount = paymentSummaryRows.reduce((sum, r) => sum + r.transactionsCount, 0)
+      const totalCollAmount = paymentSummaryRows.reduce((sum, r) => sum + r.amountCollected, 0)
 
       exportToExcel({
         filename: 'Payment_Mode_Collection_Report',
@@ -102,9 +150,9 @@ export default function PaymentModeCollectionReportPage() {
         columns: paymentTableColumns,
         rows: excelSummaryTableRows,
         summary: {
-          'Total Transactions': report.summary.totalTransactions,
-          'Total Collection Amount': `₹${report.summary.totalCollection.toFixed(2)}`,
-          'Total Payment Sources': report.summary.totalPaymentSources,
+          'Total Transactions': totalTxCount,
+          'Total Collection Amount': `₹${totalCollAmount.toFixed(2)}`,
+          'Total Payment Sources': paymentSummaryRows.length,
         },
         filters: {
           outlet: report.outlet?.name || 'All',
@@ -112,6 +160,11 @@ export default function PaymentModeCollectionReportPage() {
           endDate,
         },
         extraSheets: [
+          {
+            sheetName: 'Due Payment Summary',
+            columns: dueTableColumns,
+            rows: excelDueTableRows,
+          },
           {
             sheetName: 'Detailed Transactions',
             columns: detailedTableColumns,
@@ -163,11 +216,14 @@ export default function PaymentModeCollectionReportPage() {
       currentY += 8
 
       // 2. Summary Metrics
+      const totalTxCount = paymentSummaryRows.reduce((sum, r) => sum + r.transactionsCount, 0)
+      const totalCollAmount = paymentSummaryRows.reduce((sum, r) => sum + r.amountCollected, 0)
+
       const summaryHeaders = ['Summary Metric', 'Value']
       const summaryRows = [
-        ['Total Transactions', String(report.summary.totalTransactions)],
-        ['Total Collection Amount', formatCurrency(report.summary.totalCollection)],
-        ['Total Payment Sources', String(report.summary.totalPaymentSources)],
+        ['Total Transactions', String(totalTxCount)],
+        ['Total Collection Amount', formatCurrency(totalCollAmount)],
+        ['Total Payment Sources', String(paymentSummaryRows.length)],
       ]
 
       autoTable(doc, {
@@ -192,7 +248,7 @@ export default function PaymentModeCollectionReportPage() {
       currentY += 5
 
       const summaryTableHead = paymentTableColumns.map(c => sanitizeText(c.header))
-      const summaryTableBody = report.paymentSummary.map(row => [
+      const summaryTableBody = paymentSummaryRows.map(row => [
         row.paymentMode,
         String(row.transactionsCount),
         formatCurrency(row.amountCollected)
@@ -209,6 +265,30 @@ export default function PaymentModeCollectionReportPage() {
 
       currentY = (doc as any).lastAutoTable.finalY + 8
 
+      // 3B. Due Payment Summary
+      doc.setFontSize(12)
+      doc.setTextColor(15, 23, 42)
+      doc.text('Due Payment Summary', 14, currentY)
+      currentY += 5
+
+      const dueTableHead = dueTableColumns.map(c => sanitizeText(c.header))
+      const dueTableBody = dueSummaryRows.map(row => [
+        row.paymentStatus,
+        String(row.transactionsCount),
+        formatCurrency(row.dueAmount)
+      ])
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [dueTableHead],
+        body: dueTableBody,
+        theme: 'striped',
+        styles: { fontSize: 8, cellPadding: 3 },
+        headStyles: { fillColor: [225, 29, 72] } // rose-600
+      })
+
+      currentY = (doc as any).lastAutoTable.finalY + 8
+
       // 4. Detailed Transactions
       doc.setFontSize(12)
       doc.setTextColor(15, 23, 42)
@@ -216,7 +296,7 @@ export default function PaymentModeCollectionReportPage() {
       currentY += 5
 
       const detailedTableHead = detailedTableColumns.map(c => sanitizeText(c.header))
-      const detailedTableBody = report.transactions.map(row => [
+      const detailedTableBody = transactionRows.map(row => [
         row.orderId,
         row.date,
         row.paymentMode,
@@ -245,15 +325,18 @@ export default function PaymentModeCollectionReportPage() {
 
   if (isLoading || !isLoggedIn) return null
 
+  const totalDueAmount = dueSummaryRows.reduce((sum, r) => sum + r.dueAmount, 0)
+
   const summaryData = report
     ? [
-        { label: 'Total Transactions', value: report.summary.totalTransactions },
-        { label: 'Total Collection Amount', value: report.summary.totalCollection, isCurrency: true },
-        { label: 'Total Payment Sources', value: report.summary.totalPaymentSources },
+        { label: 'Total Transactions', value: paymentSummaryRows.reduce((sum, r) => sum + r.transactionsCount, 0) },
+        { label: 'Total Collection Amount', value: paymentSummaryRows.reduce((sum, r) => sum + r.amountCollected, 0), isCurrency: true },
+        { label: 'Total Payment Sources', value: paymentSummaryRows.length },
+        { label: 'Due Payment Amount', value: totalDueAmount, isCurrency: true },
       ]
     : []
 
-  const hasData = report && report.summary.totalTransactions > 0
+  const hasData = report && (paymentSummaryRows.length > 0 || dueSummaryRows.length > 0 || transactionRows.length > 0)
 
   return (
     <ReportLayout
@@ -298,14 +381,21 @@ export default function PaymentModeCollectionReportPage() {
             title="Payment Modes Collection Summary"
             description="Aggregated transaction and collection amounts by active payment methods"
             columns={paymentTableColumns}
-            rows={report.paymentSummary}
+            rows={paymentSummaryRows}
+          />
+
+          <ReportTable
+            title="Due Payment Summary"
+            description="Aggregated transaction and due amounts for Payment Due invoices"
+            columns={dueTableColumns}
+            rows={dueSummaryRows}
           />
 
           <ReportTable
             title="Detailed Transactions"
             description="Completed customer invoices showing date, payment mode, and total collection value"
             columns={detailedTableColumns}
-            rows={report.transactions}
+            rows={transactionRows}
             minWidth="700px"
             maxHeight="600px"
           />

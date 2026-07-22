@@ -65,13 +65,13 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
   const [products, setProducts] = useState<Product[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all')
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-  const [dropdownSearch, setDropdownSearch] = useState('')
+  const [isSubcatDialogOpen, setIsSubcatDialogOpen] = useState(false)
+  const [subcatSearch, setSubcatSearch] = useState('')
 
   const handleSelectSubcategory = (value: string) => {
     setSelectedSubcategory(value)
-    setIsDropdownOpen(false)
-    setDropdownSearch('')
+    setIsSubcatDialogOpen(false)
+    setSubcatSearch('')
   }
 
   const [isLoading, setIsLoading] = useState(false)
@@ -162,9 +162,9 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
 
   const filteredSubcategoriesInDropdown = useMemo(() => {
     return subcategories.filter(sub =>
-      sub.toLowerCase().includes(dropdownSearch.toLowerCase())
+      sub.toLowerCase().includes(subcatSearch.toLowerCase())
     )
-  }, [subcategories, dropdownSearch])
+  }, [subcategories, subcatSearch])
 
   // Memoized filtered products
   const filteredProducts = useMemo(() => {
@@ -582,13 +582,13 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                         className="pl-9 bg-input border-border"
                       />
                     </div>
-                    {/* Searchable Subcategory Combobox */}
-                    <div className="relative w-[180px]">
+                    {/* Searchable Subcategory Picker */}
+                    <div className="relative w-[240px]">
                       <button
                         type="button"
                         onClick={() => {
-                          setIsDropdownOpen(!isDropdownOpen)
-                          setDropdownSearch('')
+                          setIsSubcatDialogOpen(true)
+                          setSubcatSearch('')
                         }}
                         className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-input px-3 py-2 text-sm shadow-xs outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 text-left text-foreground hover:bg-input/80 transition-colors"
                       >
@@ -597,73 +597,6 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
                         </span>
                         <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-1" />
                       </button>
-
-                      {isDropdownOpen && (
-                        <>
-                          <div 
-                            className="fixed inset-0 z-40 cursor-default" 
-                            onClick={() => setIsDropdownOpen(false)}
-                          />
-                          <div className="absolute right-0 mt-1 w-56 rounded-md border border-border bg-popover text-popover-foreground shadow-md z-50 p-1 flex flex-col max-h-60 overflow-hidden">
-                            <div className="flex items-center border-b border-border px-2 pb-1.5 pt-1">
-                              <Search className="h-3.5 w-3.5 shrink-0 opacity-50 mr-2" />
-                              <input
-                                placeholder="Search subcategory..."
-                                value={dropdownSearch}
-                                onChange={e => setDropdownSearch(e.target.value)}
-                                className="flex h-7 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                                autoFocus
-                              />
-                            </div>
-                            
-                            <div className="overflow-y-auto py-1 flex-1">
-                              {('all'.includes(dropdownSearch.toLowerCase()) || dropdownSearch === '') && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSelectSubcategory('all')}
-                                  className={`flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground text-left ${
-                                    selectedSubcategory === 'all' ? 'bg-accent font-medium' : ''
-                                  }`}
-                                >
-                                  {selectedSubcategory === 'all' ? (
-                                    <Check className="mr-2 h-4 w-4 shrink-0 text-foreground" />
-                                  ) : (
-                                    <span className="pl-6" />
-                                  )}
-                                  <span>All Subcategories</span>
-                                </button>
-                              )}
-
-                              {filteredSubcategoriesInDropdown.map(subcat => {
-                                const isSelected = selectedSubcategory === subcat
-                                return (
-                                  <button
-                                    key={subcat}
-                                    type="button"
-                                    onClick={() => handleSelectSubcategory(subcat)}
-                                    className={`flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground text-left ${
-                                      isSelected ? 'bg-accent font-medium' : ''
-                                    }`}
-                                  >
-                                    {isSelected ? (
-                                      <Check className="mr-2 h-4 w-4 shrink-0 text-foreground" />
-                                    ) : (
-                                      <span className="pl-6" />
-                                    )}
-                                    <span>{subcat}</span>
-                                  </button>
-                                )
-                              })}
-
-                              {filteredSubcategoriesInDropdown.length === 0 && !'all'.includes(dropdownSearch.toLowerCase()) && (
-                                <div className="py-6 text-center text-sm text-muted-foreground">
-                                  No subcategory found.
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </>
-                      )}
                     </div>
                   </div>
 
@@ -937,6 +870,67 @@ export function AddOrderModal({ isOpen, onClose, onOrderCreated, initialTableId 
               Add To Order • ₹{calculateTotalPrice().toFixed(2)}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+      {/* Subcategory Picker Dialog */}
+      <Dialog open={isSubcatDialogOpen} onOpenChange={setIsSubcatDialogOpen}>
+        <DialogContent className="sm:max-w-6xl max-h-[85vh] overflow-y-auto p-6 flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Select Subcategory</DialogTitle>
+          </DialogHeader>
+
+          <div className="relative my-2">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search subcategory..."
+              value={subcatSearch}
+              onChange={e => setSubcatSearch(e.target.value)}
+              className="pl-9 bg-input border-border"
+              autoFocus
+            />
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 py-2">
+            {/* All Subcategories */}
+            {('all subcategories'.includes(subcatSearch.toLowerCase()) || subcatSearch === '') && (
+              <button
+                type="button"
+                onClick={() => handleSelectSubcategory('all')}
+                className={`flex items-center justify-center text-center p-4 rounded-xl border text-sm font-semibold transition-all hover:bg-accent/80 active:scale-[0.98] h-20 ${selectedSubcategory === 'all'
+                  ? 'border-green-700 bg-green-700 text-white shadow-md font-bold'
+                  : 'border-border bg-secondary/30 text-foreground hover:bg-secondary/50 hover:border-green-600/30'
+                  }`}
+              >
+                All Subcategories
+              </button>
+            )}
+
+            {/* List/Grid of subcategories */}
+            {filteredSubcategoriesInDropdown.map(subcat => {
+              const isSelected = selectedSubcategory === subcat
+              return (
+                <button
+                  key={subcat}
+                  type="button"
+                  onClick={() => handleSelectSubcategory(subcat)}
+                  className={`flex items-center justify-center text-center p-4 rounded-xl border text-sm font-semibold transition-all hover:bg-accent/80 active:scale-[0.98] h-20 ${isSelected
+                    ? 'border-green-700 bg-green-700 text-white shadow-md font-bold'
+                    : 'border-border bg-secondary/30 text-foreground hover:bg-secondary/50 hover:border-green-600/30'
+                    }`}
+                >
+                  <span className="line-clamp-2">{subcat}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {filteredSubcategoriesInDropdown.length === 0 && !'all'.includes(subcatSearch.toLowerCase()) && (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              No subcategory found.
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

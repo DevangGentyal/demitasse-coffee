@@ -145,6 +145,12 @@ export interface CashCardPaymentSummaryRow {
   amountCollected: number
 }
 
+export interface CashCardDueSummaryRow {
+  paymentStatus: string
+  transactionsCount: number
+  dueAmount: number
+}
+
 export interface CashCardPaymentDetailRow {
   orderId: string
   date: string
@@ -171,6 +177,7 @@ export interface CashCardPaymentReportResponse {
     totalPaymentSources: number
   }
   paymentSummary: CashCardPaymentSummaryRow[]
+  dueSummary?: CashCardDueSummaryRow[]
   transactions: CashCardPaymentDetailRow[]
 }
 
