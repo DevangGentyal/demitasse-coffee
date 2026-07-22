@@ -91,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (outlet) {
           setOutletId(outlet);
           localStorage.setItem('outlet_id', outlet);
+          localStorage.setItem('pos_registered', 'true');
         } else {
           setOutletId(null);
         }
