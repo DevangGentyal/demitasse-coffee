@@ -16,7 +16,11 @@ export default function QuickCategories() {
   if (loading || !products || products.length === 0) return null;
 
   // Only include categories that have at least one product with a real image
-  const allCategories = [...new Set(products.map((p) => p.category))].filter(Boolean);
+  const baseCategories = [...new Set(products.map((p) => p.category))].filter(Boolean);
+  const targetCategory = baseCategories.find(c => String(c || '').trim().toLowerCase() === "dips & sauces");
+  const allCategories = targetCategory
+    ? [...baseCategories.filter(c => c !== targetCategory), targetCategory]
+    : baseCategories;
   const categories = allCategories.filter((cat) =>
     products.some(
       (p) =>

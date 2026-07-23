@@ -29,8 +29,8 @@ export default function HomePage() {
   }
 
   // Realtime Live Stats Calculation
-  const availableTables = tables.filter(t => !t.isOccupied).length
-  const occupiedTables = tables.filter(t => t.isOccupied).length
+  const availableTables = tables.filter(t => !t.occupied).length
+  const occupiedTables = tables.filter(t => t.occupied).length
 
   return (
     <div className="flex h-screen">

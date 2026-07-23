@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { Sidebar } from '@/app/components/Sidebar'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { 
-  ArrowRight, 
-  FileSpreadsheet, 
-  Star 
+import {
+  ArrowRight,
+  FileSpreadsheet,
+  CreditCard,
+  Star
 } from 'lucide-react'
 
 interface ReportMeta {
@@ -65,7 +66,15 @@ export default function ReportsPage() {
       path: '/reports/item-invoice-details',
       icon: <FileSpreadsheet size={24} />,
       color: 'bg-amber-500/10 text-amber-700 ring-amber-200',
-    }
+    },
+    {
+      id: 'cash-card',
+      title: 'Payment Report',
+      description: 'Analyze collections by payment mode including Cash, Card, UPI and Other payment channels with gross sales, discounts, taxes and final collections.',
+      path: '/reports/cash-card',
+      icon: <CreditCard size={24} />,
+      color: 'bg-purple-500/10 text-purple-700 ring-purple-200',
+    },
   ]
 
   if (isLoading || !isLoggedIn) return null
@@ -94,7 +103,7 @@ export default function ReportsPage() {
                 </CardTitle>
               </div>
             </div>
-            
+
             <button
               onClick={(e) => toggleFavorite(e, report.id)}
               className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-amber-500 transition-colors"
@@ -106,12 +115,12 @@ export default function ReportsPage() {
               />
             </button>
           </div>
-          
+
           <CardDescription className="text-sm text-slate-600 mt-2 line-clamp-3">
             {report.description}
           </CardDescription>
         </CardHeader>
-        
+
         <CardContent className="flex items-center justify-between pt-0 pb-4">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider group-hover:text-slate-600 transition-colors">
             Run Report

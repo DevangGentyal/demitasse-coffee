@@ -25,7 +25,11 @@ export default function Menu() {
     return <div className="p-6">Loading menu...</div>;
   }
 
-  const categories = [...new Set(products.map(p => p.category))];
+  const baseCategories = [...new Set(products.map(p => p.category))];
+  const targetCategory = baseCategories.find(c => String(c || '').trim().toLowerCase() === "dips & sauces");
+  const categories = targetCategory
+    ? [...baseCategories.filter(c => c !== targetCategory), targetCategory]
+    : baseCategories;
 
   const subcategories = activeCategory
     ? [
