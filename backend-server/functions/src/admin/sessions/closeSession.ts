@@ -211,6 +211,37 @@ export const closeSession = functions.https.onRequest(
             const docData = doc.data();
             const isCancelled = isOrderCancelled(docData);
             const completedItems = markItemsCompleted(Array.isArray(docData.items) ? docData.items : []);
+            
+            let totalAmount = readNumber(
+              docData.totalAmount ?? 
+              docData.pricing?.discountedPrice ?? 
+              docData.discountedPrice ?? 
+              docData.itemTotal, 
+              NaN
+            );
+            if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+              const sub = readNumber(docData.subTotal ?? docData.pricing?.subtotal ?? docData.pricing?.subTotal, 0);
+              const disc = readNumber(docData.discount ?? docData.pricing?.discount, 0);
+              totalAmount = sub - disc;
+            }
+            if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+              const items = Array.isArray(docData.items) ? docData.items : [];
+              let sub = 0;
+              let disc = 0;
+              for (const item of items) {
+                const qty = Math.max(1, Math.floor(readNumber(item.qty ?? item.quantity, 1)));
+                const unitPrice = readNumber(item.finalUnitPrice ?? item.price ?? item.unitPrice, 0);
+                const explicitTotal = readNumber(item.totalPrice, NaN);
+                sub += Number.isFinite(explicitTotal) ? explicitTotal : qty * unitPrice;
+                disc += readNumber(item.discount ?? item.discountAmount, 0);
+              }
+              totalAmount = sub - disc;
+            }
+            const finalTotalAmount = Math.max(totalAmount, 0);
+            const orderTax = isCancelled ? 0 : Math.round(finalTotalAmount * 0.05);
+            const orderTotal = isCancelled ? 0 : finalTotalAmount + orderTax;
+            const pricing = docData.pricing || {};
+
             tx.set(
               db.collection("outlets").doc(outletId).collection("ordersHistory").doc(doc.id),
               {
@@ -221,6 +252,15 @@ export const closeSession = functions.https.onRequest(
                 closedAt: archiveTimestamp,
                 archivedAt: archiveTimestamp,
                 source: "admin.closeSession.failed",
+                tax: orderTax,
+                pricing: {
+                  ...pricing,
+                  tax: orderTax,
+                  total: orderTotal,
+                  subtotal: pricing.subtotal ?? pricing.subTotal ?? docData.subTotal ?? 0,
+                  discount: pricing.discount ?? docData.discount ?? 0,
+                  discountedPrice: pricing.discountedPrice ?? docData.discountedPrice ?? finalTotalAmount,
+                }
               },
               {merge: true}
             );
@@ -271,6 +311,37 @@ export const closeSession = functions.https.onRequest(
           const docData = doc.data();
           const isCancelled = isOrderCancelled(docData);
           const completedItems = markItemsCompleted(Array.isArray(docData.items) ? docData.items : []);
+          
+          let totalAmount = readNumber(
+            docData.totalAmount ?? 
+            docData.pricing?.discountedPrice ?? 
+            docData.discountedPrice ?? 
+            docData.itemTotal, 
+            NaN
+          );
+          if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+            const sub = readNumber(docData.subTotal ?? docData.pricing?.subtotal ?? docData.pricing?.subTotal, 0);
+            const disc = readNumber(docData.discount ?? docData.pricing?.discount, 0);
+            totalAmount = sub - disc;
+          }
+          if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+            const items = Array.isArray(docData.items) ? docData.items : [];
+            let sub = 0;
+            let disc = 0;
+            for (const item of items) {
+              const qty = Math.max(1, Math.floor(readNumber(item.qty ?? item.quantity, 1)));
+              const unitPrice = readNumber(item.finalUnitPrice ?? item.price ?? item.unitPrice, 0);
+              const explicitTotal = readNumber(item.totalPrice, NaN);
+              sub += Number.isFinite(explicitTotal) ? explicitTotal : qty * unitPrice;
+              disc += readNumber(item.discount ?? item.discountAmount, 0);
+            }
+            totalAmount = sub - disc;
+          }
+          const finalTotalAmount = Math.max(totalAmount, 0);
+          const orderTax = isCancelled ? 0 : Math.round(finalTotalAmount * 0.05);
+          const orderTotal = isCancelled ? 0 : finalTotalAmount + orderTax;
+          const pricing = docData.pricing || {};
+
           tx.set(
             db.collection("outlets").doc(outletId).collection("ordersHistory").doc(doc.id),
             {
@@ -281,6 +352,15 @@ export const closeSession = functions.https.onRequest(
               closedAt: archiveTimestamp,
               archivedAt: archiveTimestamp,
               source: "admin.closeSession",
+              tax: orderTax,
+              pricing: {
+                ...pricing,
+                tax: orderTax,
+                total: orderTotal,
+                subtotal: pricing.subtotal ?? pricing.subTotal ?? docData.subTotal ?? 0,
+                discount: pricing.discount ?? docData.discount ?? 0,
+                discountedPrice: pricing.discountedPrice ?? docData.discountedPrice ?? finalTotalAmount,
+              }
             },
             {merge: true}
           );
