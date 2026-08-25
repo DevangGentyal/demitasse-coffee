@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 
 import Header from "@/components/home_screen/Header";
@@ -20,6 +20,20 @@ export default function Menu() {
   const [activeCategory, setActiveCategory] = useState(location.state?.category || null);
   const [activeSubcategory, setActiveSubcategory] = useState(null);
   const [search, setSearch] = useState("");
+  const isClickingRef = useRef(false);
+  const clickTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    // If opening from location state, scroll to it on load (optional but nice)
+    if (location.state?.category && !loading) {
+      setTimeout(() => {
+        const el = document.getElementById(`category-${location.state.category}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 100);
+    }
+  }, [location.state, loading]);
 
   if (loading) {
     return <div className="p-6">Loading menu...</div>;
@@ -31,15 +45,46 @@ export default function Menu() {
     ? [...baseCategories.filter(c => c !== targetCategory), targetCategory]
     : baseCategories;
 
-  const subcategories = activeCategory
+  const currentCategory = activeCategory || categories[0];
+
+  const subcategories = currentCategory
     ? [
       ...new Set(
         products
-          .filter(p => p.category === activeCategory)
+          .filter(p => p.category === currentCategory)
           .map(p => p.subcategory)
       )
     ]
     : [];
+
+  const handleCategoryClick = (cat) => {
+    isClickingRef.current = true;
+    setActiveCategory(cat);
+    setActiveSubcategory(null);
+    
+    // Clear any existing timeout
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+    }
+
+    const el = document.getElementById(`category-${cat}`);
+    if (el) {
+      // Calculate offset considering sticky header height
+      const y = el.getBoundingClientRect().top + window.scrollY - 180;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    }
+
+    // Re-enable observer updates after smooth scroll finishes
+    clickTimeoutRef.current = setTimeout(() => {
+      isClickingRef.current = false;
+    }, 1000); // 1 second should be enough for smooth scroll
+  };
+
+  const handleCategoryVisible = (cat) => {
+    if (!isClickingRef.current) {
+      setActiveCategory(cat);
+    }
+  };
 
   return (
     <div>
@@ -51,18 +96,8 @@ export default function Menu() {
 
         <CategoryTabs
           categories={categories}
-          activeCategory={activeCategory}
-          onChange={(cat) => {
-            setActiveCategory(prev => {
-              // 🔁 toggle behavior
-              if (prev === cat) {
-                setActiveSubcategory(null);
-                return null;
-              }
-              setActiveSubcategory(null);
-              return cat;
-            });
-          }}
+          activeCategory={currentCategory}
+          onChange={handleCategoryClick}
         />
         <SubCategoryTabs
           subcategories={subcategories}
@@ -79,10 +114,11 @@ export default function Menu() {
 
       <MenuProductGrid
         products={products}
-        activeCategory={activeCategory}
+        categories={categories}
         activeSubcategory={activeSubcategory}
         search={search}
         vegOnly={vegOnly}
+        onCategoryVisible={handleCategoryVisible}
       />
 
     </div>

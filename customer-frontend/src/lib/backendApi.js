@@ -3,7 +3,7 @@ import { auth } from './firebase'
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
   import.meta.env.VITE_API_LOCAL ||
-  'http://127.0.0.1:5001/demitasse-cafe-pilot/us-central1'
+  + 'http://127.0.0.1:5001/demitasse-cafe-pilot/asia-south1'
 
 const getAuthToken = async (requireAuth = true) => {
   if (auth.authStateReady) {
@@ -121,18 +121,18 @@ export const getOrderHistory = async (sortDir = 'desc') => {
   const token = await getIdToken()
   const requestUrl = `${API_BASE}/customerGetOrderHistory?sort=${sortDir}`;
   console.log(`[E2E TRACE backendApi] Request: GET ${requestUrl}`);
-  
+
   const response = await fetch(requestUrl, {
     headers: { Authorization: `Bearer ${token}` }
   })
-  
+
   const payload = await response.json().catch(() => ({}))
   console.log("[E2E TRACE backendApi] Response Payload:", payload);
-  
+
   if (!response.ok || !payload.success) {
     throw new Error(payload.message || 'Failed to load order history')
   }
-  
+
   const allOrders = payload.orders || []
   return allOrders
 }
