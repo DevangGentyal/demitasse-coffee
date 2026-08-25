@@ -1,54 +1,91 @@
 import ProductCard from "@/components/home_screen/ProductCard";
+import { useEffect, useRef } from "react";
 
 export default function MenuProductGrid({
   products,
-  activeCategory,
+  categories,
   activeSubcategory,
   search,
-  vegOnly
+  vegOnly,
+  onCategoryVisible
 }) {
+  const sectionRefs = useRef({});
 
+  useEffect(() => {
+    // We observe category sections to update the active tab during manual scroll.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+             const categoryId = entry.target.id.replace('category-', '');
+             if (onCategoryVisible) {
+               onCategoryVisible(categoryId);
+             }
+          }
+        });
+      },
+      {
+        rootMargin: "-180px 0px -60% 0px", // Adjust for sticky header so it triggers roughly at top
+        threshold: 0
+      }
+    );
+
+    Object.values(sectionRefs.current).forEach((ref) => {
+      if (ref) observer.observe(ref);
+    });
+
+    return () => observer.disconnect();
+  }, [onCategoryVisible, categories]);
+
+  // Apply filters (search, veg, subcategory) across all products
   const filteredProducts = products.filter((p) => {
-
-    // ✅ SEARCH (GLOBAL - works always)
-    if (search && !p.name.toLowerCase().includes(search.toLowerCase())) {
-      return false;
-    }
-
-    // ✅ VEG FILTER
+    // SEARCH
+    if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
+    // VEG
     if (vegOnly && !p.isVeg) return false;
-
-    // ✅ CATEGORY (only if selected)
-    if (activeCategory && p.category !== activeCategory) return false;
-
-    // ✅ SUBCATEGORY (only if selected)
-    if (activeSubcategory && p.subcategory !== activeSubcategory) {
-      return false;
-    }
-
+    // SUBCATEGORY
+    if (activeSubcategory && p.subcategory !== activeSubcategory) return false;
     return true;
   });
 
-  return (
-    <div className="grid grid-cols-2 gap-4 px-4 mt-6 pb-24">
+  // Group by category, retaining order from `categories` prop
+  const groupedProducts = categories.map(cat => ({
+    category: cat,
+    items: filteredProducts.filter(p => p.category === cat)
+  })).filter(group => group.items.length > 0);
 
-      {filteredProducts.length === 0 ? (
-        <p className="col-span-2 text-center text-gray-500">
+  return (
+    <div className="pb-24 mt-4">
+      {groupedProducts.length === 0 ? (
+        <p className="text-center text-gray-500 mt-6">
           No items found
         </p>
       ) : (
-        filteredProducts.map((p) => (
-          <ProductCard
-            key={p.id}
-            id={p.id}
-            image={p.image}
-            name={p.name}
-            price={p.price}
-            isAvailable={p.isAvailable !== false}
-          />
+        groupedProducts.map((group) => (
+          <div 
+            key={group.category} 
+            id={`category-${group.category}`} 
+            ref={el => (sectionRefs.current[group.category] = el)}
+            className="pt-2 mb-6"
+          >
+            <h2 className="text-xl font-bold px-4 mb-4 text-amber-950">
+              {group.category}
+            </h2>
+            <div className="grid grid-cols-2 gap-4 px-4">
+              {group.items.map((p) => (
+                <ProductCard
+                  key={p.id}
+                  id={p.id}
+                  image={p.image}
+                  name={p.name}
+                  price={p.price}
+                  isAvailable={p.isAvailable !== false}
+                />
+              ))}
+            </div>
+          </div>
         ))
       )}
-
     </div>
   );
 }
