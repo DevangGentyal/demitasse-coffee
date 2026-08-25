@@ -932,7 +932,43 @@ export function FloorCanvas() {
   const { outletId } = useAuth()
   const { tables, setTables, updateTable, orders, setIsLayoutEditing, printSettings } = useApp()
   const canvasRef = useRef<HTMLDivElement>(null)
+  const canvasViewportRef = useRef<HTMLDivElement>(null)
+  const canvasScaleRef = useRef(1)
+  const [canvasScale, setCanvasScale] = useState(1)
   const safeSetTables = typeof setTables === 'function' ? setTables : null
+
+  const getCanvasPointFromClient = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+    const rect = canvas.getBoundingClientRect()
+    const scale = canvasScaleRef.current || 1
+    return {
+      x: (clientX - rect.left) / scale,
+      y: (clientY - rect.top) / scale,
+    }
+  }
+
+  useEffect(() => {
+    const viewport = canvasViewportRef.current
+    if (!viewport) return
+
+    const updateScale = () => {
+      const { width, height } = viewport.getBoundingClientRect()
+      if (width <= 0 || height <= 0) return
+      const nextScale = Math.min(width / FLOOR_WIDTH, height / FLOOR_HEIGHT, 1)
+      canvasScaleRef.current = nextScale
+      setCanvasScale(nextScale)
+    }
+
+    updateScale()
+    const observer = new ResizeObserver(updateScale)
+    observer.observe(viewport)
+    window.addEventListener('resize', updateScale)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateScale)
+    }
+  }, [])
 
   const [isEditMode, setIsEditMode] = useState(false)
   const [isSavingLayout, setIsSavingLayout] = useState(false)
@@ -1399,10 +1435,10 @@ export function FloorCanvas() {
     if (!table) return
     const canvas = canvasRef.current
     if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
+    const point = getCanvasPointFromClient(e.clientX, e.clientY)
     setDraggingId(tableId)
     dragPositionRef.current = { x: table.x, y: table.y }
-    setDragOffset({ x: e.clientX - rect.left - table.x, y: e.clientY - rect.top - table.y })
+    setDragOffset({ x: point.x - table.x, y: point.y - table.y })
   }
 
   useEffect(() => {
@@ -1412,11 +1448,11 @@ export function FloorCanvas() {
     }
     const handleMouseMove = (e: MouseEvent) => {
       if (draggingId === null || !canvasRef.current) return
-      const rect = canvasRef.current.getBoundingClientRect()
-      let x = e.clientX - rect.left - dragOffset.x
-      let y = e.clientY - rect.top - dragOffset.y
-      x = Math.max(0, Math.min(x, rect.width - TABLE_WIDTH))
-      y = Math.max(0, Math.min(y, rect.height - TABLE_HEIGHT))
+      const point = getCanvasPointFromClient(e.clientX, e.clientY)
+      let x = point.x - dragOffset.x
+      let y = point.y - dragOffset.y
+      x = Math.max(0, Math.min(x, FLOOR_WIDTH - TABLE_WIDTH))
+      y = Math.max(0, Math.min(y, FLOOR_HEIGHT - TABLE_HEIGHT))
       x = Math.round(x / GRID_SIZE) * GRID_SIZE
       y = Math.round(y / GRID_SIZE) * GRID_SIZE
       dragPositionRef.current = { x, y }
@@ -1444,11 +1480,11 @@ export function FloorCanvas() {
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!canvasRef.current) return
-      const rect = canvasRef.current.getBoundingClientRect()
+      const point = getCanvasPointFromClient(e.clientX, e.clientY)
       const box = labelBoxes.find((b) => b.id === draggingLabelId)
       if (!box) return
-      let x = e.clientX - rect.left - labelDragOffsetRef.current.x
-      let y = e.clientY - rect.top - labelDragOffsetRef.current.y
+      let x = point.x - labelDragOffsetRef.current.x
+      let y = point.y - labelDragOffsetRef.current.y
       x = Math.max(0, Math.min(x, FLOOR_WIDTH - box.width))
       y = Math.max(0, Math.min(y, FLOOR_HEIGHT - box.height))
       x = snapToGrid(x)
@@ -1478,8 +1514,9 @@ export function FloorCanvas() {
 
     const handleMouseMove = (e: MouseEvent) => {
       const { id, handle, startMouseX, startMouseY, startBox } = resizingLabel
-      const dx = e.clientX - startMouseX
-      const dy = e.clientY - startMouseY
+      const scale = canvasScaleRef.current || 1
+      const dx = (e.clientX - startMouseX) / scale
+      const dy = (e.clientY - startMouseY) / scale
 
       let { x, y, width, height } = startBox
 
@@ -1721,40 +1758,36 @@ export function FloorCanvas() {
       setSelectedLabelBoxId(null)
     }
     if (!showWallEditor || !canvasRef.current) return
-    const rect = canvasRef.current.getBoundingClientRect()
-    const startPoint = {
-      x: snapToGrid(e.clientX - rect.left),
-      y: snapToGrid(e.clientY - rect.top),
-    }
-    drawingWall.current = { startX: startPoint.x, startY: startPoint.y }
+    const startPoint = getCanvasPointFromClient(e.clientX, e.clientY)
+    drawingWall.current = { startX: snapToGrid(startPoint.x), startY: snapToGrid(startPoint.y) }
     setSelectedWallIndex(null)
   }
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
     if (!drawingWall.current || !showWallEditor || !canvasRef.current) return
-    const rect = canvasRef.current.getBoundingClientRect()
-    const curPoint = {
-      x: snapToGrid(e.clientX - rect.left),
-      y: snapToGrid(e.clientY - rect.top),
+    const curPoint = getCanvasPointFromClient(e.clientX, e.clientY)
+    const snappedCurPoint = {
+      x: snapToGrid(curPoint.x),
+      y: snapToGrid(curPoint.y),
     }
     const { startX, startY } = drawingWall.current
     const anchors = getWallAnchors(walls)
     const snappedStart = snapPointToAnchors({ x: startX, y: startY }, anchors)
-    const snappedEnd = snapPointToAnchors(curPoint, anchors)
+    const snappedEnd = snapPointToAnchors(snappedCurPoint, anchors)
     setPreviewWall(buildWallFromAnchors(snappedStart, snappedEnd))
   }
 
   const handleCanvasMouseUp = (e: React.MouseEvent) => {
     if (!drawingWall.current || !showWallEditor || !canvasRef.current) return
-    const rect = canvasRef.current.getBoundingClientRect()
-    const curPoint = {
-      x: snapToGrid(e.clientX - rect.left),
-      y: snapToGrid(e.clientY - rect.top),
+    const curPoint = getCanvasPointFromClient(e.clientX, e.clientY)
+    const snappedCurPoint = {
+      x: snapToGrid(curPoint.x),
+      y: snapToGrid(curPoint.y),
     }
     const { startX, startY } = drawingWall.current
     const anchors = getWallAnchors(walls)
     const snappedStart = snapPointToAnchors({ x: startX, y: startY }, anchors)
-    const snappedEnd = snapPointToAnchors(curPoint, anchors)
+    const snappedEnd = snapPointToAnchors(snappedCurPoint, anchors)
     const nextWall = buildWallFromAnchors(snappedStart, snappedEnd)
     if (nextWall) setWalls((prev) => [...prev, nextWall])
     drawingWall.current = null
@@ -1770,11 +1803,7 @@ export function FloorCanvas() {
     if (!showWallEditor || !resizingWall || !canvasRef.current) return
     const handleMouseMove = (e: MouseEvent) => {
       if (!canvasRef.current) return
-      const rect = canvasRef.current.getBoundingClientRect()
-      const pointer = {
-        x: snapToGrid(e.clientX - rect.left),
-        y: snapToGrid(e.clientY - rect.top),
-      }
+      const pointer = getCanvasPointFromClient(e.clientX, e.clientY)
       setWalls((prevWalls) => {
         const target = prevWalls[resizingWall.index]
         if (!target) return prevWalls
@@ -1815,12 +1844,12 @@ export function FloorCanvas() {
     if (!showWallEditor || !draggingWall || !canvasRef.current) return
     const handleMouseMove = (e: MouseEvent) => {
       if (!canvasRef.current) return
-      const rect = canvasRef.current.getBoundingClientRect()
+      const point = getCanvasPointFromClient(e.clientX, e.clientY)
       setWalls((prevWalls) => {
         const target = prevWalls[draggingWall.index]
         if (!target) return prevWalls
-        let nextX = snapToGrid(e.clientX - rect.left - draggingWall.offsetX)
-        let nextY = snapToGrid(e.clientY - rect.top - draggingWall.offsetY)
+        let nextX = snapToGrid(point.x - draggingWall.offsetX)
+        let nextY = snapToGrid(point.y - draggingWall.offsetY)
         nextX = Math.max(0, Math.min(nextX, FLOOR_WIDTH - target.width))
         nextY = Math.max(0, Math.min(nextY, FLOOR_HEIGHT - target.height))
         const nextWalls = [...prevWalls]
@@ -2039,8 +2068,25 @@ export function FloorCanvas() {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const floorMetrics = useMemo(() => {
+    const available = tables.filter((table) => !table.occupied).length
+    const occupied = tables.filter((table) => table.occupied).length
+    const paymentDue = tables.filter(
+      (table) =>
+        table.needsPaymentCollection ||
+        String(table.status || '').toUpperCase() === 'BILL',
+    ).length
+
+    return {
+      available,
+      occupied,
+      total: tables.length,
+      paymentDue,
+    }
+  }, [tables])
+
   return (
-    <div className="w-full h-full flex flex-col gap-3">
+    <div className="w-full h-full min-h-0 flex flex-col gap-3">
       {/* Full-screen saving overlay */}
       {isSavingLayout && (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -2052,7 +2098,7 @@ export function FloorCanvas() {
         </div>
       )}
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-4 px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm">
+      <div className="flex items-center justify-between gap-4 px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm shrink-0">
         <h3 className="text-lg font-bold text-gray-900">Floor Plan</h3>
         <div className="flex items-center gap-2 flex-wrap">
           {isEditMode && (
@@ -2126,8 +2172,8 @@ export function FloorCanvas() {
             }}
             disabled={isSavingLayout}
             className={`flex items-center gap-2 text-sm ${isEditMode
-                ? 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
-                : 'bg-blue-600 hover:bg-blue-700'
+              ? 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
+              : 'bg-blue-600 hover:bg-blue-700'
               } text-white`}
           >
             {isSavingLayout ? (
@@ -2144,9 +2190,26 @@ export function FloorCanvas() {
         </div>
       </div>
 
+      {/* Floor metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 shrink-0">
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center shadow-sm">
+          <p className="text-2xl font-extrabold text-blue-600">{floorMetrics.available}</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mt-1">Available</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center shadow-sm">
+          <p className="text-2xl font-extrabold text-emerald-600">{floorMetrics.occupied}</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mt-1">Occupied</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center shadow-sm">
+          <p className="text-2xl font-extrabold text-gray-900">{floorMetrics.total}</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mt-1">Total Tables</p>
+        </div>
+       
+      </div>
+
       {/* Wall Editor hint */}
       {showWallEditor && (
-        <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700 flex items-center gap-2">
+        <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700 flex items-center gap-2 shrink-0">
           <Pencil size={14} />
           <span>
             <strong>Draw walls:</strong> Click and drag. Walls snap to grid and nearby anchor points.
@@ -2157,7 +2220,7 @@ export function FloorCanvas() {
 
       {/* Label box edit hint */}
       {isEditMode && !showWallEditor && labelBoxes.length > 0 && (
-        <div className="px-4 py-2 bg-violet-50 border border-violet-200 rounded-lg text-sm text-violet-700 flex items-center gap-2">
+        <div className="px-4 py-2 bg-violet-50 border border-violet-200 rounded-lg text-sm text-violet-700 flex items-center gap-2 shrink-0">
           <Square size={14} />
           <span>
             <strong>Section labels:</strong> Drag to reposition. Select a section to resize using handles or rename it.
@@ -2167,18 +2230,30 @@ export function FloorCanvas() {
 
       {/* Canvas */}
       <div
-        className="flex-1 rounded-xl border border-gray-300 overflow-auto bg-[#ebe7df]"
-        style={{ minHeight: 'calc(100vh - 160px)' }}
+        ref={canvasViewportRef}
+        className="flex-1 min-h-0 rounded-xl border border-gray-300 overflow-hidden bg-[#ebe7df] flex items-center justify-center"
       >
         <div
-          ref={canvasRef}
-          className={`relative select-none ${showWallEditor ? 'cursor-crosshair' : ''}`}
-          style={{ width: FLOOR_WIDTH, height: FLOOR_HEIGHT }}
-          onMouseDown={handleCanvasMouseDown}
-          onMouseMove={handleCanvasMouseMove}
-          onMouseUp={handleCanvasMouseUp}
-          onMouseLeave={handleCanvasMouseLeave}
+          className="relative shrink-0"
+          style={{
+            width: FLOOR_WIDTH * canvasScale,
+            height: FLOOR_HEIGHT * canvasScale,
+          }}
         >
+          <div
+            ref={canvasRef}
+            className={`relative select-none ${showWallEditor ? 'cursor-crosshair' : ''}`}
+            style={{
+              width: FLOOR_WIDTH,
+              height: FLOOR_HEIGHT,
+              transform: `scale(${canvasScale})`,
+              transformOrigin: 'top left',
+            }}
+            onMouseDown={handleCanvasMouseDown}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseUp={handleCanvasMouseUp}
+            onMouseLeave={handleCanvasMouseLeave}
+          >
           {/* Dot grid */}
           <svg
             className="absolute inset-0 w-full h-full opacity-20 pointer-events-none"
@@ -2202,10 +2277,10 @@ export function FloorCanvas() {
               onSelect={() => setSelectedLabelBoxId(box.id)}
               onDragStart={(e) => {
                 if (!isEditMode || !canvasRef.current) return
-                const rect = canvasRef.current.getBoundingClientRect()
+                const point = getCanvasPointFromClient(e.clientX, e.clientY)
                 labelDragOffsetRef.current = {
-                  x: e.clientX - rect.left - box.x,
-                  y: e.clientY - rect.top - box.y,
+                  x: point.x - box.x,
+                  y: point.y - box.y,
                 }
                 setDraggingLabelId(box.id)
               }}
@@ -2233,13 +2308,12 @@ export function FloorCanvas() {
                   onMouseDown={(e) => {
                     if (!showWallEditor || resizingWall) return
                     e.stopPropagation()
-                    const rect = canvasRef.current?.getBoundingClientRect()
-                    if (!rect) return
+                    const point = getCanvasPointFromClient(e.clientX, e.clientY)
                     setSelectedWallIndex(idx)
                     setDraggingWall({
                       index: idx,
-                      offsetX: e.clientX - rect.left - wall.x,
-                      offsetY: e.clientY - rect.top - wall.y,
+                      offsetX: point.x - wall.x,
+                      offsetY: point.y - wall.y,
                     })
                   }}
                   onClick={(e) => {
@@ -2447,6 +2521,7 @@ export function FloorCanvas() {
               </div>
             )
           })}
+          </div>
         </div>
       </div>
 
@@ -2495,7 +2570,7 @@ export function FloorCanvas() {
             <p className="mt-2 text-sm text-gray-600">
               Choose the payment result before closing this session.
             </p>
-            
+
             {/* 1) Payment Status first */}
             <div className="mt-5 space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment status</label>

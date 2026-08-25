@@ -7,6 +7,7 @@ import MenuOfferTabs from "@/components/home_screen/MenuOfferTabs";
 import HeroCarousel from "@/components/home_screen/HeroCarousel";
 import QuickCategories from "@/components/home_screen/QuickCategories";
 import TrendingSection from "@/components/home_screen/TrendingSection";
+import ViewCompleteMenuSection from "@/components/home_screen/ViewCompleteMenuSection";
 import RecommendedSection from "@/components/home_screen/RecommendedSection";
 import ComboSection from "@/components/home_screen/ComboSection";
 
@@ -59,6 +60,9 @@ export default function Home() {
 
       {/* Recommended */}
       <RecommendedSection />
+
+      {/* Complete Menu CTA */}
+      <ViewCompleteMenuSection />
 
       {/* Combos */}
       <ComboSection />

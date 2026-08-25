@@ -1,81 +1,115 @@
-import React from "react";
-import { SparklesIcon, GiftIcon, StarIcon } from "@heroicons/react/24/outline";
+import React, { useEffect } from "react";
+import { Gift, Sparkles, Star, Coins } from "lucide-react";
+import OfferCard from "../components/offer_screen/OfferCard";
+import { useOffers } from "../context/OfferContext";
+
+function DemiCoinIllustration() {
+  return (
+    <div className="relative flex h-32 w-32 items-center justify-center">
+      <div className="absolute inset-0 rounded-full bg-amber-200/40 blur-2xl" />
+      <svg
+        viewBox="0 0 120 120"
+        className="relative h-28 w-28 drop-shadow-[0_12px_24px_rgba(180,120,40,0.25)]"
+        aria-hidden="true"
+      >
+        <defs>
+          <linearGradient id="demiCoinFace" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#f6e6a8" />
+            <stop offset="45%" stopColor="#e7b84a" />
+            <stop offset="100%" stopColor="#c8891d" />
+          </linearGradient>
+          <linearGradient id="demiCoinEdge" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#f0d278" />
+            <stop offset="100%" stopColor="#a66b12" />
+          </linearGradient>
+        </defs>
+        <circle cx="60" cy="60" r="54" fill="url(#demiCoinEdge)" />
+        <circle cx="60" cy="60" r="46" fill="url(#demiCoinFace)" />
+        <circle cx="60" cy="60" r="46" fill="none" stroke="#fff6d6" strokeWidth="2" opacity="0.55" />
+        <circle cx="60" cy="60" r="34" fill="none" stroke="#b7791f" strokeWidth="2.5" opacity="0.35" />
+        <text
+          x="60"
+          y="68"
+          textAnchor="middle"
+          fontSize="34"
+          fontWeight="700"
+          fill="#7c4a03"
+          fontFamily="system-ui, sans-serif"
+        >
+          D
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+const upcomingRewards = [
+  { icon: Coins, label: "DemiCoins" },
+  { icon: Gift, label: "Free Treats" },
+  { icon: Star, label: "Member Perks" },
+  { icon: Sparkles, label: "Exclusive Offers" },
+];
 
 export default function LoyaltyPage() {
+  const { filteredOffers, refreshUserProfile, refreshOffers } = useOffers();
+  const birthdayOffer = filteredOffers?.birthdayOffer;
+
+  useEffect(() => {
+    refreshUserProfile();
+    refreshOffers();
+  }, [refreshUserProfile, refreshOffers]);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#f7efe6] via-[#f5efe7] to-[#efe6da] px-4 pt-10 pb-24">
-      {/* Header */}
-      <div className="mb-8 text-center mt-4">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr from-amber-200 to-amber-100 shadow-lg shadow-amber-200/50 text-amber-700">
-          <SparklesIcon className="w-8 h-8" />
-        </div>
-        <h1 className="text-3xl font-bold text-[#3e2723] tracking-tight">Loyalty Coming Soon</h1>
-        <p className="mt-2 text-sm font-medium text-[#6B4F4F]">Something rewarding is brewing for your next cup ☕</p>
+    <div className="min-h-screen bg-[#f7efe6] max-w-[420px] mx-auto px-4 pt-8 pb-24">
+      <div className="mb-6 text-center">
+        <h1 className="text-2xl font-extrabold tracking-tight text-[#3e2723]">
+          Loyalty Rewards
+        </h1>
+        <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.35em] text-amber-800/60">
+          Coming Soon
+        </p>
       </div>
 
-      {/* Main Teaser Card */}
-      <div className="relative overflow-hidden rounded-[2rem] bg-white p-8 shadow-xl shadow-black/5 border border-white/50">
-        <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-amber-50 blur-3xl"></div>
-        <div className="absolute -bottom-10 -left-10 h-40 w-40 rounded-full bg-emerald-50 blur-3xl"></div>
-        
-        <div className="relative z-10 text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#3e2723] px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-200 mb-6 shadow-sm">
-            Coming Soon
-          </span>
-          <h2 className="text-2xl font-bold text-gray-900 leading-tight">Exclusive Rewards <br/>& Free Treats</h2>
-          <p className="mt-4 text-sm text-gray-500 leading-relaxed">
-            We are crafting a premium loyalty experience. Soon, you'll be able to earn points on every coffee and unlock exclusive perks, birthday treats, and free beverages.
+      {birthdayOffer && (
+        <div className="mb-6">
+          <OfferCard
+            offer={birthdayOffer}
+            badge={birthdayOffer.display?.badge || ""}
+          />
+        </div>
+      )}
+
+      <div className="rounded-[2rem] bg-white border border-[#e8dccf] p-6 shadow-sm">
+        <div className="flex flex-col items-center text-center">
+          <DemiCoinIllustration />
+
+          <h2 className="mt-5 text-xl font-extrabold text-[#3e2723]">
+            DemiCoins
+          </h2>
+          <p className="mt-2 max-w-[240px] text-sm leading-relaxed text-[#8B6F5E]">
+            A coin-based reward system with much more on the way.
           </p>
         </div>
 
-        {/* Fake Blurred Preview */}
-        <div className="mt-8 relative rounded-2xl bg-gray-50 p-4 border border-gray-100 overflow-hidden select-none">
-          <div className="absolute inset-0 bg-white/40 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center">
-            <div className="bg-white/90 px-4 py-2 rounded-full shadow-sm border border-white flex items-center gap-2">
-              <span className="animate-pulse h-2 w-2 rounded-full bg-amber-500"></span>
-              <span className="text-xs font-bold text-gray-800 tracking-wide">Launching in Phase 2</span>
-            </div>
-          </div>
-          
-          <div className="opacity-40 blur-[1px]">
-            <div className="flex justify-between items-center mb-3">
-              <div className="flex items-center gap-2">
-                <StarIcon className="w-5 h-5 text-amber-500" />
-                <span className="font-bold text-gray-800 text-sm">Your Points</span>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          {upcomingRewards.map(({ icon: Icon, label }) => (
+            <div
+              key={label}
+              className="flex flex-col items-center rounded-2xl bg-[#f7efe6] px-3 py-4 border border-[#efe3d6]"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-amber-700 shadow-sm">
+                <Icon className="h-5 w-5" />
               </div>
-              <span className="font-black text-xl text-amber-600">450</span>
+              <span className="mt-2 text-xs font-semibold text-[#5C4033]">{label}</span>
             </div>
-            <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-amber-400 w-[60%]"></div>
-            </div>
-            <p className="text-[10px] text-gray-400 mt-2 text-right">50 points away from a free coffee!</p>
-          </div>
+          ))}
         </div>
-      </div>
 
-      {/* Feature Teasers */}
-      <div className="mt-6 grid grid-cols-2 gap-4">
-        <div className="rounded-3xl bg-white p-5 shadow-sm border border-gray-100 flex flex-col items-center text-center">
-          <div className="h-12 w-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-3">
-            <GiftIcon className="w-6 h-6" />
-          </div>
-          <h3 className="text-sm font-bold text-gray-900">Birthday Treats</h3>
-          <p className="mt-1 text-[11px] text-gray-500 leading-tight">A special surprise on your big day.</p>
+        <div className="mt-6 rounded-2xl bg-[#3e2723] px-4 py-3 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-100/80">
+            And much more
+          </p>
         </div>
-        <div className="rounded-3xl bg-white p-5 shadow-sm border border-gray-100 flex flex-col items-center text-center">
-          <div className="h-12 w-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">
-            <StarIcon className="w-6 h-6" />
-          </div>
-          <h3 className="text-sm font-bold text-gray-900">Earn Faster</h3>
-          <p className="mt-1 text-[11px] text-gray-500 leading-tight">Double points on weekend orders.</p>
-        </div>
-      </div>
-
-      <div className="mt-6 rounded-[1.75rem] border border-amber-200/70 bg-amber-50/80 p-5 text-center shadow-sm backdrop-blur-sm">
-        <p className="text-xs font-bold uppercase tracking-[0.3em] text-amber-700">Coming Soon</p>
-        <p className="mt-2 text-sm text-amber-900/80 leading-relaxed">
-          Points, rewards, and birthday treats will land here once the loyalty program goes live.
-        </p>
       </div>
     </div>
   );
