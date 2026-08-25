@@ -218,6 +218,11 @@ export const loyaltyRedeemReward = customerRedeemRewardFn;
 export const customerUpdateUserProfile = customerUpdateUserProfileFn;
 
 // New billing functions
+import { updateDuePayment as billingUpdateDuePaymentFn } from "./billing/duePayments/updateDuePayment";
+
+export const updateDuePayment = billingUpdateDuePaymentFn;
+export const billingDuePaymentsUpdate = billingUpdateDuePaymentFn;
+
 export const billingPrinterConfigCreate = billingPrinterConfigCreateFn;
 export const billingPrinterConfigUpdate = billingPrinterConfigUpdateFn;
 export const billingPrinterConfigDelete = billingPrinterConfigDeleteFn;

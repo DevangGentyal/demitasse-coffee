@@ -28,6 +28,77 @@ const mapDoc = (docSnap: FirebaseFirestore.QueryDocumentSnapshot): Record<string
   ...docSnap.data(),
 });
 
+const readOrderAmount = (data: FirebaseFirestore.DocumentData): number => {
+  const pricing = (data.pricing || {}) as Record<string, unknown>;
+  const candidates = [data.totalAmount, pricing.total, data.discountedPrice, pricing.discountedPrice];
+  for (const value of candidates) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return 0;
+};
+
+const isDueOrderRecord = (data: FirebaseFirestore.DocumentData): boolean => {
+  const settlementStatus = readString(data.settlementStatus).toUpperCase();
+  const paymentStatus = readString(data.paymentStatus).toUpperCase();
+  return settlementStatus === "DUE" || paymentStatus === "DUE";
+};
+
+const isPaidOrderRecord = (data: FirebaseFirestore.DocumentData): boolean => {
+  const settlementStatus = readString(data.settlementStatus).toUpperCase();
+  const paymentStatus = readString(data.paymentStatus).toUpperCase();
+  return settlementStatus === "PAID" || paymentStatus === "SUCCESS";
+};
+
+const mapOrderHistoryToDuePayment = (docSnap: FirebaseFirestore.QueryDocumentSnapshot): Record<string, unknown> => {
+  const data = docSnap.data();
+  const customer = (data.customer || {}) as Record<string, unknown>;
+  const amount = readOrderAmount(data);
+  const settlementStatus = readString(data.settlementStatus).toUpperCase();
+  const isPaid = settlementStatus === "PAID" || readString(data.paymentStatus).toUpperCase() === "SUCCESS";
+
+  return {
+    id: docSnap.id,
+    duePaymentId: docSnap.id,
+    paymentId: docSnap.id,
+    orderId: docSnap.id,
+    outletId: data.outletId || null,
+    tableId: data.tableId || null,
+    tableName: data.tableName || data.tableNo || null,
+    sessionId: data.sessionId || null,
+    userId: data.customerId || data.userId || data.ownerId || customer.id || null,
+    customerName: data.customerName || customer.name || customer.customerName || "Guest Customer",
+    customerPhone: data.customerPhone || customer.phone || customer.customerPhone || "",
+    amount,
+    status: isPaid ? "COMPLETED" : "DUE",
+    settlementStatus: data.settlementStatus || (isPaid ? "PAID" : "DUE"),
+    paymentMode: data.paymentMode || null,
+    payAt: data.payAt || "COUNTER",
+    generatedAt: data.archivedAt || data.closedAt || data.createdAt || null,
+    createdAt: data.createdAt || null,
+    updatedAt: data.updatedAt || null,
+    settledAt: data.settledAt || null,
+    items: data.items || [],
+  };
+};
+
+const fetchOrdersHistoryDocs = async (outletId?: string, userId?: string): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> => {
+  if (outletId) {
+    const querySnap = await db.collection("outlets").doc(outletId).collection("ordersHistory").get();
+    return querySnap.docs;
+  }
+  if (userId) {
+    const byCustomerId = await db.collectionGroup("ordersHistory").where("customerId", "==", userId).get();
+    if (!byCustomerId.empty) return byCustomerId.docs;
+    const byUserId = await db.collectionGroup("ordersHistory").where("userId", "==", userId).get();
+    if (!byUserId.empty) return byUserId.docs;
+    const byOwnerId = await db.collectionGroup("ordersHistory").where("ownerId", "==", userId).get();
+    return byOwnerId.docs;
+  }
+  const querySnap = await db.collectionGroup("ordersHistory").get();
+  return querySnap.docs;
+};
+
 const normalizeStatus = (value: unknown): string => {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase();
@@ -225,23 +296,23 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
     const querySnap = await db.collection("ordersHistory").where("ownerId", "==", ownerId).get();
     return querySnap.docs.map(mapDoc);
   }
-  case "failedPayments": {
+  case "duePayments": {
+    const outletId = readString(params.get("outletId"));
     const userId = readString(params.get("userId"));
-    if (userId) {
-      const querySnap = await db.collectionGroup("failedPayments").where("userId", "==", userId).get();
-      return querySnap.docs.map(mapDoc);
-    }
-    const querySnap = await db.collectionGroup("failedPayments").get();
-    return querySnap.docs.map(mapDoc);
+    const historyDocs = await fetchOrdersHistoryDocs(outletId || undefined, userId || undefined);
+    return historyDocs
+      .filter((doc) => isDueOrderRecord(doc.data()))
+      .map(mapOrderHistoryToDuePayment);
+  }
+  case "failedPayments": {
+    return [];
   }
   case "successPayments": {
     const userId = readString(params.get("userId"));
-    if (userId) {
-      const querySnap = await db.collectionGroup("successPayments").where("userId", "==", userId).get();
-      return querySnap.docs.map(mapDoc);
-    }
-    const querySnap = await db.collectionGroup("successPayments").get();
-    return querySnap.docs.map(mapDoc);
+    const historyDocs = await fetchOrdersHistoryDocs(undefined, userId || undefined);
+    return historyDocs
+      .filter((doc) => isPaidOrderRecord(doc.data()))
+      .map(mapOrderHistoryToDuePayment);
   }
   case "sessionById": {
     const sessionId = readString(params.get("sessionId"));
@@ -299,11 +370,26 @@ const readResource = async (resource: string, params: URLSearchParams, uid: stri
   }
 };
 
+import { processUpdateDuePayment } from "../../billing/duePayments/updateDuePayment";
+
 export const readAppData = functions.https.onRequest(async (req: Request, res: Response): Promise<void> => {
   setCors(res);
   if (req.method === "OPTIONS") {
     res.status(204).send("");
     return;
+  }
+
+  const resource = readString(req.query.resource || req.body?.resource);
+  if (resource === "updateDuePayment" && (req.method === "POST" || req.method === "PUT")) {
+    try {
+      const result = await processUpdateDuePayment(req.body || {});
+      res.status(200).json(result);
+      return;
+    } catch (error: any) {
+      console.error("readAppData updateDuePayment error:", error);
+      res.status(500).json({ success: false, message: error.message || "Internal server error" });
+      return;
+    }
   }
 
   if (req.method !== "GET") {
@@ -312,13 +398,12 @@ export const readAppData = functions.https.onRequest(async (req: Request, res: R
   }
 
   try {
-    const resource = readString(req.query.resource);
     if (!resource) {
       res.status(400).json({success: false, message: "resource is required"});
       return;
     }
 
-    const publicResources = ["outlets", "outletById", "outletDetailsById", "tables", "tableById", "products", "productById", "offers", "offerById", "sessionOrders", "checkGoogleUser"];
+    const publicResources = ["outlets", "outletById", "outletDetailsById", "tables", "tableById", "products", "productById", "offers", "offerById", "sessionOrders", "checkGoogleUser", "duePayments", "failedPayments", "updateDuePayment"];
     const isPublic = publicResources.includes(resource);
 
     let decoded: admin.auth.DecodedIdToken | null = null;

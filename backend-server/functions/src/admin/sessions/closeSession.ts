@@ -77,18 +77,78 @@ const computePricingFromItems = (items: unknown[]): { subtotal: number; discount
   return {subtotal, discount, tax, total};
 };
 
-const resolveCustomerId = (sessionData: Record<string, unknown>, orderData: Record<string, unknown> | null): string => {
-  const sessionOpenedBy = sessionData?.openedBy as Record<string, unknown> | undefined;
-  return readString(
-    sessionOpenedBy?.uid ||
-		orderData?.userId ||
-		orderData?.customerId ||
-		orderData?.ownerId ||
-		orderData?.guestId ||
-		sessionData?.customerId ||
-		sessionData?.userId ||
-		""
+const resolveOrderTotals = (docData: Record<string, unknown>, isCancelled: boolean) => {
+  let totalAmount = readNumber(
+    docData.totalAmount ??
+    (docData.pricing as Record<string, unknown> | undefined)?.discountedPrice ??
+    docData.discountedPrice ??
+    docData.itemTotal,
+    NaN,
   );
+  if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+    const pricing = (docData.pricing || {}) as Record<string, unknown>;
+    const sub = readNumber(docData.subTotal ?? pricing.subtotal ?? pricing.subTotal, 0);
+    const disc = readNumber(docData.discount ?? pricing.discount, 0);
+    totalAmount = sub - disc;
+  }
+  if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+    const items = Array.isArray(docData.items) ? docData.items : [];
+    let sub = 0;
+    let disc = 0;
+    for (const item of items) {
+      const row = (item || {}) as Record<string, unknown>;
+      const qty = Math.max(1, Math.floor(readNumber(row.qty ?? row.quantity, 1)));
+      const unitPrice = readNumber(row.finalUnitPrice ?? row.price ?? row.unitPrice, 0);
+      const explicitTotal = readNumber(row.totalPrice, NaN);
+      sub += Number.isFinite(explicitTotal) ? explicitTotal : qty * unitPrice;
+      disc += readNumber(row.discount ?? row.discountAmount, 0);
+    }
+    totalAmount = sub - disc;
+  }
+  const finalTotalAmount = Math.max(totalAmount, 0);
+  const orderTax = isCancelled ? 0 : Math.round(finalTotalAmount * 0.05);
+  const orderTotal = isCancelled ? 0 : finalTotalAmount + orderTax;
+  return {finalTotalAmount, orderTax, orderTotal};
+};
+
+const buildArchivedOrderPayload = (
+  docData: Record<string, unknown>,
+  completedItems: unknown[],
+  isCancelled: boolean,
+  archiveTimestamp: FirebaseFirestore.FieldValue,
+  settlement: {
+    settlementStatus: string;
+    paymentStatus: string;
+    paymentMode?: string;
+    source: string;
+  },
+) => {
+  const {finalTotalAmount, orderTax, orderTotal} = resolveOrderTotals(docData, isCancelled);
+  const pricing = (docData.pricing || {}) as Record<string, unknown>;
+
+  return {
+    ...docData,
+    items: completedItems,
+    status: isCancelled ? "cancelled" : "completed",
+    orderLifecycleStatus: isCancelled ? "CANCELLED" : "COMPLETED",
+    settlementStatus: settlement.settlementStatus,
+    paymentStatus: settlement.paymentStatus,
+    paymentMode: settlement.paymentMode || docData.paymentMode || null,
+    payAt: "COUNTER",
+    totalAmount: orderTotal,
+    closedAt: archiveTimestamp,
+    archivedAt: archiveTimestamp,
+    source: settlement.source,
+    tax: orderTax,
+    pricing: {
+      ...pricing,
+      tax: orderTax,
+      total: orderTotal,
+      subtotal: pricing.subtotal ?? pricing.subTotal ?? docData.subTotal ?? 0,
+      discount: pricing.discount ?? docData.discount ?? 0,
+      discountedPrice: pricing.discountedPrice ?? docData.discountedPrice ?? finalTotalAmount,
+    },
+  };
 };
 
 export const closeSession = functions.https.onRequest(
@@ -116,9 +176,8 @@ export const closeSession = functions.https.onRequest(
       const resolvedStatus = normalizeStatus(status);
       const resolvedPaymentMode = normalizePaymentMode(paymentMode);
       const isPaymentSuccessful = resolvedStatus === "SUCCESS";
-      const isPaymentStatus = resolvedStatus === "SUCCESS" || resolvedStatus === "FAILED";
-      if (isPaymentStatus && !resolvedPaymentMode) {
-        res.status(400).json({success: false, message: "paymentMode is required when marking payment status"});
+      if (isPaymentSuccessful && !resolvedPaymentMode) {
+        res.status(400).json({success: false, message: "paymentMode is required when marking payment as settled"});
         return;
       }
 
@@ -156,17 +215,14 @@ export const closeSession = functions.https.onRequest(
 
       const candidateOrderDocs = orderSnap.docs;
       const allItems: any[] = [];
-      let primaryOrderDoc = candidateOrderDocs[0];
 
       for (const doc of candidateOrderDocs) {
         const data = doc.data();
         const docItems = Array.isArray(data.items) ? data.items : [];
         allItems.push(...docItems);
-        if (!primaryOrderDoc) primaryOrderDoc = doc;
       }
 
       const pricing = computePricingFromItems(allItems);
-      const customerId = resolveCustomerId(sessionData as Record<string, unknown>, primaryOrderDoc?.data() || null);
 
       await db.runTransaction(async (tx) => {
         const archiveTimestamp = FieldValue.serverTimestamp();
@@ -191,78 +247,24 @@ export const closeSession = functions.https.onRequest(
         }
 
         if (!isPaymentSuccessful) {
-          const failedPaymentRef = db.collection("outlets").doc(outletId).collection("failedPayments").doc();
-          tx.set(failedPaymentRef, {
-            paymentId: failedPaymentRef.id,
-            orderId: primaryOrderDoc?.id || null,
-            outletId,
-            tableId: resolvedTableId || resolvedSessionTableId || null,
-            sessionId: resolvedSessionId || null,
-            userId: customerId || null,
-            status: "FAILED",
-            settlementStatus: "FAILED",
-            paymentMode: resolvedPaymentMode,
-            payAt: "COUNTER",
-            generatedAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
+          const settlement = {
+            settlementStatus: "DUE",
+            paymentStatus: "DUE",
+            source: "admin.closeSession.due",
+          };
 
           for (const doc of candidateOrderDocs) {
             const docData = doc.data();
             const isCancelled = isOrderCancelled(docData);
             const completedItems = markItemsCompleted(Array.isArray(docData.items) ? docData.items : []);
-            
-            let totalAmount = readNumber(
-              docData.totalAmount ?? 
-              docData.pricing?.discountedPrice ?? 
-              docData.discountedPrice ?? 
-              docData.itemTotal, 
-              NaN
-            );
-            if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
-              const sub = readNumber(docData.subTotal ?? docData.pricing?.subtotal ?? docData.pricing?.subTotal, 0);
-              const disc = readNumber(docData.discount ?? docData.pricing?.discount, 0);
-              totalAmount = sub - disc;
-            }
-            if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
-              const items = Array.isArray(docData.items) ? docData.items : [];
-              let sub = 0;
-              let disc = 0;
-              for (const item of items) {
-                const qty = Math.max(1, Math.floor(readNumber(item.qty ?? item.quantity, 1)));
-                const unitPrice = readNumber(item.finalUnitPrice ?? item.price ?? item.unitPrice, 0);
-                const explicitTotal = readNumber(item.totalPrice, NaN);
-                sub += Number.isFinite(explicitTotal) ? explicitTotal : qty * unitPrice;
-                disc += readNumber(item.discount ?? item.discountAmount, 0);
-              }
-              totalAmount = sub - disc;
-            }
-            const finalTotalAmount = Math.max(totalAmount, 0);
-            const orderTax = isCancelled ? 0 : Math.round(finalTotalAmount * 0.05);
-            const orderTotal = isCancelled ? 0 : finalTotalAmount + orderTax;
-            const pricing = docData.pricing || {};
+            const orderSettlement = isCancelled ?
+              {settlementStatus: "CANCELLED", paymentStatus: "CANCELLED", source: settlement.source} :
+              settlement;
 
             tx.set(
               db.collection("outlets").doc(outletId).collection("ordersHistory").doc(doc.id),
-              {
-                ...docData,
-                items: completedItems,
-                status: isCancelled ? "cancelled" : "completed",
-                orderLifecycleStatus: isCancelled ? "CANCELLED" : "COMPLETED",
-                closedAt: archiveTimestamp,
-                archivedAt: archiveTimestamp,
-                source: "admin.closeSession.failed",
-                tax: orderTax,
-                pricing: {
-                  ...pricing,
-                  tax: orderTax,
-                  total: orderTotal,
-                  subtotal: pricing.subtotal ?? pricing.subTotal ?? docData.subTotal ?? 0,
-                  discount: pricing.discount ?? docData.discount ?? 0,
-                  discountedPrice: pricing.discountedPrice ?? docData.discountedPrice ?? finalTotalAmount,
-                }
-              },
-              {merge: true}
+              buildArchivedOrderPayload(docData, completedItems, isCancelled, archiveTimestamp, orderSettlement),
+              {merge: true},
             );
             tx.delete(doc.ref);
           }
@@ -291,78 +293,25 @@ export const closeSession = functions.https.onRequest(
           return {status: resolvedStatus, sessionStatus: "CLOSED"};
         }
 
-        const successPaymentRef = db.collection("outlets").doc(outletId).collection("successPayments").doc();
-        tx.set(successPaymentRef, {
-          paymentId: successPaymentRef.id,
-          orderId: primaryOrderDoc?.id || null,
-          outletId,
-          tableId: resolvedTableId || null,
-          sessionId: resolvedSessionId || null,
-          userId: customerId || null,
-          status: "SUCCESS",
+        const paidSettlement = {
           settlementStatus: "PAID",
+          paymentStatus: "SUCCESS",
           paymentMode: resolvedPaymentMode,
-          payAt: "COUNTER",
-          generatedAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
+          source: "admin.closeSession",
+        };
 
         for (const doc of candidateOrderDocs) {
           const docData = doc.data();
           const isCancelled = isOrderCancelled(docData);
           const completedItems = markItemsCompleted(Array.isArray(docData.items) ? docData.items : []);
-          
-          let totalAmount = readNumber(
-            docData.totalAmount ?? 
-            docData.pricing?.discountedPrice ?? 
-            docData.discountedPrice ?? 
-            docData.itemTotal, 
-            NaN
-          );
-          if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
-            const sub = readNumber(docData.subTotal ?? docData.pricing?.subtotal ?? docData.pricing?.subTotal, 0);
-            const disc = readNumber(docData.discount ?? docData.pricing?.discount, 0);
-            totalAmount = sub - disc;
-          }
-          if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
-            const items = Array.isArray(docData.items) ? docData.items : [];
-            let sub = 0;
-            let disc = 0;
-            for (const item of items) {
-              const qty = Math.max(1, Math.floor(readNumber(item.qty ?? item.quantity, 1)));
-              const unitPrice = readNumber(item.finalUnitPrice ?? item.price ?? item.unitPrice, 0);
-              const explicitTotal = readNumber(item.totalPrice, NaN);
-              sub += Number.isFinite(explicitTotal) ? explicitTotal : qty * unitPrice;
-              disc += readNumber(item.discount ?? item.discountAmount, 0);
-            }
-            totalAmount = sub - disc;
-          }
-          const finalTotalAmount = Math.max(totalAmount, 0);
-          const orderTax = isCancelled ? 0 : Math.round(finalTotalAmount * 0.05);
-          const orderTotal = isCancelled ? 0 : finalTotalAmount + orderTax;
-          const pricing = docData.pricing || {};
+          const orderSettlement = isCancelled ?
+            {settlementStatus: "CANCELLED", paymentStatus: "CANCELLED", source: paidSettlement.source} :
+            paidSettlement;
 
           tx.set(
             db.collection("outlets").doc(outletId).collection("ordersHistory").doc(doc.id),
-            {
-              ...docData,
-              items: completedItems,
-              status: isCancelled ? "cancelled" : "completed",
-              orderLifecycleStatus: isCancelled ? "CANCELLED" : "COMPLETED",
-              closedAt: archiveTimestamp,
-              archivedAt: archiveTimestamp,
-              source: "admin.closeSession",
-              tax: orderTax,
-              pricing: {
-                ...pricing,
-                tax: orderTax,
-                total: orderTotal,
-                subtotal: pricing.subtotal ?? pricing.subTotal ?? docData.subTotal ?? 0,
-                discount: pricing.discount ?? docData.discount ?? 0,
-                discountedPrice: pricing.discountedPrice ?? docData.discountedPrice ?? finalTotalAmount,
-              }
-            },
-            {merge: true}
+            buildArchivedOrderPayload(docData, completedItems, isCancelled, archiveTimestamp, orderSettlement),
+            {merge: true},
           );
           tx.delete(doc.ref);
         }
@@ -380,11 +329,11 @@ export const closeSession = functions.https.onRequest(
           updatedAt: archiveTimestamp,
         });
 
-        return {paymentId: successPaymentRef.id, status: "SUCCESS"};
+        return {status: "SUCCESS"};
       });
 
       if (!isPaymentSuccessful) {
-        res.status(200).json({success: true, message: `Session moved to BILL with status ${resolvedStatus.toLowerCase()}.`});
+        res.status(200).json({success: true, message: "Session closed. Payment marked as due."});
         return;
       }
 

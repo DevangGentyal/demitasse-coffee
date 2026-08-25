@@ -6,7 +6,7 @@ import {resolveOrderStatus} from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
-type ReportStatusFilter = "success" | "canceled" | "all";
+type ReportStatusFilter = "success" | "canceled" | "all" | "due";
 
 interface ReportFilters {
 	outletId?: string;
@@ -111,7 +111,14 @@ const parseDateInput = (value?: string, edge: "start" | "end" = "start"): Date |
   return parsed;
 };
 const resolveLifecycleStatus = (order: FirebaseFirestore.DocumentData): ReportStatusFilter => {
-  const status = resolveOrderStatus(order); if (status.includes("CANCEL")) return "canceled"; if (status.includes("SUCCESS") || status.includes("COMPLETE") || status.includes("CLOSE") || status.includes("FINAL") || status.includes("PAID")) return "success"; return "success";
+  const status = resolveOrderStatus(order);
+  if (status.includes("CANCEL")) return "canceled";
+  // Due payment orders: payment not yet collected
+  const settlementStatus = String(order.settlementStatus || "").toUpperCase();
+  const paymentStatus = String(order.paymentStatus || "").toUpperCase();
+  if (settlementStatus === "DUE" || paymentStatus === "DUE") return "due" as ReportStatusFilter;
+  if (status.includes("SUCCESS") || status.includes("COMPLETE") || status.includes("CLOSE") || status.includes("FINAL") || status.includes("PAID")) return "success";
+  return "success";
 };
 const resolveOrderTimestamp = (order: FirebaseFirestore.DocumentData): Date | null => toDateSafe(order.archivedAt) || toDateSafe(order.finalizedAt) || toDateSafe(order.closedAt) || toDateSafe(order.updatedAt) || toDateSafe(order.createdAt) || toDateSafe(order.timeOfOrder);
 const resolveOutletName = (outlet: FirebaseFirestore.DocumentData | null, outletId: string): string => readString(outlet?.name) || outletId || "All Outlets";
@@ -183,11 +190,9 @@ const safeNumber = (value: any): number => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
-const resolveItemPaymentType = (order: FirebaseFirestore.DocumentData, orderId: string, paymentsCache: Map<string, string>): string => {
+const resolveItemPaymentType = (order: FirebaseFirestore.DocumentData): string => {
   const directMode = readString(order.paymentMode || order.paymentType || order.paymentMethod || order.payAt);
   if (directMode) return directMode.toUpperCase();
-  const cachedMode = paymentsCache.get(orderId);
-  if (cachedMode) return cachedMode;
   return "UNKNOWN";
 };
 
@@ -195,20 +200,6 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
   const outletId = readString(filters.outletId);
   const startDate = parseDateInput(filters.startDate, "start");
   const endDate = parseDateInput(filters.endDate, "end");
-
-  // Fetch all successPayments for paymentMode lookup fallback
-  const paymentsSnap = await db
-    .collection("outlets")
-    .doc(outletId)
-    .collection("successPayments")
-    .get();
-  const paymentsCache = new Map<string, string>();
-  paymentsSnap.docs.forEach((doc) => {
-    const pData = doc.data();
-    if (pData && pData.orderId && pData.paymentMode) {
-      paymentsCache.set(String(pData.orderId), readString(pData.paymentMode).toUpperCase());
-    }
-  });
 
   if (!outletId) {
     throw new Error("outletId is required");
@@ -223,7 +214,8 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
   const orderDocs = ordersSnap.docs.map((doc) => ({id: doc.id, data: doc.data() || {}}));
   const filteredOrders = orderDocs.filter(({data}) => {
     const statusGroup = resolveLifecycleStatus(data);
-    if (statusGroup === "canceled") return false;
+    // Exclude canceled and due-payment orders from invoice details
+    if (statusGroup === "canceled" || statusGroup === "due") return false;
     const timestamp = resolveOrderTimestamp(data);
     if (!timestamp) return true;
     if (startDate && timestamp < startDate) return false;
@@ -270,7 +262,7 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
     const orderTax = safeNumber(data.pricing?.tax || data.tax || data.taxAmount);
     const rowInvoiceNo = resolveInvoiceNo(data, orderIndex + 1);
     const restaurant = resolveRestaurantName(currentOutlet, data);
-    const paymentType = resolveItemPaymentType(data, id, paymentsCache);
+    const paymentType = resolveItemPaymentType(data);
     const orderType = readString(data.orderType) || readString(data.deliveryType) || readString(data.placedBy) || "Dine In";
     const tableNo = resolveTableNo(data);
     const area = resolveArea(data);
@@ -282,7 +274,7 @@ const getItemInvoiceDetailsReportData = async (filters: ReportFilters): Promise<
     const gst = resolveCustomerField(data, "gst");
     const assignTo = readString(data.assignTo) || readString(data.assignedTo) || readString(data.ownerId) || "";
     const statusGroup = resolveLifecycleStatus(data);
-    const displayStatus = statusGroup === "canceled" ? "Canceled" : "Success";
+    const displayStatus = statusGroup === "canceled" ? "Canceled" : statusGroup === "due" ? "Due" : "Success";
 
     totalInvoices += 1;
 		// 1. Organize items into logical invoice lines

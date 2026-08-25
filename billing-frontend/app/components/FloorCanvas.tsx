@@ -1871,8 +1871,8 @@ export function FloorCanvas() {
 
   const handleConfirmCloseClick = () => {
     if (!closingSessionTable) return
-    if (!closePaymentMode) {
-      toast.error('Please select payment mode before marking payment status.')
+    if (closeStatus === 'SUCCESS' && !closePaymentMode) {
+      toast.error('Please select payment mode before marking payment as settled.')
       return
     }
     setShowCloseConfirmDialog(true)
@@ -1925,7 +1925,7 @@ export function FloorCanvas() {
       return
     }
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_LOCAL || 'https://us-central1-demitasse-cafe-pilot.cloudfunctions.net'
+      const API_BASE = process.env.NEXT_PUBLIC_API_LOCAL || 'https://asia-south1-demitasse-cafe-pilot.cloudfunctions.net'
       const response = await fetch(`${API_BASE}/customerBillingGenerateBill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2493,32 +2493,44 @@ export function FloorCanvas() {
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-gray-500">Close Session</p>
             <h3 className="mt-2 text-xl font-bold text-gray-900">{closingSessionTable.name}</h3>
             <p className="mt-2 text-sm text-gray-600">
-              Choose the payment result before closing this session. Successful payment will free the table and reset the customer screen.
+              Choose the payment result before closing this session.
             </p>
+            
+            {/* 1) Payment Status first */}
             <div className="mt-5 space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment mode</label>
-              <select
-                value={closePaymentMode}
-                onChange={(e) => setClosePaymentMode(e.target.value as PaymentMode)}
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
-              >
-                {PAYMENT_MODES.map((mode) => (
-                  <option key={mode} value={mode}>{mode === 'OTHERS' ? 'Others' : mode}</option>
-                ))}
-              </select>
-            </div>
-            <div className="mt-4 space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment status</label>
               <select
                 value={closeStatus}
-                onChange={(e) => setCloseStatus(e.target.value as 'SUCCESS' | 'FAILED')}
+                onChange={(e) => {
+                  const newStatus = e.target.value as 'SUCCESS' | 'FAILED'
+                  setCloseStatus(newStatus)
+                  if (newStatus === 'SUCCESS' && !closePaymentMode) {
+                    setClosePaymentMode('UPI')
+                  }
+                }}
                 className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
-                disabled={!closePaymentMode}
               >
                 <option value="SUCCESS">Payment Settled</option>
                 <option value="FAILED">Payment Due</option>
               </select>
             </div>
+
+            {/* 2) Payment Mode ONLY if status is Payment Settled (SUCCESS) */}
+            {closeStatus === 'SUCCESS' && (
+              <div className="mt-4 space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment mode</label>
+                <select
+                  value={closePaymentMode}
+                  onChange={(e) => setClosePaymentMode(e.target.value as PaymentMode)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
+                >
+                  {PAYMENT_MODES.map((mode) => (
+                    <option key={mode} value={mode}>{mode === 'OTHERS' ? 'Others' : mode}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="mt-6 flex gap-3">
               <Button
                 variant="outline"
@@ -2531,7 +2543,7 @@ export function FloorCanvas() {
               <Button
                 onClick={handleConfirmCloseClick}
                 className="flex-1 bg-gray-900 text-white hover:bg-black"
-                disabled={isClosingSession || !closePaymentMode}
+                disabled={isClosingSession || (closeStatus === 'SUCCESS' && !closePaymentMode)}
               >
                 {isClosingSession ? 'Saving...' : 'Confirm'}
               </Button>
@@ -2550,7 +2562,7 @@ export function FloorCanvas() {
               {closingSessionTable && (
                 closeStatus === 'SUCCESS'
                   ? `Mark payment as completed for ${closingSessionTable.name} via ${closePaymentMode} and close the session?`
-                  : `Mark payment as failed for ${closingSessionTable.name} via ${closePaymentMode}? The table will be freed, but the customer payment wall will stay locked until they pay.`
+                  : `Mark payment as DUE for ${closingSessionTable.name}? The table will be freed and recorded under Due Payments.`
               )}
             </div>
             <DialogFooter className="gap-2 sm:gap-0">

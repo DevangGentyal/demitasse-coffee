@@ -60,10 +60,11 @@ export const getPaymentReport = functions.https.onRequest(async (req: Request, r
     const snap = await query.get();
     const orders = snap.docs.map((doc) => doc.data() as any);
 
-    // Filter successful orders only and filter by outletId in-memory
+    // Filter successful orders only; exclude due-payment orders (payment not yet collected)
     const successOrders = orders.filter((order) => {
       if (outletId && order.outletId !== outletId) return false;
-      return resolveLifecycleStatus(order) === "success";
+      const lifecycle = resolveLifecycleStatus(order);
+      return lifecycle === "success";
     });
 
     // Grouping key: standardized payment type

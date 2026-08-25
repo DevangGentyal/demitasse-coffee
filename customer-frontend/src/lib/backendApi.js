@@ -89,6 +89,7 @@ export const getOrdersHistoryByOwnerId = async (ownerId) => readResource('orders
 
 export const getOrdersBySession = async (outletId, sessionId, tableId) => readResource('sessionOrders', { outletId, sessionId, tableId })
 
+export const getDuePaymentsByUserId = async (userId) => readResource('duePayments', { userId })
 export const getFailedPaymentsByUserId = async (userId) => readResource('failedPayments', { userId })
 
 export const getSuccessPaymentsByUserId = async (userId) => readResource('successPayments', { userId })

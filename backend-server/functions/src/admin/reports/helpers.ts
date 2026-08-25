@@ -57,13 +57,19 @@ export const verifyAdminToken = async (req: Request, res: Response): Promise<adm
   }
 };
 
-export const resolveLifecycleStatus = (order: FirebaseFirestore.DocumentData): "success" | "canceled" => {
+export const resolveLifecycleStatus = (order: FirebaseFirestore.DocumentData): "success" | "canceled" | "due" => {
   const status = resolveOrderStatus(order);
   if (status.includes("CANCEL")) return "canceled";
+
+  // Due payment orders: payment not yet collected
+  const settlementStatus = readString(order.settlementStatus).toUpperCase();
+  const paymentStatus = readString(order.paymentStatus).toUpperCase();
+  if (settlementStatus === "DUE" || paymentStatus === "DUE") return "due";
+
   if (status.includes("SUCCESS") || status.includes("COMPLETE") || status.includes("CLOSE") || status.includes("FINAL") || status.includes("PAID")) return "success";
-  const paymentStatus = readString(order.paymentStatus).toLowerCase();
-  if (paymentStatus.includes("cancel")) return "canceled";
-  if (paymentStatus.includes("success") || paymentStatus.includes("complete") || paymentStatus.includes("close") || paymentStatus.includes("final") || paymentStatus.includes("paid")) return "success";
+  const lowerPaymentStatus = paymentStatus.toLowerCase();
+  if (lowerPaymentStatus.includes("cancel")) return "canceled";
+  if (lowerPaymentStatus.includes("success") || lowerPaymentStatus.includes("complete") || lowerPaymentStatus.includes("close") || lowerPaymentStatus.includes("final") || lowerPaymentStatus.includes("paid")) return "success";
   return "success";
 };
 

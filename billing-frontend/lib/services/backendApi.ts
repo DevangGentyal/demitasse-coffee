@@ -136,6 +136,9 @@ export const getOffersByOutletId = async <T = unknown>(outletId: string): Promis
 export const getOrdersByOutletId = async <T = unknown>(outletId: string): Promise<T[]> =>
   readResource<T>('orders', { outletId })
 
+export const getDuePaymentsByOutletId = async <T = unknown>(outletId: string): Promise<T[]> =>
+  readResource<T>('duePayments', { outletId })
+
 export const getFloorMap = async <T = unknown>(outletId: string): Promise<T | null> => {
   const items = await readResource<T>('floorMap', { outletId })
   return items[0] || null

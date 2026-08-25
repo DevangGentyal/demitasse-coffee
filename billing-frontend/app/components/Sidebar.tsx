@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
-import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag, UserPlus, Settings, FileSpreadsheet } from 'lucide-react'
+import { LogOut, Home, ShoppingCart, Menu as MenuIcon, Info, Tag, UserPlus, Settings, FileSpreadsheet, Clock } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { getCurrentUserProfile, getOutletIdForCurrentUser, getOutletDetailsById } from "@/lib/services/backendApi"
 
@@ -81,7 +81,8 @@ export function Sidebar() {
     { label: 'Orders', href: '/orders', icon: ShoppingCart },
     { label: 'Menu', href: '/menu', icon: MenuIcon },
     { label: 'Offer', href: '/offer', icon: Tag },
-    { label: 'Outlet Details', href: '/details', icon: Info },
+    { label: 'Due Payments', href: '/due-payments', icon: Clock },
+    { label: 'Reports', href: '/reports', icon: FileSpreadsheet },
   ]
 
   return (
@@ -102,6 +103,7 @@ export function Sidebar() {
           { label: 'Orders', href: '/orders', icon: ShoppingCart },
           { label: 'Menu', href: '/menu', icon: MenuIcon },
           { label: 'Offer', href: '/offer', icon: Tag },
+          { label: 'Due Payments', href: '/due-payments', icon: Clock },
           { label: 'Reports', href: '/reports', icon: FileSpreadsheet },
         ].map(item => {
           const Icon = item.icon

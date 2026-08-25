@@ -133,63 +133,15 @@ const calcOrderFinalPaidAmount = (order: FirebaseFirestore.DocumentData): number
 // ─── Payment mode resolution ──────────────────────────────────────────────────
 // Priority:
 //   order.paymentMode || order.paymentType || order.paymentMethod
-//   → successPayments lookup by paymentId  (paymentMode → payAt)
-//   → successPayments lookup by orderId    (paymentMode → payAt)
 //   → order.payAt
 //   → "UNKNOWN"
 
-interface PaymentRecord {
-	paymentMode?: string;
-	paymentType?: string;
-	paymentMethod?: string;
-	payAt?: string;
-	orderId?: string;
-	sessionId?: string;
-}
-
 const resolvePaymentMode = (
   order: FirebaseFirestore.DocumentData,
-  orderId: string,
-  byPaymentId: Map<string, PaymentRecord>,
-  byOrderId: Map<string, PaymentRecord>,
-  bySessionId: Map<string, PaymentRecord>,
 ): string => {
-  // 1. Direct order fields
   const direct = readString(order.paymentMode || order.paymentType || order.paymentMethod).trim();
   if (direct) return direct.toUpperCase();
 
-  // 2. Lookup by paymentId (doc ID in successPayments)
-  if (order.paymentId) {
-    const rec = byPaymentId.get(String(order.paymentId));
-    if (rec) {
-      const mode = readString(rec.paymentMode || rec.paymentType || rec.paymentMethod).trim();
-      if (mode) return mode.toUpperCase();
-      const payAt = readString(rec.payAt).trim();
-      if (payAt) return payAt.toUpperCase();
-    }
-  }
-
-  // 3. Lookup by orderId
-  const recByOrder = byOrderId.get(orderId);
-  if (recByOrder) {
-    const mode = readString(recByOrder.paymentMode || recByOrder.paymentType || recByOrder.paymentMethod).trim();
-    if (mode) return mode.toUpperCase();
-    const payAt = readString(recByOrder.payAt).trim();
-    if (payAt) return payAt.toUpperCase();
-  }
-
-  // 4. Lookup by sessionId
-  if (order.sessionId) {
-    const recBySession = bySessionId.get(String(order.sessionId));
-    if (recBySession) {
-      const mode = readString(recBySession.paymentMode || recBySession.paymentType || recBySession.paymentMethod).trim();
-      if (mode) return mode.toUpperCase();
-      const payAt = readString(recBySession.payAt).trim();
-      if (payAt) return payAt.toUpperCase();
-    }
-  }
-
-  // 5. order.payAt
   const orderPayAt = readString(order.payAt).trim();
   if (orderPayAt) return orderPayAt.toUpperCase();
 
@@ -230,18 +182,6 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
     const outletData = outletDoc.exists ? outletDoc.data() : null;
     const currentOutletName = readString(outletData?.name) || outletId;
 
-    // ── successPayments cache (subcollection inside outlet) ───────────────
-    const paymentsSnap = await outletRef.collection("successPayments").get();
-    const byPaymentId = new Map<string, PaymentRecord>();
-    const byOrderId = new Map<string, PaymentRecord>();
-    const bySessionId = new Map<string, PaymentRecord>();
-    paymentsSnap.docs.forEach((doc) => {
-      const pData = doc.data() as PaymentRecord;
-      byPaymentId.set(doc.id, pData);
-      if (pData.orderId) byOrderId.set(String(pData.orderId), pData);
-      if (pData.sessionId) bySessionId.set(String(pData.sessionId), pData);
-    });
-
     // ── Fetch ordersHistory (subcollection inside outlet) ─────────────────
     const snap = await outletRef.collection("ordersHistory").get();
 
@@ -249,7 +189,9 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
     const filteredOrders = snap.docs
       .map((doc) => ({id: doc.id, data: doc.data() || {}}))
       .filter(({data}) => {
-        if (resolveLifecycleStatus(data) === "canceled") return false;
+        const lifecycle = resolveLifecycleStatus(data);
+        // Exclude canceled and due-payment orders — only count settled/collected transactions
+        if (lifecycle === "canceled" || lifecycle === "due") return false;
         const ts = resolveOrderTimestamp(data);
         if (!ts) return true;
         if (startDate && ts < startDate) return false;
@@ -272,7 +214,7 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
 		}[] = [];
 
     for (const {id, data: order} of filteredOrders) {
-      const paymentMode = resolvePaymentMode(order, id, byPaymentId, byOrderId, bySessionId);
+      const paymentMode = resolvePaymentMode(order);
 
       // Use IDENTICAL calculation to itemInvoiceDetails.ts so totals match exactly
       const amountPaid = calcOrderFinalPaidAmount(order);

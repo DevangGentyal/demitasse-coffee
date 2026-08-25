@@ -1,5 +1,7 @@
 const DEFAULT_PUBLIC_BASE_URL = '/api/functions'
-const DEFAULT_TARGET_BASE_URL = process.env.NEXT_PUBLIC_API_LOCAL || 'https://us-central1-demitasse-cafe-pilot.cloudfunctions.net'
+const DEFAULT_TARGET_BASE_URL =
+  process.env.NEXT_PUBLIC_API_LOCAL ||
+  'https://asia-south1-demitasse-cafe-pilot.cloudfunctions.net'
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '')
 const trimLeadingSlash = (value: string): string => value.replace(/^\/+/, '')

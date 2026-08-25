@@ -29,7 +29,7 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
     const outletId = readString(req.query.outletId);
     const startDate = readString(req.query.startDate);
     const endDate = readString(req.query.endDate);
-    const statusFilter = readString(req.query.status || "all"); // all, success, canceled
+    const statusFilter = readString(req.query.status || "all"); // all, success, canceled, due
 
     const startTimestamp = parseDateInput(startDate, "start");
     const endTimestamp = parseDateInput(endDate, "end");
@@ -56,8 +56,11 @@ export const getDailySalesReport = functions.https.onRequest(async (req: Request
     // Filter in memory for status and dates to respect fallbacks safely
     const filteredOrders = orders.filter((order) => {
       const lifecycle = resolveLifecycleStatus(order);
+      // By default ("all"), exclude due-payment orders — they have not been collected yet
+      if (statusFilter === "all" && lifecycle === "due") return false;
       if (statusFilter === "success" && lifecycle !== "success") return false;
       if (statusFilter === "canceled" && lifecycle !== "canceled") return false;
+      if (statusFilter === "due" && lifecycle !== "due") return false;
 
       let dateObj = new Date();
       if (order.archivedAt) {
