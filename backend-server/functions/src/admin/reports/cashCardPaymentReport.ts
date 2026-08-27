@@ -186,12 +186,12 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
     const snap = await outletRef.collection("ordersHistory").get();
 
     // ── Filter: exact same logic as itemInvoiceDetails.ts ─────────────────
-    const filteredOrders = snap.docs
+    const validOrders = snap.docs
       .map((doc) => ({id: doc.id, data: doc.data() || {}}))
       .filter(({data}) => {
         const lifecycle = resolveLifecycleStatus(data);
-        // Exclude canceled and due-payment orders — only count settled/collected transactions
-        if (lifecycle === "canceled" || lifecycle === "due") return false;
+        // Exclude canceled orders
+        if (lifecycle === "canceled") return false;
         const ts = resolveOrderTimestamp(data);
         if (!ts) return true;
         if (startDate && ts < startDate) return false;
@@ -203,6 +203,9 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
     const paymentMap = new Map<string, { paymentMode: string; transactionsCount: number; amountCollected: number }>();
     let totalTransactions = 0;
     let totalCollection = 0;
+    
+    let dueCount = 0;
+    let dueAmountTotal = 0;
 
     const transactions: {
 			orderId: string;
@@ -213,13 +216,36 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
 			amountPaid: number;
 		}[] = [];
 
-    for (const {id, data: order} of filteredOrders) {
+    for (const {id, data: order} of validOrders) {
+      const lifecycle = resolveLifecycleStatus(order);
+      const amountPaid = calcOrderFinalPaidAmount(order);
+      const orderTimestamp = resolveOrderTimestamp(order) || new Date();
+      
+      const outletName =
+				readString(outletData?.name) ||
+				readString(order.outletName) ||
+				"Unknown Outlet";
+
+      if (lifecycle === "due") {
+        dueCount++;
+        dueAmountTotal += amountPaid;
+        
+        transactions.push({
+          orderId: id,
+          date: orderTimestamp.toLocaleDateString("en-GB", {
+            day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata",
+          }),
+          timestamp: orderTimestamp.toISOString(),
+          outletName,
+          paymentMode: "DUE",
+          amountPaid: Math.round(amountPaid * 100) / 100,
+        });
+        continue;
+      }
+
       const paymentMode = resolvePaymentMode(order);
 
       // Use IDENTICAL calculation to itemInvoiceDetails.ts so totals match exactly
-      const amountPaid = calcOrderFinalPaidAmount(order);
-
-      const orderTimestamp = resolveOrderTimestamp(order) || new Date();
 
       // Validation log — orderId | paymentMode | amountPaid
       console.log(`[PaymentModeReport] orderId=${id} | paymentMode=${paymentMode} | amountPaid=${amountPaid}`);
@@ -233,11 +259,6 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
       const existing = paymentMap.get(paymentMode)!;
       existing.transactionsCount += 1;
       existing.amountCollected += amountPaid;
-
-      const outletName =
-				readString(outletData?.name) ||
-				readString(order.outletName) ||
-				"Unknown Outlet";
 
       transactions.push({
         orderId: id,
@@ -269,6 +290,12 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
     const summarySum = Math.round(paymentSummary.reduce((acc, row) => acc + row.amountCollected, 0) * 100) / 100;
     console.log(`[PaymentModeReport] VALIDATION — totalTransactions=${totalTransactions} | totalCollection=${roundedTotal} | summarySum=${summarySum} | match=${summarySum === roundedTotal}`);
 
+    const dueSummary = dueCount > 0 ? [{
+      paymentStatus: "Due",
+      transactionsCount: dueCount,
+      dueAmount: Math.round(dueAmountTotal * 100) / 100,
+    }] : [];
+
     res.status(200).json({
       success: true,
       filters: {outletId, startDate: startDateInput, endDate: endDateInput},
@@ -279,6 +306,7 @@ export const getCashCardPaymentReport = functions.https.onRequest(async (req: Re
         totalPaymentSources,
       },
       paymentSummary,
+      dueSummary,
       transactions,
     });
   } catch (error) {

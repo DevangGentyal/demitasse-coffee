@@ -29,7 +29,8 @@ export default function Menu() {
       setTimeout(() => {
         const el = document.getElementById(`category-${location.state.category}`);
         if (el) {
-          el.scrollIntoView({ behavior: 'smooth' });
+          const y = el.getBoundingClientRect().top + window.scrollY - 230;
+          window.scrollTo({ top: y, behavior: 'smooth' });
         }
       }, 100);
     }
@@ -70,7 +71,7 @@ export default function Menu() {
     const el = document.getElementById(`category-${cat}`);
     if (el) {
       // Calculate offset considering sticky header height
-      const y = el.getBoundingClientRect().top + window.scrollY - 180;
+      const y = el.getBoundingClientRect().top + window.scrollY - 230;
       window.scrollTo({ top: y, behavior: 'smooth' });
     }
 

@@ -3,6 +3,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Sidebar } from '@/app/components/Sidebar'
 import { BillingGuard } from '@/app/components/BillingGuard'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { duePaymentsService, DuePaymentItem } from '@/lib/services/duePaymentsService'
 import { getOutletIdForCurrentUser, getCurrentUserProfile } from '@/lib/services/backendApi'
 import {
@@ -14,6 +21,7 @@ import {
   Phone,
   Receipt,
   Calendar,
+  CheckCircle2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -26,6 +34,9 @@ export default function DuePaymentsPage() {
   const [refreshing, setRefreshing] = useState<boolean>(false)
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [sortOption, setSortOption] = useState<SortOption>('latest')
+  const [settlingId, setSettlingId] = useState<string | null>(null)
+  const [selectedDueItem, setSelectedDueItem] = useState<DuePaymentItem | null>(null)
+  const [paymentMode, setPaymentMode] = useState<string>('CASH')
 
   useEffect(() => {
     async function init() {
@@ -65,6 +76,35 @@ export default function DuePaymentsPage() {
       toast.error('Failed to refresh due payments')
     } finally {
       setRefreshing(false)
+    }
+  }
+
+  const handleSettleDue = (item: DuePaymentItem) => {
+    setSelectedDueItem(item)
+    setPaymentMode('CASH')
+  }
+
+  const confirmSettleDue = async () => {
+    if (!outletId || !selectedDueItem) return
+    const item = selectedDueItem
+    const itemId = item.id || item.orderId
+    setSettlingId(itemId)
+    setSelectedDueItem(null)
+    try {
+      await duePaymentsService.updateDuePayment({
+        outletId,
+        orderId: item.orderId || item.id,
+        duePaymentId: item.duePaymentId || item.id,
+        status: 'PAID',
+        paymentMode: paymentMode,
+      })
+      toast.success('Due settled successfully')
+      handleRefresh()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to settle due')
+    } finally {
+      setSettlingId(null)
     }
   }
 
@@ -244,6 +284,7 @@ export default function DuePaymentsPage() {
                         <th className="py-4 px-6">Order & Location</th>
                         <th className="py-4 px-6">Date & Time</th>
                         <th className="py-4 px-6">Amount</th>
+                        <th className="py-4 px-6 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 text-gray-800 font-medium">
@@ -293,6 +334,20 @@ export default function DuePaymentsPage() {
                                 ₹{(item.amount || 0).toLocaleString('en-IN')}
                               </span>
                             </td>
+                            <td className="py-4 px-6 text-center">
+                              <button
+                                onClick={() => handleSettleDue(item)}
+                                disabled={settlingId === itemId}
+                                title="Settle Due"
+                                className="inline-flex items-center justify-center p-1.5 rounded-full hover:bg-green-100 text-green-600 transition-colors disabled:opacity-50"
+                              >
+                                {settlingId === itemId ? (
+                                  <RefreshCw className="h-6 w-6 animate-spin text-green-600" />
+                                ) : (
+                                  <CheckCircle2 className="h-6 w-6" />
+                                )}
+                              </button>
+                            </td>
                           </tr>
                         )
                       })}
@@ -304,6 +359,60 @@ export default function DuePaymentsPage() {
           </main>
         </div>
       </div>
+
+      <Dialog open={!!selectedDueItem} onOpenChange={(open) => !open && setSelectedDueItem(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Settle Due Payment</DialogTitle>
+          </DialogHeader>
+          {selectedDueItem && (
+            <div className="space-y-6 py-4">
+              <div className="flex flex-col items-center justify-center p-6 bg-amber-50 rounded-xl border border-amber-100">
+                <p className="text-sm font-medium text-amber-800 mb-1">Amount to Settle</p>
+                <h2 className="text-4xl font-extrabold text-amber-600">
+                  ₹{(selectedDueItem.amount || 0).toLocaleString('en-IN')}
+                </h2>
+                <p className="text-xs text-amber-700/70 mt-2 font-medium">
+                  {selectedDueItem.customerName || 'Guest Customer'}
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-bold text-gray-700">Payment Mode</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {['CASH', 'UPI', 'CARD', 'OTHER'].map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setPaymentMode(mode)}
+                      className={`py-3 px-4 rounded-xl border font-bold text-sm transition-all ${
+                        paymentMode === mode
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-md'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-amber-300 hover:bg-amber-50'
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button
+              onClick={() => setSelectedDueItem(null)}
+              className="px-4 py-2 rounded-xl border border-gray-200 text-gray-600 font-semibold hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmSettleDue}
+              className="px-6 py-2 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors shadow-sm"
+            >
+              Confirm Settlement
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </BillingGuard>
   )
 }
