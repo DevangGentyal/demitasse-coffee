@@ -59,6 +59,7 @@ import { syncOrderCreated as billingSyncOrderCreatedFn } from "./billing/orders/
 import { addTable as billingAddTableFn } from "./billing/tables/addTable";
 import { updateTable as billingUpdateTableFn } from "./billing/tables/updateTable";
 import { deleteTable as billingDeleteTableFn } from "./billing/tables/deleteTable";
+import { shiftTable as billingShiftTableFn } from "./billing/tables/shiftTable";
 import { openSession as billingOpenSessionFn } from "./billing/sessions/openSession";
 import { closeSession as billingCloseSessionFn } from "./billing/sessions/closeSession";
 import { saveFloorMap as billingSaveFloorMapFn } from "./billing/floorMap/saveFloorMap";
@@ -202,6 +203,7 @@ export const billingOrdersDelete = billingDeleteOrderFn;
 export const billingTablesAdd = billingAddTableFn;
 export const billingTablesUpdate = billingUpdateTableFn;
 export const billingTablesDelete = billingDeleteTableFn;
+export const billingTablesShift = billingShiftTableFn;
 export const billingSessionsOpen = billingOpenSessionFn;
 export const billingSessionsClose = billingCloseSessionFn;
 export const billingFloorMapSave = billingSaveFloorMapFn;

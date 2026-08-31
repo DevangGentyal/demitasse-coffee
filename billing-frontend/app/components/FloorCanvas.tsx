@@ -3,10 +3,11 @@ import React from "react"
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useApp, type Table, type Order } from '@/app/context/AppContext'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash2, Edit2, Check, Eye, Pencil, Printer, X, Power, Square } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, Eye, Pencil, Printer, X, Power, Square, ArrowRightLeft } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { floorMapService, type Wall as IWall } from '@/lib/services/floorMapService'
 import { tableSessionService } from '@/lib/services/tableSessionService'
+import { shiftTable as shiftTableService } from '@/lib/services/tableShiftService'
 import { updateTableState } from '@/lib/services/tableStateService'
 import { db } from '@/lib/firebase/app'
 import { collection, getDocs, doc, onSnapshot, deleteField } from 'firebase/firestore'
@@ -930,9 +931,8 @@ function LabelBoxComponent({
 
 export function FloorCanvas() {
   const { outletId } = useAuth()
-  const { tables, setTables, updateTable, orders, setIsLayoutEditing, printSettings } = useApp()
+  const { tables, setTables, updateTable, updateOrder, orders, setIsLayoutEditing, printSettings } = useApp()
   const canvasRef = useRef<HTMLDivElement>(null)
-  const canvasViewportRef = useRef<HTMLDivElement>(null)
   const canvasScaleRef = useRef(1)
   const [canvasScale, setCanvasScale] = useState(1)
   const safeSetTables = typeof setTables === 'function' ? setTables : null
@@ -947,28 +947,6 @@ export function FloorCanvas() {
       y: (clientY - rect.top) / scale,
     }
   }
-
-  useEffect(() => {
-    const viewport = canvasViewportRef.current
-    if (!viewport) return
-
-    const updateScale = () => {
-      const { width, height } = viewport.getBoundingClientRect()
-      if (width <= 0 || height <= 0) return
-      const nextScale = Math.min(width / FLOOR_WIDTH, height / FLOOR_HEIGHT, 1)
-      canvasScaleRef.current = nextScale
-      setCanvasScale(nextScale)
-    }
-
-    updateScale()
-    const observer = new ResizeObserver(updateScale)
-    observer.observe(viewport)
-    window.addEventListener('resize', updateScale)
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', updateScale)
-    }
-  }, [])
 
   const [isEditMode, setIsEditMode] = useState(false)
   const [isSavingLayout, setIsSavingLayout] = useState(false)
@@ -1112,9 +1090,13 @@ export function FloorCanvas() {
   const [activeTableId, setActiveTableId] = useState<string | null>(null)
   const [printerMenuTableId, setPrinterMenuTableId] = useState<string | null>(null)
   const [closingSessionTable, setClosingSessionTable] = useState<Table | null>(null)
+  const [shiftingTable, setShiftingTable] = useState<Table | null>(null)
+  const [shiftDestinationTableId, setShiftDestinationTableId] = useState('')
+  const [showShiftConfirmDialog, setShowShiftConfirmDialog] = useState(false)
   const [closeStatus, setCloseStatus] = useState<'SUCCESS' | 'FAILED'>('SUCCESS')
   const [closePaymentMode, setClosePaymentMode] = useState<PaymentMode>('UPI')
   const [isClosingSession, setIsClosingSession] = useState(false)
+  const [isShiftingTable, setIsShiftingTable] = useState(false)
   const [billData, setBillData] = useState<{
     pricing: { subtotal: number; discount: number; discountedPrice?: number; tax: number; total: number }
     appliedOffers: Array<{ offerId: string; title: string; type: string; offerType?: string; amount: number }>
@@ -1234,6 +1216,17 @@ export function FloorCanvas() {
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const activeTable = tables.find((t: any) => t.id === activeTableId)
+
+  const availableShiftDestinations = useMemo(() => {
+    const filtered = tables.filter((table: any) => {
+      if (!shiftingTable || table.id === shiftingTable.id) return false
+      const status = String(table.status || '').toUpperCase()
+      return !table.occupied && !table.activeSessionId && status !== 'ACTIVE' && status !== 'BILL' && !table.needsPaymentCollection
+    })
+    return [...filtered].sort((a: any, b: any) =>
+      String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' })
+    )
+  }, [shiftingTable, tables])
 
   const tableSessionOrders = useMemo(() => {
     const map: Record<string, Order[]> = {}
@@ -1898,6 +1891,100 @@ export function FloorCanvas() {
     setClosePaymentMode('UPI')
   }
 
+  const openShiftTable = (table: Table) => {
+    if (!table.activeSessionId || !table.occupied) {
+      toast.error('Source table has no active session')
+      return
+    }
+    setShiftingTable(table)
+    setShiftDestinationTableId('')
+    setShowShiftConfirmDialog(false)
+  }
+
+  const handleShiftConfirmClick = () => {
+    if (!shiftingTable) return
+    if (!shiftDestinationTableId) {
+      toast.error('Please select an available destination table')
+      return
+    }
+    if (shiftingTable.id === shiftDestinationTableId) {
+      toast.error('Destination table must be different from source table')
+      return
+    }
+    const destination = tables.find((table: any) => table.id === shiftDestinationTableId)
+    if (!destination) {
+      toast.error('Destination table not found')
+      return
+    }
+    if (destination.occupied || destination.activeSessionId || String(destination.status || '').toUpperCase() === 'ACTIVE' || String(destination.status || '').toUpperCase() === 'BILL') {
+      toast.error('Destination table is already occupied')
+      return
+    }
+    setShowShiftConfirmDialog(true)
+  }
+
+  const executeShiftTable = async () => {
+    if (!shiftingTable || !shiftDestinationTableId || !outletId) return
+    const sourceTable = shiftingTable
+    const destinationTable = tables.find((table: any) => table.id === shiftDestinationTableId)
+    if (!destinationTable) {
+      toast.error('Destination table not found')
+      return
+    }
+
+    setShowShiftConfirmDialog(false)
+    setIsShiftingTable(true)
+    try {
+      await shiftTableService(outletId, sourceTable.id, destinationTable.id)
+      const movedOrders = tableSessionOrders[sourceTable.id] || []
+      movedOrders.forEach((order: any) => updateOrder(order.id, { tableId: destinationTable.id }))
+
+      setTables((prev: any[]) =>
+        prev.map((table: any) => {
+          if (table.id === sourceTable.id) {
+            return {
+              ...table,
+              occupied: false,
+              status: 'IDLE',
+              activeSessionId: null,
+              billAmount: 0,
+              owner: null,
+              participants: undefined,
+              customerName: '',
+              customerPhone: '',
+              needsPaymentCollection: false,
+            }
+          }
+          if (table.id === destinationTable.id) {
+            return {
+              ...table,
+              occupied: true,
+              status: sourceTable.status || 'ACTIVE',
+              activeSessionId: sourceTable.activeSessionId,
+              billAmount: sourceTable.billAmount || getTableBillAmount(sourceTable.id),
+              owner: (sourceTable as any).owner ?? null,
+              participants: (sourceTable as any).participants,
+              customerName: sourceTable.customerName || '',
+              customerPhone: sourceTable.customerPhone || '',
+              needsPaymentCollection: Boolean(sourceTable.needsPaymentCollection),
+            }
+          }
+          return table
+        })
+      )
+
+      setActiveTableId(destinationTable.id)
+      setShiftingTable(null)
+      setShiftDestinationTableId('')
+      toast.success(`Moved bill/order from ${sourceTable.name} to ${destinationTable.name}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to shift table'
+      toast.error(message)
+    } finally {
+      setIsShiftingTable(false)
+    }
+  }
+
   const handleConfirmCloseClick = () => {
     if (!closingSessionTable) return
     if (closeStatus === 'SUCCESS' && !closePaymentMode) {
@@ -2230,8 +2317,7 @@ export function FloorCanvas() {
 
       {/* Canvas */}
       <div
-        ref={canvasViewportRef}
-        className="flex-1 min-h-0 rounded-xl border border-gray-300 overflow-hidden bg-[#ebe7df] flex items-center justify-center"
+        className="flex-1 min-h-0 rounded-xl border border-gray-300 overflow-auto bg-[#ebe7df]"
       >
         <div
           className="relative shrink-0"
@@ -2484,6 +2570,17 @@ export function FloorCanvas() {
                       </button>
                     )}
 
+                    {/* Shift table */}
+                    {!isEditMode && (isTableActive || isBillRequested) && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openShiftTable(table) }}
+                        className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
+                        title="Shift table"
+                      >
+                        <ArrowRightLeft size={13} />
+                      </button>
+                    )}
+
                     {/* Close session */}
                     {!isEditMode && (isTableActive || isOrderingClosed) && (
                       <button
@@ -2559,6 +2656,88 @@ export function FloorCanvas() {
             setActiveTableId(null)
           }}
         />
+      )}
+
+      {/* Shift table */}
+      {shiftingTable && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-gray-500">Shift Table</p>
+            <h3 className="mt-2 text-xl font-bold text-gray-900">{shiftingTable.name}</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Move the existing bill/order session to another available table.
+            </p>
+
+            <div className="mt-5 space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Destination table</label>
+              <select
+                value={shiftDestinationTableId}
+                onChange={(e) => setShiftDestinationTableId(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400"
+                disabled={isShiftingTable || availableShiftDestinations.length === 0}
+              >
+                <option value="">
+                  {availableShiftDestinations.length === 0 ? 'No available tables' : 'Select available table'}
+                </option>
+                {availableShiftDestinations.map((table: any) => (
+                  <option key={table.id} value={table.id}>{table.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShiftingTable(null)
+                  setShiftDestinationTableId('')
+                  setShowShiftConfirmDialog(false)
+                }}
+                className="flex-1"
+                disabled={isShiftingTable}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleShiftConfirmClick}
+                className="flex-1 bg-gray-900 text-white hover:bg-black"
+                disabled={isShiftingTable || !shiftDestinationTableId || availableShiftDestinations.length === 0}
+              >
+                {isShiftingTable ? 'Moving...' : 'Move Table'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showShiftConfirmDialog && shiftingTable && (
+        <Dialog open={showShiftConfirmDialog} onOpenChange={setShowShiftConfirmDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Confirm Shift Table</DialogTitle>
+            </DialogHeader>
+            <div className="py-4 text-sm text-muted-foreground">
+              {`Move bill/order from ${shiftingTable.name} to ${tables.find((table: any) => table.id === shiftDestinationTableId)?.name || 'selected table'}?`}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                onClick={() => setShowShiftConfirmDialog(false)}
+                variant="outline"
+                className="flex-1 bg-transparent"
+                disabled={isShiftingTable}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={executeShiftTable}
+                className="flex-1 bg-gray-900 text-white hover:bg-black"
+                disabled={isShiftingTable}
+              >
+                {isShiftingTable ? 'Moving...' : 'Confirm Move'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Close session */}
