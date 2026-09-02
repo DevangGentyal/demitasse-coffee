@@ -110,10 +110,7 @@ export default function PaymentModeCollectionReportPage() {
     : []
 
   const transactionRows = report
-    ? report.transactions.map(t => {
-        if (isDueMode(t.paymentMode)) return { ...t, paymentMode: 'Due' }
-        return t
-      })
+    ? report.transactions.filter(t => !isDueMode(t.paymentMode))
     : []
 
   const handleExportExcel = () => {
