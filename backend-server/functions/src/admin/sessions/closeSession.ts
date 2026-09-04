@@ -189,10 +189,25 @@ export const closeSession = functions.https.onRequest(
       const resolvedTableId = readString(tableId);
       const resolvedStatus = normalizeStatus(status);
       const resolvedPaymentMode = normalizePaymentMode(paymentMode);
+      const resolvedCustomerName = readString(customerName);
+      const resolvedCustomerPhone = readString(customerPhone);
       const isPaymentSuccessful = resolvedStatus === "SUCCESS";
-      if (isPaymentSuccessful && !resolvedPaymentMode) {
-        res.status(400).json({ success: false, message: "paymentMode is required when marking payment as settled" });
-        return;
+      if (!isPaymentSuccessful) {
+        if (!resolvedCustomerName) {
+          res.status(400).json({
+            success: false,
+            message: "Customer name is required for due payment",
+          });
+          return;
+        }
+
+        if (!/^\d{10}$/.test(resolvedCustomerPhone)) {
+          res.status(400).json({
+            success: false,
+            message: "Valid 10-digit customer phone is required for due payment",
+          });
+          return;
+        }
       }
 
       const outletId = readString((req.body as any).outletId);
@@ -286,8 +301,8 @@ export const closeSession = functions.https.onRequest(
                   orderSettlement,
                 ),
                 ...(isCancelled ? {} : {
-                  customerName,
-                  customerPhone,
+                  customerName: resolvedCustomerName,
+                  customerPhone: resolvedCustomerPhone,
                 }),
               },
               { merge: true },
