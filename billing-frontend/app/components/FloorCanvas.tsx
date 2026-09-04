@@ -1096,6 +1096,8 @@ export function FloorCanvas() {
   const [closeStatus, setCloseStatus] = useState<'SUCCESS' | 'FAILED'>('SUCCESS')
   const [closePaymentMode, setClosePaymentMode] = useState<PaymentMode>('UPI')
   const [isClosingSession, setIsClosingSession] = useState(false)
+  const [dueCustomerName, setDueCustomerName] = useState('')
+  const [dueCustomerPhone, setDueCustomerPhone] = useState('')
   const [isShiftingTable, setIsShiftingTable] = useState(false)
   const [billData, setBillData] = useState<{
     pricing: { subtotal: number; discount: number; discountedPrice?: number; tax: number; total: number }
@@ -1889,6 +1891,8 @@ export function FloorCanvas() {
     setClosingSessionTable(table)
     setCloseStatus('SUCCESS')
     setClosePaymentMode('UPI')
+    setDueCustomerName('')
+    setDueCustomerPhone('')
   }
 
   const openShiftTable = (table: Table) => {
@@ -1991,6 +1995,16 @@ export function FloorCanvas() {
       toast.error('Please select payment mode before marking payment as settled.')
       return
     }
+    if (closeStatus === 'FAILED') {
+      if (!dueCustomerName.trim()) {
+        toast.error('Please enter customer name for due payment.')
+        return
+      }
+      if (!dueCustomerPhone.trim() || dueCustomerPhone.trim().length < 10) {
+        toast.error('Please enter a valid 10-digit mobile number for due payment.')
+        return
+      }
+    }
     setShowCloseConfirmDialog(true)
   }
 
@@ -2004,7 +2018,11 @@ export function FloorCanvas() {
         tableId: closingSessionTable.id,
         status: closeStatus,
         paymentMode: closePaymentMode,
-        outletId: outletId!
+        outletId: outletId!,
+        ...(closeStatus === 'FAILED' && {
+          customerName: dueCustomerName.trim(),
+          customerPhone: dueCustomerPhone.trim(),
+        }),
       })
       // Optimistically reset the table so the floor map reflects the change
       // immediately, without waiting for the Firestore snapshot to propagate.
@@ -2785,6 +2803,28 @@ export function FloorCanvas() {
               </div>
             )}
 
+            {/* 3) Customer Details ONLY if status is Payment Due (FAILED) */}
+            {closeStatus === 'FAILED' && (
+              <div className="mt-4 space-y-3">
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Customer Details (Required for Due)</label>
+                <input
+                  type="text"
+                  placeholder="Customer Name"
+                  value={dueCustomerName}
+                  onChange={(e) => setDueCustomerName(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400 placeholder:text-gray-400"
+                />
+                <input
+                  type="tel"
+                  placeholder="Mobile Number (10 digits)"
+                  value={dueCustomerPhone}
+                  onChange={(e) => setDueCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-400 placeholder:text-gray-400"
+                  maxLength={10}
+                />
+              </div>
+            )}
+
             <div className="mt-6 flex gap-3">
               <Button
                 variant="outline"
@@ -2797,7 +2837,7 @@ export function FloorCanvas() {
               <Button
                 onClick={handleConfirmCloseClick}
                 className="flex-1 bg-gray-900 text-white hover:bg-black"
-                disabled={isClosingSession || (closeStatus === 'SUCCESS' && !closePaymentMode)}
+                disabled={isClosingSession || (closeStatus === 'SUCCESS' && !closePaymentMode) || (closeStatus === 'FAILED' && (!dueCustomerName.trim() || !dueCustomerPhone.trim() || dueCustomerPhone.trim().length < 10))}
               >
                 {isClosingSession ? 'Saving...' : 'Confirm'}
               </Button>

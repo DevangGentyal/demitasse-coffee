@@ -1,8 +1,8 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import {Request, Response} from "express";
-import {FieldValue} from "firebase-admin/firestore";
-import {isOrderCancelled} from "../../shared/utilities/orders/orderStatus";
+import { Request, Response } from "express";
+import { FieldValue } from "firebase-admin/firestore";
+import { isOrderCancelled } from "../../shared/utilities/orders/orderStatus";
 
 const db = admin.firestore();
 
@@ -38,7 +38,7 @@ const markItemsCompleted = (items: unknown[]): unknown[] => {
     const currentStatus = String(item.status || "").trim().toLowerCase();
     // Preserve cancelled items; mark everything else as completed
     if (currentStatus === "cancelled") return item;
-    return {...item, status: "completed"};
+    return { ...item, status: "completed" };
   });
 };
 
@@ -74,7 +74,7 @@ const computePricingFromItems = (items: unknown[]): { subtotal: number; discount
   const discountedPrice = Math.max(discountedFromItems, 0);
   const tax = Math.max(taxFromItems, 0);
   const total = discountedPrice + tax;
-  return {subtotal, discount, tax, total};
+  return { subtotal, discount, tax, total };
 };
 
 const resolveOrderTotals = (docData: Record<string, unknown>, isCancelled: boolean) => {
@@ -108,7 +108,7 @@ const resolveOrderTotals = (docData: Record<string, unknown>, isCancelled: boole
   const finalTotalAmount = Math.max(totalAmount, 0);
   const orderTax = isCancelled ? 0 : Math.round(finalTotalAmount * 0.05);
   const orderTotal = isCancelled ? 0 : finalTotalAmount + orderTax;
-  return {finalTotalAmount, orderTax, orderTotal};
+  return { finalTotalAmount, orderTax, orderTotal };
 };
 
 const buildArchivedOrderPayload = (
@@ -123,7 +123,7 @@ const buildArchivedOrderPayload = (
     source: string;
   },
 ) => {
-  const {finalTotalAmount, orderTax, orderTotal} = resolveOrderTotals(docData, isCancelled);
+  const { finalTotalAmount, orderTax, orderTotal } = resolveOrderTotals(docData, isCancelled);
   const pricing = (docData.pricing || {}) as Record<string, unknown>;
 
   return {
@@ -163,12 +163,26 @@ export const closeSession = functions.https.onRequest(
 
     try {
       if (req.method !== "POST") {
-        res.status(405).json({success: false, message: "Method not allowed"}); return;
+        res.status(405).json({ success: false, message: "Method not allowed" }); return;
       }
 
-      const {sessionId, tableId, status, paymentMode} = req.body as { sessionId?: string; tableId?: string; status?: string; paymentMode?: string };
+      const {
+        sessionId,
+        tableId,
+        status,
+        paymentMode,
+        customerName,
+        customerPhone,
+      } = req.body as {
+        sessionId?: string;
+        tableId?: string;
+        status?: string;
+        paymentMode?: string;
+        customerName?: string;
+        customerPhone?: string;
+      };
       if (!sessionId && !tableId) {
-        res.status(400).json({success: false, message: "sessionId or tableId is required"}); return;
+        res.status(400).json({ success: false, message: "sessionId or tableId is required" }); return;
       }
 
       const resolvedSessionId = readString(sessionId);
@@ -177,7 +191,7 @@ export const closeSession = functions.https.onRequest(
       const resolvedPaymentMode = normalizePaymentMode(paymentMode);
       const isPaymentSuccessful = resolvedStatus === "SUCCESS";
       if (isPaymentSuccessful && !resolvedPaymentMode) {
-        res.status(400).json({success: false, message: "paymentMode is required when marking payment as settled"});
+        res.status(400).json({ success: false, message: "paymentMode is required when marking payment as settled" });
         return;
       }
 
@@ -243,7 +257,7 @@ export const closeSession = functions.https.onRequest(
             });
           }
 
-          return {status: "BILL", sessionStatus: "BILL"};
+          return { status: "BILL", sessionStatus: "BILL" };
         }
 
         if (!isPaymentSuccessful) {
@@ -258,13 +272,25 @@ export const closeSession = functions.https.onRequest(
             const isCancelled = isOrderCancelled(docData);
             const completedItems = markItemsCompleted(Array.isArray(docData.items) ? docData.items : []);
             const orderSettlement = isCancelled ?
-              {settlementStatus: "CANCELLED", paymentStatus: "CANCELLED", source: settlement.source} :
+              { settlementStatus: "CANCELLED", paymentStatus: "CANCELLED", source: settlement.source } :
               settlement;
 
             tx.set(
               db.collection("outlets").doc(outletId).collection("ordersHistory").doc(doc.id),
-              buildArchivedOrderPayload(docData, completedItems, isCancelled, archiveTimestamp, orderSettlement),
-              {merge: true},
+              {
+                ...buildArchivedOrderPayload(
+                  docData,
+                  completedItems,
+                  isCancelled,
+                  archiveTimestamp,
+                  orderSettlement,
+                ),
+                ...(isCancelled ? {} : {
+                  customerName,
+                  customerPhone,
+                }),
+              },
+              { merge: true },
             );
             tx.delete(doc.ref);
           }
@@ -290,7 +316,7 @@ export const closeSession = functions.https.onRequest(
             });
           }
 
-          return {status: resolvedStatus, sessionStatus: "CLOSED"};
+          return { status: resolvedStatus, sessionStatus: "CLOSED" };
         }
 
         const paidSettlement = {
@@ -305,19 +331,19 @@ export const closeSession = functions.https.onRequest(
           const isCancelled = isOrderCancelled(docData);
           const completedItems = markItemsCompleted(Array.isArray(docData.items) ? docData.items : []);
           const orderSettlement = isCancelled ?
-            {settlementStatus: "CANCELLED", paymentStatus: "CANCELLED", source: paidSettlement.source} :
+            { settlementStatus: "CANCELLED", paymentStatus: "CANCELLED", source: paidSettlement.source } :
             paidSettlement;
 
           tx.set(
             db.collection("outlets").doc(outletId).collection("ordersHistory").doc(doc.id),
             buildArchivedOrderPayload(docData, completedItems, isCancelled, archiveTimestamp, orderSettlement),
-            {merge: true},
+            { merge: true },
           );
           tx.delete(doc.ref);
         }
 
         if (sessionRef) {
-          tx.update(sessionRef, {status: "CLOSED", closedAt: archiveTimestamp, updatedAt: archiveTimestamp, totalAmount: pricing.total});
+          tx.update(sessionRef, { status: "CLOSED", closedAt: archiveTimestamp, updatedAt: archiveTimestamp, totalAmount: pricing.total });
         }
         tx.update(tableRef, {
           occupied: false,
@@ -329,19 +355,19 @@ export const closeSession = functions.https.onRequest(
           updatedAt: archiveTimestamp,
         });
 
-        return {status: "SUCCESS"};
+        return { status: "SUCCESS" };
       });
 
       if (!isPaymentSuccessful) {
-        res.status(200).json({success: true, message: "Session closed. Payment marked as due."});
+        res.status(200).json({ success: true, message: "Session closed. Payment marked as due." });
         return;
       }
 
-      res.status(200).json({success: true, message: "Session closed successfully"});
+      res.status(200).json({ success: true, message: "Session closed successfully" });
       return;
     } catch (error) {
       console.error("closeSession error:", error);
-      res.status(500).json({success: false, message: "Internal server error"});
+      res.status(500).json({ success: false, message: "Internal server error" });
       return;
     }
   }
